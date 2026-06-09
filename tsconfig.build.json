@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": false,
+    "incremental": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "preserveWatchOutput": true
+  },
+  "watchOptions": {
+    "watchDirectory": "useFsEvents",
+    "excludeDirectories": ["node_modules", "dist"]
+  },
+  "include": ["src"],
+  "exclude": [
+    "dist",
+    "**/__tests__/**",
+    "**/__mocks__/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "coverage"
+  ]
+}

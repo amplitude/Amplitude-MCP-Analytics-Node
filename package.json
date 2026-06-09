@@ -1,0 +1,72 @@
+{
+  "name": "@amplitude/mcp-analytics",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Amplitude MCP Analytics SDK - MCP server usage tracking for Amplitude Analytics",
+  "keywords": [
+    "amplitude",
+    "mcp",
+    "model-context-protocol",
+    "analytics",
+    "tracking"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amplitude/Amplitude-MCP-Analytics-Node.git"
+  },
+  "homepage": "https://github.com/amplitude/Amplitude-MCP-Analytics-Node#readme",
+  "bugs": {
+    "url": "https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./config": "./dist/config.js",
+    "./testing": "./dist/testing.js",
+    "./types": "./dist/types.js",
+    "./utils/resolve-module": "./dist/utils/resolve-module.js",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rimraf dist",
+    "lint": "biome lint ./src --log-level=error --diagnostic-level=error --no-errors-on-unmatched",
+    "lint:fix": "biome lint ./src --log-level=error --diagnostic-level=error --no-errors-on-unmatched --write",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:typescript": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@amplitude/analytics-node": "1.3.5",
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "^25.9.2",
+    "@vitest/coverage-v8": "4.0.14",
+    "rimraf": "5.0.5",
+    "tsdown": "0.18.4",
+    "typescript": "5.9.3",
+    "vitest": "4.0.14"
+  },
+  "peerDependencies": {
+    "@amplitude/analytics-node": ">=1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@amplitude/analytics-node": {
+      "optional": false
+    }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017"
+}
