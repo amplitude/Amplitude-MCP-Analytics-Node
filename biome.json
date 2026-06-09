@@ -1,0 +1,77 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "files": {
+    "maxSize": 2000000,
+    "include": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.mts",
+      "**/*.mjs"
+    ],
+    "ignore": [
+      "dist/**",
+      "coverage/**",
+      "node_modules/**"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "organizeImports": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "noForEach": "off",
+        "noThisInStatic": "off",
+        "useOptionalChain": "warn"
+      },
+      "correctness": {
+        "noInvalidUseBeforeDeclaration": "error",
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "performance": {
+        "noAccumulatingSpread": "warn",
+        "noDelete": "warn"
+      },
+      "style": {
+        "useTemplate": {
+          "level": "error",
+          "fix": "safe"
+        },
+        "useSingleVarDeclarator": {
+          "level": "error",
+          "fix": "safe"
+        },
+        "noUselessElse": "warn",
+        "useImportType": "error",
+        "useNodejsImportProtocol": "off",
+        "useNumberNamespace": "off",
+        "useDefaultParameterLast": "off"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "warn",
+        "noAssignInExpressions": "warn",
+        "noConsoleLog": {
+          "level": "warn",
+          "fix": "none"
+        },
+        "noImplicitAnyLet": "warn"
+      }
+    },
+    "ignore": [
+      "src/**/*.test.ts"
+    ]
+  },
+  "json": {
+    "parser": {
+      "allowComments": true
+    }
+  }
+}
