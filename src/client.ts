@@ -1,4 +1,5 @@
 import { MCPAnalyticsConfig } from './config.js';
+import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
 
@@ -56,10 +57,15 @@ export class AmplitudeMCPAnalytics {
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
-      throw new Error('AmplitudeMCPAnalytics: serverName is required');
+      throw new ConfigurationError('AmplitudeMCPAnalytics: serverName is required');
     }
     if (!options.serverVersion) {
-      throw new Error('AmplitudeMCPAnalytics: serverVersion is required');
+      throw new ConfigurationError('AmplitudeMCPAnalytics: serverVersion is required');
+    }
+    if (options.amplitude != null && options.apiKey != null) {
+      throw new ConfigurationError(
+        "Provide either 'amplitude' or 'apiKey'. If you are already using an Amplitude client, pass the it via the 'amplitude' option. Only pass the api key if you want to initialize a new Amplitude client with different api key.",
+      );
     }
 
     let rawAmplitude: AmplitudeClientLike;
@@ -71,19 +77,19 @@ export class AmplitudeMCPAnalytics {
         | null;
       if (amplitudeNode == null || typeof amplitudeNode.init !== 'function') {
         if (isBundlerEnvironment) {
-          throw new Error(
+          throw new ConfigurationError(
             'Could not resolve @amplitude/analytics-node (likely a bundler environment such as Turbopack or Webpack). ' +
             "Pass a pre-initialized Amplitude client via the 'amplitude' option instead.",
           );
         }
-        throw new Error(
+        throw new ConfigurationError(
           '@amplitude/analytics-node is required. Install it as a dependency: npm install @amplitude/analytics-node',
         );
       }
       amplitudeNode.init(options.apiKey);
       rawAmplitude = amplitudeNode;
     } else {
-      throw new Error(
+      throw new ConfigurationError(
         "AmplitudeMCPAnalytics: provide either an existing Amplitude instance via 'amplitude' or an API key via 'apiKey'.",
       );
     }

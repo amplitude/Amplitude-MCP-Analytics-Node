@@ -8,13 +8,18 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
-    "forceConsistentCasingInFileNames": false,
     "incremental": true,
     "noEmit": true,
     "tsBuildInfoFile": ".typecheck.tsbuildinfo",
     "paths": {
-      "@amplitude/mcp-analytics/src/*": ["./src/*"]
+      "@amplitude/mcp-analytics/src/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["src", "test", "vitest.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "vitest.config.ts"
+  ]
 }

@@ -24,6 +24,7 @@
     ".": "./dist/index.js",
     "./client": "./dist/client.js",
     "./config": "./dist/config.js",
+    "./exceptions": "./dist/exceptions.js",
     "./testing": "./dist/testing.js",
     "./types": "./dist/types.js",
     "./utils/resolve-module": "./dist/utils/resolve-module.js",
