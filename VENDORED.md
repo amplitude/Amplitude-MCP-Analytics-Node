@@ -37,3 +37,6 @@ amplitude-ai @ <sha>`. There is no scheduled re-sync.
 | File | Source | Vendored at | Notes |
 | --- | --- | --- | --- |
 | `src/utils/resolve-module.ts` | `src/utils/resolve-module.ts` | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | Verbatim. |
+| `src/core/delivery/serverless.ts` | `src/serverless.ts` + `src/client.ts` | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | `isServerless`/`_resetServerlessCache` verbatim; `_globalUnflushedCount`/`_registerExitHook` lifted out of the `AmplitudeAI` class into free functions. Warning text re-prefixed and de-LLM-ified. |
+| `src/core/delivery/proxy.ts` | `src/client.ts` (`TrackingProxy`) | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | Added `trackCountSinceFlush`; flush/shutdown settle it against the module-level counter (bookkeeping lived on `AmplitudeAI` upstream). |
+| `src/core/delivery/hooks.ts` | `src/client.ts` (`_installTrackHook`, `_installTrackCounter`, `_warnShortId`) + `src/utils/logger.ts` + `src/utils/debug.ts` | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | Methods extracted to free functions taking `(client, config)`. Dropped `onEventCallback` path. Debug line reimplemented taxonomy-free. Logger inlined. Prefixes re-labelled. |

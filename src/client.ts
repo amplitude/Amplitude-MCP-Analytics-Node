@@ -1,4 +1,10 @@
 import { MCPAnalyticsConfig } from './config.js';
+import {
+  TrackingProxy,
+  installTrackCounter,
+  installTrackHook,
+  registerExitHook,
+} from './core/delivery/index.js';
 import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
@@ -97,7 +103,16 @@ export class AmplitudeMCPAnalytics {
     this.serverName = options.serverName;
     this.serverVersion = options.serverVersion;
     this.config = options.config ?? new MCPAnalyticsConfig();
-    this._amplitude = rawAmplitude;
+
+    // Wrap the raw client in a mutable proxy (it may be a frozen ES module
+    // namespace) and install the delivery hooks. Order matters: the counter
+    // goes on first so the track hook — which decides dry-run skips — sits
+    // outermost and dry-run events are never counted as unflushed.
+    const proxy = new TrackingProxy(rawAmplitude);
+    installTrackCounter(proxy);
+    installTrackHook(proxy, this.config);
+    registerExitHook();
+    this._amplitude = proxy;
   }
 
   /** @internal Low-level passthrough to the underlying Amplitude client. */
