@@ -1,80 +1,23 @@
 // Vendored from amplitude/Amplitude-AI-Node @ 97ea346abd0caf333a3bafbd26b74de1d545f3e7
-// Source: src/client.ts (_installTrackCounter, _installTrackHook, _warnShortId),
-//         src/utils/logger.ts (getLogger / Logger), and
-//         src/utils/debug.ts (formatDryRunLine; the debug line is reimplemented
-//         taxonomy-agnostically — see below).
+// Source: src/client.ts (_installTrackCounter, _installTrackHook, _warnShortId).
 // Adaptations:
 //   - _installTrackCounter / _installTrackHook were private methods on the
 //     AmplitudeAI class; here they are free functions taking (client, config)
 //     so they are callable and unit-testable without instantiating the SDK.
 //   - Dropped the onEventCallback path: MCPAnalyticsConfig is intentionally
 //     {debug, dryRun} only, so there is no user delivery callback to compose.
-//   - The debug line does NOT decode event properties by name (AI-Node's
-//     formatDebugLine keys off the AI event taxonomy, which lives in a later
-//     ticket here). It prints a generic, taxonomy-free summary instead.
 //   - Log/warning prefixes re-labelled AmplitudeAI: -> AmplitudeMCPAnalytics:.
-//   - getLogger / Logger inlined from utils/logger.ts (the only consumer).
+// The logger and debug-line formatting are cross-cutting utilities (delivery is
+// just their first caller), so they live in src/utils/ alongside resolve-module.
 
 import type { MCPAnalyticsConfig } from '../../config.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from '../../types.js';
+import { formatDebugLine, formatDryRunLine } from '../../utils/debug.js';
+import { type Logger, getLogger } from '../../utils/logger.js';
 import type { TrackingProxy } from './proxy.js';
 import { incrementUnflushedCount } from './serverless.js';
 
 const _MIN_ID_LENGTH = 5;
-
-export interface Logger {
-  debug(message: string): void;
-  error(message: string): void;
-  warn(message: string): void;
-  info(message: string): void;
-}
-
-const defaultLogger: Logger = {
-  debug: () => {},
-  error: (msg) => console.error(`[amplitude-mcp-analytics] ${msg}`),
-  warn: (msg) => console.warn(`[amplitude-mcp-analytics] ${msg}`),
-  info: () => {},
-};
-
-/**
- * Resolve a logger: prefer a `loggerProvider` exposed on the underlying
- * Amplitude client's configuration, otherwise fall back to console.
- */
-export function getLogger(amplitude?: unknown): Logger {
-  if (amplitude && typeof amplitude === 'object') {
-    const config = (amplitude as Record<string, unknown>).configuration as
-      | Record<string, unknown>
-      | undefined;
-    if (config?.loggerProvider && typeof config.loggerProvider === 'object') {
-      return config.loggerProvider as Logger;
-    }
-  }
-  return defaultLogger;
-}
-
-const CYAN = '\x1b[36m';
-const DIM = '\x1b[2m';
-const RESET = '\x1b[0m';
-
-/** Compact, taxonomy-agnostic one-liner for the `debug` setting. */
-function formatDebugLine(event: AmplitudeEvent): string {
-  const eventType = event.event_type ?? 'unknown';
-  const userId = event.user_id ?? '?';
-  let line = `${CYAN}[amplitude-mcp-analytics]${RESET} ${eventType} ${DIM}|${RESET} user=${userId}`;
-  if (event.device_id) line += ` device=${event.device_id}`;
-  const propCount = Object.keys(event.event_properties ?? {}).length;
-  if (propCount > 0) line += ` ${DIM}props=${propCount}${RESET}`;
-  return line;
-}
-
-/** Full JSON dump for the `dryRun` setting, so nothing is hidden. */
-function formatDryRunLine(event: unknown): string {
-  try {
-    return JSON.stringify(event);
-  } catch {
-    return String(event);
-  }
-}
 
 const _shortIdWarned = new Set<string>();
 
@@ -104,16 +47,24 @@ export function _resetShortIdWarned(): void {
 }
 
 /**
- * Wrap `client.track` so every tracked event bumps the per-proxy and global
- * unflushed counters. Install this BEFORE {@link installTrackHook} so the hook
- * (which decides dry-run skips) sits outermost and dry-run events are never
- * counted.
+ * Wrap `client.track` so every tracked event bumps the global unflushed
+ * counter (and, via `onTracked`, the host client's own count-since-flush).
+ * Install this BEFORE {@link installTrackHook} so the hook (which decides
+ * dry-run skips) sits outermost and dry-run events are never counted.
+ *
+ * @param onTracked optional per-event callback — the host client uses it to
+ *   maintain its own count-since-flush, which it settles in flush()/shutdown().
+ *   Kept as a callback so this stays a free function and the proxy carries no
+ *   lifecycle bookkeeping of its own.
  */
-export function installTrackCounter(client: TrackingProxy): void {
+export function installTrackCounter(
+  client: TrackingProxy,
+  onTracked?: () => void,
+): void {
   const originalTrack = client.track.bind(client);
   client.track = (event: AmplitudeEvent) => {
-    client.trackCountSinceFlush++;
     incrementUnflushedCount();
+    onTracked?.();
     return originalTrack(event);
   };
 }

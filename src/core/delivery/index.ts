@@ -9,9 +9,7 @@ export { TrackingProxy } from './proxy.js';
 export {
   installTrackCounter,
   installTrackHook,
-  getLogger,
   _resetShortIdWarned,
-  type Logger,
 } from './hooks.js';
 export {
   isServerless,

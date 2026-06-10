@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AmplitudeMCPAnalytics } from '../src/client.js';
 import { MCPAnalyticsConfig } from '../src/config.js';
 import {
   TrackingProxy,
@@ -69,7 +70,6 @@ describe('delivery layer', () => {
 
       // The hook sits outermost, so it short-circuits before the counter runs.
       expect(getGlobalUnflushedCount()).toBe(0);
-      expect(proxy.trackCountSinceFlush).toBe(0);
     });
   });
 
@@ -82,8 +82,10 @@ describe('delivery layer', () => {
 
       expect(raw.track).toHaveBeenCalledTimes(1);
       const logged = warnSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      // Placeholder debug line emits only the event type for now (pending the
+      // MCP event taxonomy — see formatDebugLine).
+      expect(logged).toContain('[amplitude-mcp-analytics]');
       expect(logged).toContain('[MCP] Test');
-      expect(logged).toContain('user=user-123');
     });
   });
 
@@ -142,7 +144,7 @@ describe('delivery layer', () => {
   });
 
   describe('unflushed counter', () => {
-    it('increments per track and resets after flush', () => {
+    it('increments per track at the proxy level', () => {
       const raw = makeRawClient();
       const proxy = buildProxy(raw, new MCPAnalyticsConfig());
 
@@ -151,25 +153,69 @@ describe('delivery layer', () => {
       proxy.track(EVENT);
 
       expect(getGlobalUnflushedCount()).toBe(3);
-      expect(proxy.trackCountSinceFlush).toBe(3);
       expect(raw.track).toHaveBeenCalledTimes(3);
-
-      proxy.flush();
-
-      expect(getGlobalUnflushedCount()).toBe(0);
-      expect(proxy.trackCountSinceFlush).toBe(0);
-      expect(raw.flush).toHaveBeenCalledTimes(1);
     });
 
-    it('settles the global counter on shutdown', () => {
-      const raw = makeRawClient();
-      const proxy = buildProxy(raw, new MCPAnalyticsConfig());
+    // Settling lives on the client (not the proxy) because it must run whether
+    // or not we own the underlying client — mirroring AI-Node.
+    function makeClient(raw: RawClient): AmplitudeMCPAnalytics {
+      return new AmplitudeMCPAnalytics({
+        amplitude: raw,
+        serverName: 'test-server',
+        serverVersion: '0.0.0',
+      });
+    }
 
-      proxy.track(EVENT);
-      proxy.track(EVENT);
+    it('client.flush() settles the global counter and resets the proxy', () => {
+      const raw = makeRawClient();
+      const analytics = makeClient(raw);
+
+      analytics.track(EVENT);
+      analytics.track(EVENT);
+      analytics.track(EVENT);
+      expect(getGlobalUnflushedCount()).toBe(3);
+
+      analytics.flush();
+
+      expect(getGlobalUnflushedCount()).toBe(0);
+      expect(raw.flush).toHaveBeenCalledTimes(1);
+      // A second flush stays at zero (clamped — never goes negative).
+      analytics.flush();
+      expect(getGlobalUnflushedCount()).toBe(0);
+    });
+
+    it('client.shutdown() settles the count but does NOT tear down a borrowed client', () => {
+      const raw = makeRawClient();
+      const analytics = makeClient(raw);
+
+      analytics.track(EVENT);
+      analytics.track(EVENT);
       expect(getGlobalUnflushedCount()).toBe(2);
 
-      proxy.shutdown();
+      analytics.shutdown();
+
+      expect(getGlobalUnflushedCount()).toBe(0);
+      // _ownsClient is false for a caller-supplied client.
+      expect(raw.shutdown).not.toHaveBeenCalled();
+    });
+
+    it('client.shutdown() tears down a client it owns', () => {
+      const raw = makeRawClient();
+      // Simulate the apiKey path, which sets _ownsClient = true.
+      class OwnedAnalytics extends AmplitudeMCPAnalytics {
+        constructor() {
+          super({
+            amplitude: raw,
+            serverName: 'test-server',
+            serverVersion: '0.0.0',
+          });
+          this._ownsClient = true;
+        }
+      }
+      const analytics = new OwnedAnalytics();
+
+      analytics.track(EVENT);
+      analytics.shutdown();
 
       expect(getGlobalUnflushedCount()).toBe(0);
       expect(raw.shutdown).toHaveBeenCalledTimes(1);

@@ -72,10 +72,13 @@ export function getGlobalUnflushedCount(): number {
   return _globalUnflushedCount;
 }
 
-/** @internal Reset the global counter and exit-hook guard (for testing). */
+/**
+ * @internal Reset the global unflushed counter (for testing). Deliberately
+ * leaves the exit-hook registration guard alone so repeated construction in a
+ * test suite doesn't accumulate `beforeExit` listeners.
+ */
 export function _resetUnflushedState(): void {
   _globalUnflushedCount = 0;
-  _exitHookRegistered = false;
 }
 
 /**

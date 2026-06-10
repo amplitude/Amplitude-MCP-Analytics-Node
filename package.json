@@ -31,6 +31,8 @@
     "./exceptions": "./dist/exceptions.js",
     "./testing": "./dist/testing.js",
     "./types": "./dist/types.js",
+    "./utils/debug": "./dist/utils/debug.js",
+    "./utils/logger": "./dist/utils/logger.js",
     "./utils/resolve-module": "./dist/utils/resolve-module.js",
     "./package.json": "./package.json"
   },
