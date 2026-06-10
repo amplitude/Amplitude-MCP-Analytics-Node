@@ -1,20 +1,17 @@
-export {
-  createServerContext,
-  createToolContext,
-} from './ctx.js';
+export { createServerContext, createToolContext } from './factory.js';
+export type { CreateServerContextInput } from './factory.js';
 export type {
   AnchorType,
-  CreateServerContextInput,
   IdentityResolvedFrom,
   McpAnchor,
   McpClientInfo,
   McpIdentity,
   McpRequestInfo,
+  McpRequestMethod,
   McpServerContext,
   McpServerInfo,
   McpTenant,
   McpToolContext,
   McpToolMeta,
   McpTransport,
-  StructuredMcpError,
-} from './ctx.js';
+} from './types.js';

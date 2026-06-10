@@ -14,13 +14,13 @@ export type {
   McpClientInfo,
   McpIdentity,
   McpRequestInfo,
+  McpRequestMethod,
   McpServerContext,
   McpServerInfo,
   McpTenant,
   McpToolContext,
   McpToolMeta,
   McpTransport,
-  StructuredMcpError,
 } from './context/index.js';
 export { MockAmplitudeMCPAnalytics } from './testing.js';
 export type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
