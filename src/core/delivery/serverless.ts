@@ -67,20 +67,6 @@ export function settleUnflushedCount(count: number): void {
   _globalUnflushedCount = Math.max(0, _globalUnflushedCount - count);
 }
 
-/** @internal Exposed for testing only. */
-export function getGlobalUnflushedCount(): number {
-  return _globalUnflushedCount;
-}
-
-/**
- * @internal Reset the global unflushed counter (for testing). Deliberately
- * leaves the exit-hook registration guard alone so repeated construction in a
- * test suite doesn't accumulate `beforeExit` listeners.
- */
-export function _resetUnflushedState(): void {
-  _globalUnflushedCount = 0;
-}
-
 /**
  * Register a one-time `beforeExit` handler that warns when events were tracked
  * but never flushed in a serverless environment, where the runtime may freeze
@@ -99,3 +85,16 @@ export function registerExitHook(): void {
     }
   });
 }
+
+/** @internal Exposed for testing only. */
+export function getGlobalUnflushedCount(): number {
+  return _globalUnflushedCount;
+}
+
+/**
+ * @internal Reset the global unflushed counter (for testing). 
+ */
+export function _resetUnflushedState(): void {
+  _globalUnflushedCount = 0;
+}
+

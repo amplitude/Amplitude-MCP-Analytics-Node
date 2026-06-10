@@ -1,10 +1,3 @@
-// Public re-exports for the delivery layer.
-//
-// This layer is the seam between the SDK and the underlying Amplitude client:
-// a mutable proxy ({@link TrackingProxy}), the track-time hooks that decorate
-// it ({@link installTrackCounter}, {@link installTrackHook}), and the
-// serverless flush-accounting machinery ({@link registerExitHook}).
-
 export { TrackingProxy } from './proxy.js';
 export {
   installTrackCounter,
