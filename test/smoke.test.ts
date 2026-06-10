@@ -12,6 +12,10 @@ describe('smoke test: all public exports are defined', () => {
 
     // Testing
     expect(mod.MockAmplitudeMCPAnalytics).toBeDefined();
+
+    // Context
+    expect(mod.createServerContext).toBeDefined();
+    expect(mod.createToolContext).toBeDefined();
   });
 
   it('key classes can be instantiated', async (): Promise<void> => {

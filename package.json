@@ -24,6 +24,8 @@
     ".": "./dist/index.js",
     "./client": "./dist/client.js",
     "./config": "./dist/config.js",
+    "./context": "./dist/context/index.js",
+    "./context/ctx": "./dist/context/ctx.js",
     "./exceptions": "./dist/exceptions.js",
     "./testing": "./dist/testing.js",
     "./types": "./dist/types.js",
