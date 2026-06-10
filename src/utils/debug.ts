@@ -5,11 +5,13 @@ import type { AmplitudeEvent } from '../types.js';
 
 /**
  * Placeholder one-liner for the `debug` setting.
+ * @internal Not part of the public package surface.
  */
 export function formatDebugLine(event: AmplitudeEvent): string {
   return `[amplitude-mcp-analytics] ${event.event_type ?? 'unknown'}`;
 }
 
+/** @internal Not part of the public package surface. */
 export function formatDryRunLine(event: unknown): string {
   try {
     return JSON.stringify(event);

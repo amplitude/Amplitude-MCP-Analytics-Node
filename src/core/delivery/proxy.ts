@@ -14,6 +14,8 @@ import type { AmplitudeClientLike, AmplitudeEvent } from '../../types.js';
  * real client we keep the replacement on this proxy, which is always a plain
  * mutable object. {@link installTrackCounter} and {@link installTrackHook}
  * reassign `track` here, never on the caller's object.
+ *
+ * @internal Implementation detail — not part of the public package surface.
  */
 export class TrackingProxy implements AmplitudeClientLike {
   private readonly _original: AmplitudeClientLike;

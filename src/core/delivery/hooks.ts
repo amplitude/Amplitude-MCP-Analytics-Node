@@ -56,6 +56,8 @@ export function _resetShortIdWarned(): void {
  *   maintain its own count-since-flush, which it settles in flush()/shutdown().
  *   Kept as a callback so this stays a free function and the proxy carries no
  *   lifecycle bookkeeping of its own.
+ *
+ * @internal Implementation detail — not part of the public package surface.
  */
 export function installTrackCounter(
   client: TrackingProxy,
@@ -73,6 +75,8 @@ export function installTrackCounter(
  * Wrap `client.track` with the delivery hook: short-id warning, debug/dry-run
  * output, dry-run delivery skip, and a transport-level callback that surfaces
  * 4xx/5xx delivery failures (which the base SDK only logs at INFO).
+ *
+ * @internal Implementation detail — not part of the public package surface.
  */
 export function installTrackHook(
   client: TrackingProxy,

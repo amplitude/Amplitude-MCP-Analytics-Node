@@ -2,6 +2,7 @@
 // Source: src/utils/logger.ts
 // Adaptations: default console prefix re-labelled [amplitude-ai] -> [amplitude-mcp-analytics].
 
+/** @internal Not part of the public package surface. */
 export interface Logger {
   debug(message: string): void;
   error(message: string): void;
@@ -19,6 +20,8 @@ const defaultLogger: Logger = {
 /**
  * Resolve a logger: prefer a `loggerProvider` exposed on the underlying
  * Amplitude client's configuration, otherwise fall back to console.
+ *
+ * @internal Not part of the public package surface.
  */
 export function getLogger(amplitude?: unknown): Logger {
   if (amplitude && typeof amplitude === 'object') {

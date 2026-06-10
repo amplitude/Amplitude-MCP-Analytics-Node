@@ -33,6 +33,8 @@ let _cached: boolean | null = null;
  *
  * Checks well-known environment variables set by major serverless platforms.
  * Result is cached after the first call.
+ *
+ * @internal Not part of the public package surface.
  */
 export function isServerless(): boolean {
   if (_cached != null) return _cached;
@@ -53,7 +55,10 @@ export function _resetServerlessCache(): void {
 let _globalUnflushedCount = 0;
 let _exitHookRegistered = false;
 
-/** Record that one more event has been handed to the underlying transport. */
+/**
+ * Record that one more event has been handed to the underlying transport.
+ * @internal Not part of the public package surface.
+ */
 export function incrementUnflushedCount(): void {
   _globalUnflushedCount++;
 }
@@ -62,6 +67,8 @@ export function incrementUnflushedCount(): void {
  * Settle `count` previously-tracked events against the global counter — called
  * on flush()/shutdown() once the underlying client has taken ownership of them.
  * Clamped at zero so double-settling can never push the counter negative.
+ *
+ * @internal Not part of the public package surface.
  */
 export function settleUnflushedCount(count: number): void {
   _globalUnflushedCount = Math.max(0, _globalUnflushedCount - count);
@@ -71,6 +78,8 @@ export function settleUnflushedCount(count: number): void {
  * Register a one-time `beforeExit` handler that warns when events were tracked
  * but never flushed in a serverless environment, where the runtime may freeze
  * before the periodic flush interval fires. Idempotent across calls.
+ *
+ * @internal Not part of the public package surface.
  */
 export function registerExitHook(): void {
   if (_exitHookRegistered) return;
