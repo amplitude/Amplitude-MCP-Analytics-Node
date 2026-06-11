@@ -3,9 +3,9 @@
 Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking
 for Amplitude Analytics.
 
-> **Status:** Early preview. The event taxonomy, identity model, transport
-> layer, and `ctx` object are still in active development and not yet
-> available in this package.
+> **Status:** Early preview. The MCP context object (`ctx`), its types, and
+> factory helpers are available now. Event tracking, identity resolution, and
+> transport integration are still in active development.
 
 ## Install
 
@@ -26,6 +26,34 @@ const analytics = new AmplitudeMCPAnalytics({
 
 // Higher-level event tracking methods are coming soon.
 ```
+
+## Context (`ctx`)
+
+Every tracked event will share a per-invocation context object. You can build
+one today and pass it explicitly through your server, or optionally expose it
+via `runWithContext` for deep call stacks.
+
+```ts
+import {
+  createServerContext,
+  createToolContext,
+  runWithContext,
+} from '@amplitude/mcp-analytics/context';
+
+const serverCtx = createServerContext({
+  server: { name: 'my-mcp-server', version: '1.0.0' },
+  transport: 'stdio',
+});
+
+const toolCtx = createToolContext(serverCtx, { name: 'search_docs' });
+
+runWithContext(toolCtx, () => {
+  // getCurrentContext() is available here if needed
+});
+```
+
+Types and helpers are also re-exported from the main entry
+(`@amplitude/mcp-analytics`).
 
 ## Architecture decisions
 

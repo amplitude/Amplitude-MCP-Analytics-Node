@@ -9,6 +9,7 @@ export default defineConfig((opts) => {
     // Every entry below is part of the supported, semver-governed public API.
     // Please add a file here only when you intend to support importing it.
     entry: [
+      'src/context/',
       'src/index.ts',
       'src/client.ts',
       'src/config.ts',
