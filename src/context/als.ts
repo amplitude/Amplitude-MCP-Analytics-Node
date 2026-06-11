@@ -4,9 +4,9 @@
  * Threading model: explicit `ctx` is the public contract — the SDK's
  * tool-instrumentation API injects it and the custom-event / error APIs take
  * it as an argument. This ambient accessor is an optional *convenience* for
- * emit sites deep in a call stack that can't easily thread `ctx`, and the seam
- * our own server maps its existing ALS context onto during migration. It is
- * NOT the contract — prefer explicit `ctx`.
+ * emit sites deep in a call stack that can't easily thread `ctx`, or for hosts
+ * that already use AsyncLocalStorage. It is NOT the contract — prefer explicit
+ * `ctx`.
  *
  * Ambient is the fallback, not the default: the store is lost across async
  * boundaries that escape the `runWithContext` scope, is harder to test, and

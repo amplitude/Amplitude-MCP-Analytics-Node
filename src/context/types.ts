@@ -49,32 +49,26 @@ export interface McpClientInfo {
 export interface McpServerInfo {
   name: string;
   version?: string;
-  /** Server type for parity; value range TBD by the event-contract audit. */
+  /** Server classification; allowed values may expand in future releases. */
   type?: string;
 }
 
 /** Server/connection-scope context — the base every event shares. */
 export interface McpServerContext {
-  /** @public */
   tenant?: McpTenant;
-  /** @public */
   identity: McpIdentity;
-  /** @public */
   anchor: McpAnchor;
   /** Request trace id (distributed tracing) as a distinct property; independent
-   *  of `anchor`, though equal to `anchor.value` when `anchor.type` is `trace`. @public */
+   *  of `anchor`, though equal to `anchor.value` when `anchor.type` is `trace`. */
   traceId?: string;
-  /** @public */
   transport: McpTransport;
-  /** Negotiated MCP protocol version. @public */
+  /** Negotiated MCP protocol version. */
   protocolVersion?: string;
-  /** @public */
   client?: McpClientInfo;
-  /** @public */
   server: McpServerInfo;
-  /** How the subject authenticated; values are server-specific (e.g. `"OAuth"`). @public */
+  /** How the subject authenticated; values are server-specific (e.g. `"OAuth"`). */
   authType?: string;
-  /** Mutable enrichment bag for domain values without a top-level field. @public */
+  /** Mutable enrichment bag for domain values without a top-level field. */
   extra?: Record<string, unknown>;
 }
 
@@ -83,8 +77,7 @@ export interface McpToolMeta {
   name: string;
   owner?: string;
 
-  /** Free-form metadata; forward-compatible and the home for server-specific
-   *  fields (e.g. Amplitude's project id/name). */
+  /** Free-form metadata; forward-compatible and the home for server-specific fields. */
   [key: string]: unknown;
 }
 
@@ -112,10 +105,8 @@ export interface McpRequestInfo {
  * request info, and an error slot. Handed to instrumented tool handlers.
  */
 export interface McpToolContext extends McpServerContext {
-  /** @public */
   tool: McpToolMeta;
-  /** @public */
   request?: McpRequestInfo;
-  /** Populated on failure; shape TBD. @public */
+  /** Populated on failure; a concrete error shape will be defined in the future. */
   error?: unknown;
 }
