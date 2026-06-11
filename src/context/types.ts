@@ -38,6 +38,7 @@ export interface McpAnchor {
 
 /** MCP client info — a dimension, NOT identity. */
 export interface McpClientInfo {
+  /** Protocol `clientInfo.name` from the handshake / `_meta` (e.g. `"cursor"`). */
   name?: string;
   version?: string;
   /** Raw HTTP `User-Agent` (streamable-http only). */
