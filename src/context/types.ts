@@ -60,6 +60,9 @@ export interface McpServerContext {
   identity: McpIdentity;
   /** @public */
   anchor: McpAnchor;
+  /** Request trace id (distributed tracing) as a distinct property; independent
+   *  of `anchor`, though equal to `anchor.value` when `anchor.type` is `trace`. @public */
+  traceId?: string;
   /** @public */
   transport: McpTransport;
   /** Negotiated MCP protocol version. @public */
@@ -68,12 +71,20 @@ export interface McpServerContext {
   client?: McpClientInfo;
   /** @public */
   server: McpServerInfo;
+  /** How the subject authenticated; values are server-specific (e.g. `"OAuth"`). @public */
+  authType?: string;
+  /** Mutable enrichment bag for domain values without a top-level field. @public */
+  extra?: Record<string, unknown>;
 }
 
 /** Tool metadata the caller attaches when instrumenting a tool. */
 export interface McpToolMeta {
   name: string;
   owner?: string;
+
+  /** Free-form metadata; forward-compatible and the home for server-specific
+   *  fields (e.g. Amplitude's project id/name). */
+  [key: string]: unknown;
 }
 
 /**
