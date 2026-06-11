@@ -16,6 +16,8 @@ describe('smoke test: all public exports are defined', () => {
     // Context
     expect(mod.createServerContext).toBeDefined();
     expect(mod.createToolContext).toBeDefined();
+    expect(mod.runWithContext).toBeDefined();
+    expect(mod.getCurrentContext).toBeDefined();
   });
 
   it('key classes can be instantiated', async (): Promise<void> => {

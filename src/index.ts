@@ -5,6 +5,8 @@ export type { MCPAnalyticsConfigOptions } from './config.js';
 export {
   createServerContext,
   createToolContext,
+  getCurrentContext,
+  runWithContext,
 } from './context/index.js';
 export type {
   AnchorType,
