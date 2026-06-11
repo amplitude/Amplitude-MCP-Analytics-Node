@@ -1,4 +1,11 @@
 import { MCPAnalyticsConfig } from './config.js';
+import {
+  TrackingProxy,
+  installTrackCounter,
+  installTrackHook,
+  registerExitHook,
+  settleUnflushedCount,
+} from './core/delivery/index.js';
 import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
@@ -54,6 +61,14 @@ export class AmplitudeMCPAnalytics {
   readonly serverVersion: string;
   readonly config: MCPAnalyticsConfig;
   protected _amplitude: AmplitudeClientLike;
+  /**
+   * True when this SDK created the underlying client (apiKey path) and is therefore responsible for shutting it down.
+   * False when the caller passed in their own client and we must not tear down a client we don't own.
+   */
+  protected _ownsClient: boolean;
+  /** Events tracked since the last flush()/shutdown(); settled against the
+   *  global unflushed counter that drives the serverless exit warning. */
+  protected _trackCountSinceFlush = 0;
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -71,6 +86,7 @@ export class AmplitudeMCPAnalytics {
     let rawAmplitude: AmplitudeClientLike;
     if (options.amplitude != null) {
       rawAmplitude = options.amplitude;
+      this._ownsClient = false;
     } else if (options.apiKey != null) {
       const amplitudeNode = tryRequire('@amplitude/analytics-node') as
         | (AmplitudeClientLike & { init?: (apiKey: string) => unknown })
@@ -88,6 +104,7 @@ export class AmplitudeMCPAnalytics {
       }
       amplitudeNode.init(options.apiKey);
       rawAmplitude = amplitudeNode;
+      this._ownsClient = true;
     } else {
       throw new ConfigurationError(
         "AmplitudeMCPAnalytics: provide either an existing Amplitude instance via 'amplitude' or an API key via 'apiKey'.",
@@ -97,7 +114,18 @@ export class AmplitudeMCPAnalytics {
     this.serverName = options.serverName;
     this.serverVersion = options.serverVersion;
     this.config = options.config ?? new MCPAnalyticsConfig();
-    this._amplitude = rawAmplitude;
+
+    // Wrap the raw client in a mutable proxy (it may be a frozen ES module
+    // namespace) and install the delivery hooks. Order matters: the counter
+    // goes on first so the track hook — which decides dry-run skips — sits
+    // outermost and dry-run events are never counted as unflushed.
+    const proxy = new TrackingProxy(rawAmplitude);
+    installTrackCounter(proxy, () => {
+      this._trackCountSinceFlush++;
+    });
+    installTrackHook(proxy, this.config);
+    registerExitHook();
+    this._amplitude = proxy;
   }
 
   /** @internal Low-level passthrough to the underlying Amplitude client. */
@@ -106,10 +134,18 @@ export class AmplitudeMCPAnalytics {
   }
 
   flush(): unknown {
+    settleUnflushedCount(this._trackCountSinceFlush);
+    this._trackCountSinceFlush = 0;
     return this._amplitude.flush();
   }
 
   shutdown(): void {
-    this._amplitude.shutdown?.();
+    settleUnflushedCount(this._trackCountSinceFlush);
+    this._trackCountSinceFlush = 0;
+    // Only tear down the underlying client if we created it — never shut down
+    // a client the caller passed in and may still be using.
+    if (this._ownsClient) {
+      this._amplitude.shutdown?.();
+    }
   }
 }

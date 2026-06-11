@@ -18,10 +18,9 @@ import type { AmplitudeEvent } from './types.js';
  *   serverVersion: '0.0.0',
  * });
  *
- * mock.track({ event_type: '[MCP] Tool Invoked', user_id: 'u1' });
- *
- * expect(mock.events).toHaveLength(1);
+ * Pass `mock` wherever an AmplitudeMCPAnalytics instance is expected, then assert against the captured event stream.
  * expect(mock.getEvents('[MCP] Tool Invoked')).toHaveLength(1);
+ * expect(mock.events).toHaveLength(1);
  * ```
  */
 export class MockAmplitudeMCPAnalytics extends AmplitudeMCPAnalytics {
@@ -36,7 +35,7 @@ export class MockAmplitudeMCPAnalytics extends AmplitudeMCPAnalytics {
           captured.push(event);
         },
         flush: () => [],
-        shutdown: () => {},
+        shutdown: () => { },
       },
     });
     this.events = captured;

@@ -6,6 +6,7 @@
     "composite": true,
     "declaration": true,
     "declarationMap": true,
+    "stripInternal": true,
     "noEmit": false,
     "incremental": true,
     "tsBuildInfoFile": "dist/.tsbuildinfo",
@@ -13,9 +14,14 @@
   },
   "watchOptions": {
     "watchDirectory": "useFsEvents",
-    "excludeDirectories": ["node_modules", "dist"]
+    "excludeDirectories": [
+      "node_modules",
+      "dist"
+    ]
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "exclude": [
     "dist",
     "**/__tests__/**",

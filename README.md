@@ -3,9 +3,9 @@
 Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking
 for Amplitude Analytics.
 
-> **Status:** v0 scaffold. The event taxonomy, identity model, transport
-> layer, and `ctx` object are tracked in the MCP-356 milestone and not yet
-> implemented in this package.
+> **Status:** Early preview. The event taxonomy, identity model, transport
+> layer, and `ctx` object are still in active development and not yet
+> available in this package.
 
 ## Install
 
@@ -24,7 +24,7 @@ const analytics = new AmplitudeMCPAnalytics({
   serverVersion: '1.0.0',
 });
 
-// Event tracking methods land in MCP-358 / MCP-363.
+// Higher-level event tracking methods are coming soon.
 ```
 
 ## Architecture decisions
@@ -52,19 +52,11 @@ intentionally does not reuse agent vocabulary.
 
 ### Vendor the core, no hard dependency
 
-The small set of shared utilities (`privacy.ts`, `TrackingProxy` + delivery
-hooks, serverless flush accounting) will be vendored from `@amplitude/ai`
-with provenance headers pinning the source commit SHA. This keeps the two
-packages independent at runtime — no shared package, no version coupling —
-while reusing battle-tested code.
-
-Re-sync process: when a vendored file changes upstream, update it here in a
-single PR titled `chore: sync vendored from amplitude-ai @ <sha>`, bumping
-the provenance header.
-
-> Vendored content is pending sign-off from the `@amplitude/ai` team
-> (tracked in MCP-364). This scaffold ships without vendored code; it will
-> be layered in as a follow-up commit.
+A small set of shared, low-level utilities (the delivery proxy + hooks,
+serverless flush accounting) is vendored from `@amplitude/ai` rather than
+taken as a dependency. This keeps the two packages independent at runtime —
+no shared package, no version coupling — while reusing battle-tested code.
+Contributor notes on the vendoring policy live in `VENDORED.md`.
 
 ## Development
 
