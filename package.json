@@ -31,7 +31,6 @@
     "./exceptions": "./dist/exceptions.js",
     "./testing": "./dist/testing.js",
     "./types": "./dist/types.js",
-    "./utils/resolve-module": "./dist/utils/resolve-module.js",
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
@@ -57,7 +56,7 @@
     "rimraf": "5.0.5",
     "tsdown": "0.18.4",
     "typescript": "5.9.3",
-    "vitest": "4.0.14"
+    "vitest": "4.1.0"
   },
   "peerDependencies": {
     "@amplitude/analytics-node": ">=1.3.0"
