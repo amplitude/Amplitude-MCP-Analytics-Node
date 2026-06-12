@@ -36,7 +36,7 @@ amplitude-ai @ <sha>`. There is no scheduled re-sync.
 
 | File | Source | Vendored at | Notes |
 | --- | --- | --- | --- |
-| `src/utils/resolve-module.ts` | `src/utils/resolve-module.ts` | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | Verbatim. |
+| `src/utils/resolve-module.ts` | `src/utils/resolve-module.ts` | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | `NodeRequire` → `NodeJS.Require` for @types/node v25 compat; otherwise verbatim. |
 | `src/core/delivery/serverless.ts` | `src/serverless.ts` + `src/client.ts` | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | `isServerless`/`_resetServerlessCache` verbatim; `_globalUnflushedCount`/`_registerExitHook` lifted out of the `AmplitudeAI` class into free functions. Warning text re-prefixed and de-LLM-ified. |
 | `src/core/delivery/proxy.ts` | `src/client.ts` (`TrackingProxy`) | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | Extracted into its own module; otherwise verbatim. The unflushed-count bookkeeping stays on the host client (`flush`/`shutdown`), as in AI-Node, so the proxy is a pure wrapper. |
 | `src/core/delivery/hooks.ts` | `src/client.ts` (`_installTrackHook`, `_installTrackCounter`, `_warnShortId`) | `97ea346abd0caf333a3bafbd26b74de1d545f3e7` | Methods extracted to free functions taking `(client, config)`. `installTrackCounter` takes an `onTracked` callback so the host client keeps its own count-since-flush (a class field in AI-Node). Dropped `onEventCallback` path. Prefixes re-labelled. |

@@ -22,23 +22,29 @@ a situation.
 
 1. **The public API is a promise.** Anything exported becomes a semver contract.
    Keep the public surface minimal; prefer adding API later over removing it.
-2. **Customer-facing artifacts assume zero internal knowledge.** `README.md`,
+2. **Optimize for the consumer's ease of use.** The common case must work with
+   minimal config and sensible zero-config defaults. Wrap, don't rewrite: an
+   integration should not force consumers to change their existing handler
+   signatures, implement our interfaces, or hand-build values the SDK can
+   derive itself. Advanced hooks (custom resolvers, overrides) are opt-in
+   escape hatches for the long tail — never the required path for the basics.
+3. **Customer-facing artifacts assume zero internal knowledge.** `README.md`,
    error messages, and published types must make sense to someone outside
    Amplitude. No internal ticket numbers, no Slack/Linear links, no team jargon.
-3. **Nothing internal or sensitive gets committed — ever.** The repo and its
+4. **Nothing internal or sensitive gets committed — ever.** The repo and its
    full git history are public. No secrets, API keys, tokens, internal URLs, or
    customer data. A secret committed once lives in history forever.
-4. **Backwards compatibility is the default.** Don't break consumers or force
+5. **Backwards compatibility is the default.** Don't break consumers or force
    dependency conflicts. Keep peer-dependency ranges wide; don't re-export a
    dependency's types into our public API unless we intend to track them.
-5. **Vendoring is a fork point, not a sync target.** Vendored code belongs to
+6. **Vendoring is a fork point, not a sync target.** Vendored code belongs to
    this repo once copied; there is no obligation to track upstream.
-6. **Degrade honestly.** When we can't derive something accurately (e.g. a user
+7. **Degrade honestly.** When we can't derive something accurately (e.g. a user
    or session on stateless transport), emit accurate aggregate-only data rather
    than fabricating it.
-7. **Small, atomic PRs over large ones.** One concern per PR; scoped so a
+8. **Small, atomic PRs over large ones.** One concern per PR; scoped so a
    reviewer can hold it in their head.
-8. **When scope is ambiguous, stop and ask** rather than guessing.
+9. **When scope is ambiguous, stop and ask** rather than guessing.
 
 ## Public API surface
 

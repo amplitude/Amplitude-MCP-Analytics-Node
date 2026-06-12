@@ -10,20 +10,26 @@ for Amplitude Analytics.
 ## Install
 
 ```bash
-pnpm add @amplitude/mcp-analytics @amplitude/analytics-node
+pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk
 ```
+
+`@amplitude/analytics-node` and `@modelcontextprotocol/sdk` are peer
+dependencies — your MCP server already depends on the latter.
 
 ## Quick start
 
 ```ts
-import { AmplitudeMCPAnalytics } from '@amplitude/mcp-analytics';
+import { createMcpAnalytics } from '@amplitude/mcp-analytics';
 
-const analytics = new AmplitudeMCPAnalytics({
+const analytics = createMcpAnalytics({
   apiKey: process.env.AMPLITUDE_API_KEY!,
   serverName: 'my-mcp-server',
   serverVersion: '1.0.0',
 });
 
+// Or, to reuse an Amplitude client you already own:
+//   createMcpAnalytics({ amplitude, serverName: '...', serverVersion: '...' })
+//
 // Higher-level event tracking methods are coming soon.
 ```
 

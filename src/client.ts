@@ -6,6 +6,10 @@ import {
   registerExitHook,
   settleUnflushedCount,
 } from './core/delivery/index.js';
+import { runWithContext } from './context/index.js';
+import type { McpServerContext, McpToolMeta } from './context/types.js';
+import { buildToolContext } from './core/build-context.js';
+import type { McpExtra, ToolResult } from './core/mcp.js';
 import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
@@ -60,15 +64,19 @@ export class AmplitudeMCPAnalytics {
   readonly serverName: string;
   readonly serverVersion: string;
   readonly config: MCPAnalyticsConfig;
+  /** @internal */
   protected _amplitude: AmplitudeClientLike;
-  /**
-   * True when this SDK created the underlying client (apiKey path) and is therefore responsible for shutting it down.
-   * False when the caller passed in their own client and we must not tear down a client we don't own.
-   */
+  /** True when this SDK created the underlying client and must shut it down
+   *  (apiKey path); false when the caller owns it. @internal */
   protected _ownsClient: boolean;
-  /** Events tracked since the last flush()/shutdown(); settled against the
-   *  global unflushed counter that drives the serverless exit warning. */
+  /** Events tracked since the last flush()/shutdown(); drives the serverless
+   *  exit warning. @internal */
   protected _trackCountSinceFlush = 0;
+
+  /** Server-scope context inherited by every instrumented tool ctx. Set by a
+   *  forthcoming server-binding API; until then tool wrapping runs untouched.
+   *  @internal */
+  protected _serverCtx?: McpServerContext;
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -133,6 +141,33 @@ export class AmplitudeMCPAnalytics {
     this._amplitude.track(event);
   }
 
+  /**
+   * Wrap a tool handler so each call builds the tool-scope `ctx` (extending the
+   * server scope; ambient via `getCurrentContext()`) and runs the unchanged
+   * handler. Returns the same handler type, so it drops into
+   * `server.tool(name, schema, analytics.instrumentTool(name, handler, meta))`.
+   * Until a server binding sets the server scope, the tool runs untouched.
+   * Emission/timing (default event) and error handling come in later tracks.
+   *
+   * @internal Not published yet — pending the default event contract.
+   */
+  instrumentTool<Args extends unknown[], R extends ToolResult>(
+    name: string,
+    handler: (...args: Args) => R,
+    meta?: Omit<McpToolMeta, 'name'>,
+  ): (...args: Args) => R {
+    const toolMeta: McpToolMeta = { name, ...meta };
+    return (...callArgs: Args): R => {
+      const serverCtx = this._serverCtx;
+      // No server scope yet (binding is a later track) — run untouched.
+      if (serverCtx === undefined) return handler(...callArgs);
+      // MCP passes `extra` as the last handler arg.
+      const extra = callArgs[callArgs.length - 1] as McpExtra;
+      const ctx = buildToolContext(serverCtx, toolMeta, extra);
+      return runWithContext(ctx, () => handler(...callArgs));
+    };
+  }
+
   flush(): unknown {
     settleUnflushedCount(this._trackCountSinceFlush);
     this._trackCountSinceFlush = 0;
@@ -148,4 +183,26 @@ export class AmplitudeMCPAnalytics {
       this._amplitude.shutdown?.();
     }
   }
+}
+
+/**
+ * Construct an {@link AmplitudeMCPAnalytics} client — a factory equivalent to
+ * `new AmplitudeMCPAnalytics(options)`, for callers who prefer a function over
+ * `new`.
+ *
+ * @example
+ * ```typescript
+ * import { createMcpAnalytics } from '@amplitude/mcp-analytics';
+ *
+ * const analytics = createMcpAnalytics({
+ *   apiKey: process.env.AMPLITUDE_API_KEY!,
+ *   serverName: 'my-mcp-server',
+ *   serverVersion: '1.0.0',
+ * });
+ * ```
+ */
+export function createMcpAnalytics(
+  options: AmplitudeMCPAnalyticsOptions,
+): AmplitudeMCPAnalytics {
+  return new AmplitudeMCPAnalytics(options);
 }

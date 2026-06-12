@@ -1,4 +1,4 @@
-export { AmplitudeMCPAnalytics } from './client.js';
+export { AmplitudeMCPAnalytics, createMcpAnalytics } from './client.js';
 export type { AmplitudeMCPAnalyticsOptions } from './client.js';
 export { MCPAnalyticsConfig } from './config.js';
 export type { MCPAnalyticsConfigOptions } from './config.js';
