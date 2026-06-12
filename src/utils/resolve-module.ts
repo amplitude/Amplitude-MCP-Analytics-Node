@@ -1,5 +1,6 @@
 // Vendored from amplitude/Amplitude-AI-Node @ 97ea346abd0caf333a3bafbd26b74de1d545f3e7
 // Source: src/utils/resolve-module.ts
+// Adaptation: `NodeRequire` → `NodeJS.Require` for @types/node v25 compatibility.
 
 /**
  * Wrapper around `createRequire()` for optional dependency loading.
@@ -13,7 +14,7 @@
  */
 import { createRequire } from 'node:module';
 
-let localRequire: NodeRequire | null = null;
+let localRequire: NodeJS.Require | null = null;
 try {
   localRequire = createRequire(import.meta.url);
 } catch {

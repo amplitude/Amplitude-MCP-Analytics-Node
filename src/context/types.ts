@@ -3,6 +3,10 @@
  * seam every event derives its shared properties from. Load-bearing but not
  * frozen: the shape (server-scope base + tool-scope extension) is stable;
  * individual fields may still move.
+ *
+ * Fields marked `@public` are part of the stable, semver-governed ctx contract.
+ * Changing or removing a `@public` field is a breaking change. Fields without
+ * that marker may still evolve before they are promoted.
  */
 
 /** Which fallback level produced the resolved subject, for debuggability. */
@@ -61,6 +65,7 @@ export interface McpServerContext {
   /** Request trace id (distributed tracing) as a distinct property; independent
    *  of `anchor`, though equal to `anchor.value` when `anchor.type` is `trace`. */
   traceId?: string;
+  /** Server-scope MCP transport. @public */
   transport: McpTransport;
   /** Negotiated MCP protocol version. */
   protocolVersion?: string;
@@ -68,7 +73,7 @@ export interface McpServerContext {
   server: McpServerInfo;
   /** How the subject authenticated; values are server-specific (e.g. `"OAuth"`). */
   authType?: string;
-  /** Mutable enrichment bag for domain values without a top-level field. */
+  /** Mutable enrichment bag for domain values without a top-level field. @public */
   extra?: Record<string, unknown>;
 }
 
@@ -105,6 +110,7 @@ export interface McpRequestInfo {
  * request info, and an error slot. Handed to instrumented tool handlers.
  */
 export interface McpToolContext extends McpServerContext {
+  /** @public */
   tool: McpToolMeta;
   request?: McpRequestInfo;
   /** Populated on failure; a concrete error shape will be defined in the future. */

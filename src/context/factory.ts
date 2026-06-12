@@ -1,6 +1,6 @@
 /**
  * Construction of the MCP context. Caller-supplied values win; unset fields
- * fall back to the always-emit floor (anonymous identity/anchor, stdio).
+ * fall back to the always-emit floor (anonymous identity/anchor).
  */
 import type {
   McpRequestInfo,
