@@ -5,19 +5,31 @@
  */
 import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { createToolContext } from '../context/factory.js';
-import type { McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
+import type { McpClientInfo, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { metaRecord, readHeader, type McpExtra } from './mcp.js';
+import { resolveAnchor, resolveProtocolVersion } from './resolve.js';
 
-/** Client identity from the `_meta` bag (`clientInfo`); read defensively. @internal */
-function clientInfoOf(extra: McpExtra): Implementation | undefined {
+/**
+ * Per-request client info. The stateless path carries `clientInfo` in `_meta` on
+ * every request (wins); the legacy path negotiates it once at the handshake,
+ * which {@link instrumentServer} caches onto the server scope (the fallback).
+ */
+function resolveClientInfo(extra: McpExtra, serverCtx: McpServerContext): McpClientInfo {
   const info = metaRecord(extra)?.clientInfo;
-  return info != null && typeof info === 'object' ? (info as Implementation) : undefined;
+  const metaClientInfo = info != null && typeof info === 'object' ? (info as Implementation) : undefined;
+  const clientFromHandshake = serverCtx.client;
+  return {
+    name: metaClientInfo?.name ?? clientFromHandshake?.name,
+    version: metaClientInfo?.version ?? clientFromHandshake?.version,
+    userAgent: readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
+  };
 }
 
 /**
- * Extend the server-scope `serverCtx` with this request's fields. Per-request
- * fields are read from `extra`; identity and anchor are floored (resolution is
- * follow-up work).
+ * Extend the server-scope `serverCtx` with this request's fields. `transport` is
+ * inherited from the server scope; `anchor`, `protocolVersion`, `traceId`, and
+ * `client` are resolved per request. Identity stays floored — its resolution
+ * consumes this anchor and is follow-up work.
  *
  * @internal
  */
@@ -26,15 +38,17 @@ export function buildToolContext(
   meta: McpToolMeta,
   extra: McpExtra,
 ): McpToolContext {
-  const info = clientInfoOf(extra);
+  const resolvedAnchor = resolveAnchor(serverCtx.transport, extra);
 
   return createToolContext(
     {
       ...serverCtx,
-      // Floored — anchor + identity resolution is follow-up work.
-      anchor: { type: 'anonymous', value: '' },
+      anchor: resolvedAnchor,
+      traceId: resolvedAnchor.type === 'trace' ? resolvedAnchor.value : serverCtx.traceId,
+      protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
+      // Floored — identity resolution (which consumes the anchor) is follow-up work.
       identity: { resolvedFrom: 'anonymous' },
-      client: { name: info?.name, version: info?.version, userAgent: readHeader(extra, 'user-agent') },
+      client: resolveClientInfo(extra, serverCtx),
     },
     meta,
     { request: { method: 'tools/call' } },
