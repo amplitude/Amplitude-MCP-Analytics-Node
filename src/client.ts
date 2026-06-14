@@ -1,4 +1,9 @@
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+
 import { MCPAnalyticsConfig } from './config.js';
+import { runWithContext } from './context/index.js';
+import type { McpServerContext, McpToolContext, McpToolMeta } from './context/types.js';
+import { buildToolContext } from './core/build-context.js';
 import {
   TrackingProxy,
   installTrackCounter,
@@ -6,10 +11,8 @@ import {
   registerExitHook,
   settleUnflushedCount,
 } from './core/delivery/index.js';
-import { runWithContext } from './context/index.js';
-import type { McpServerContext, McpToolMeta } from './context/types.js';
-import { buildToolContext } from './core/build-context.js';
 import type { McpExtra, ToolResult } from './core/mcp.js';
+import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
@@ -142,12 +145,35 @@ export class AmplitudeMCPAnalytics {
   }
 
   /**
+   * Build a structured MCP error response and store the error on `ctx` for
+   * telemetry. Returns a valid `CallToolResult` with `isError: true` and a
+   * client-facing message that includes the correction guidance.
+   *
+   * @example
+   * ```typescript
+   * return analytics.toolError(ctx, {
+   *   code: 'missing_chart_id',
+   *   message: 'No chart ID was provided.',
+   *   correctionMessage: 'Search for a chart first, then retry with the chart ID.',
+   *   recoverable: true,
+   *   source: 'mcp_server',
+   * });
+   * ```
+   */
+  toolError(ctx: McpToolContext, input: ToolErrorInput): CallToolResult {
+    const error = buildToolError(input);
+    ctx.error = error;
+    return toolErrorResult(error);
+  }
+
+  /**
    * Wrap a tool handler so each call builds the tool-scope `ctx` (extending the
    * server scope; ambient via `getCurrentContext()`) and runs the unchanged
    * handler. Returns the same handler type, so it drops into
    * `server.tool(name, schema, analytics.instrumentTool(name, handler, meta))`.
    * Until a server binding sets the server scope, the tool runs untouched.
-   * Emission/timing (default event) and error handling come in later tracks.
+   * Thrown exceptions are classified and stored on `ctx.error` for telemetry
+   * but always re-thrown — the wrapper never swallows errors.
    *
    * @internal Not published yet — pending the default event contract.
    */
@@ -159,12 +185,28 @@ export class AmplitudeMCPAnalytics {
     const toolMeta: McpToolMeta = { name, ...meta };
     return (...callArgs: Args): R => {
       const serverCtx = this._serverCtx;
-      // No server scope yet (binding is a later track) — run untouched.
       if (serverCtx === undefined) return handler(...callArgs);
-      // MCP passes `extra` as the last handler arg.
       const extra = callArgs[callArgs.length - 1] as McpExtra;
       const ctx = buildToolContext(serverCtx, toolMeta, extra);
-      return runWithContext(ctx, () => handler(...callArgs));
+
+      return runWithContext(ctx, () => {
+        let result: R;
+        try {
+          result = handler(...callArgs);
+        } catch (err) {
+          ctx.error = classifyError(err);
+          throw err;
+        }
+
+        if (result && typeof (result as Promise<unknown>).then === 'function') {
+          return (result as Promise<unknown>).catch((err: unknown) => {
+            ctx.error = classifyError(err);
+            throw err;
+          }) as R;
+        }
+
+        return result;
+      });
     };
   }
 
