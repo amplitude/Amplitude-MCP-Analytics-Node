@@ -27,6 +27,7 @@
     "./context": "./dist/context.js",
     "./exceptions": "./dist/exceptions.js",
     "./testing": "./dist/testing.js",
+    "./tracking": "./dist/tracking.js",
     "./types": "./dist/types.js",
     "./package.json": "./package.json"
   },

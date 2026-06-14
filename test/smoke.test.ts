@@ -18,6 +18,24 @@ describe('smoke test: all public exports are defined', () => {
     expect(mod.createToolContext).toBeDefined();
     expect(mod.runWithContext).toBeDefined();
     expect(mod.getCurrentContext).toBeDefined();
+
+    // Tracking (custom event API)
+    expect(mod.trackServerEvent).toBeDefined();
+    expect(mod.trackToolEvent).toBeDefined();
+    expect(mod.wrapTool).toBeDefined();
+    expect(mod.ctxToAmplitudeFields).toBeDefined();
+    expect(mod.ctxToAmplitudeFieldsForTool).toBeDefined();
+    expect(mod.shouldEmit).toBeDefined();
+  });
+
+  it('tracking subpath exposes the custom event API', async (): Promise<void> => {
+    const tracking = await import('../src/tracking/index.js');
+    expect(tracking.trackServerEvent).toBeDefined();
+    expect(tracking.trackToolEvent).toBeDefined();
+    expect(tracking.wrapTool).toBeDefined();
+    expect(tracking.ctxToAmplitudeFields).toBeDefined();
+    expect(tracking.ctxToAmplitudeFieldsForTool).toBeDefined();
+    expect(tracking.shouldEmit).toBeDefined();
   });
 
   it('key classes can be instantiated', async (): Promise<void> => {
