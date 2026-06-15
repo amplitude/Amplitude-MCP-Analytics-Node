@@ -8,9 +8,8 @@ import {
 } from './core/delivery/index.js';
 import { createServerContext, runWithContext } from './context/index.js';
 import type { McpServerContext, McpToolMeta } from './context/types.js';
-import { buildToolContext } from './core/build-context.js';
+import { buildToolContext, resolveTransport } from './core/build-context.js';
 import type { McpExtra, McpServerLike, Server, ToolResult, Transport } from './core/mcp.js';
-import { resolveTransport } from './core/resolve.js';
 import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { getLogger } from './utils/logger.js';
