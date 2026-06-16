@@ -6,13 +6,22 @@ import {
   registerExitHook,
   settleUnflushedCount,
 } from './core/delivery/index.js';
-import { runWithContext } from './context/index.js';
+import { createServerContext, runWithContext } from './context/index.js';
 import type { McpServerContext, McpToolMeta } from './context/types.js';
-import { buildToolContext } from './core/build-context.js';
-import type { McpExtra, ToolResult } from './core/mcp.js';
+import { buildToolContext, resolveTransport } from './core/build-context.js';
+import type { McpExtra, McpServerLike, Server, ToolResult, Transport } from './core/mcp.js';
 import { ConfigurationError } from './exceptions.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
+import { getLogger } from './utils/logger.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
+
+/** Marks a server whose `connect` we've already wrapped, to stay idempotent. */
+const INSTRUMENTED = Symbol.for('amplitude.mcp.instrumented');
+
+/** Reserved for future identity/tenant inputs (resolution is a later track). @internal */
+export interface InstrumentServerOptions {
+  [key: string]: unknown;
+}
 
 export interface AmplitudeMCPAnalyticsOptions {
   /** Logical name of the MCP server being instrumented. */
@@ -166,6 +175,63 @@ export class AmplitudeMCPAnalytics {
       const ctx = buildToolContext(serverCtx, toolMeta, extra);
       return runWithContext(ctx, () => handler(...callArgs));
     };
+  }
+
+  /**
+   * Bind a server so its instrumented tools inherit a server-scope context.
+   * Wraps `connect` to auto-detect the transport (fixed per connection) and set
+   * `_serverCtx`, and captures the handshake `clientInfo` (legacy/stdio path).
+   * Call **before** `connect` — the transport only exists then. Returns the same
+   * server for chaining. Idempotent; warns and no-ops if already connected.
+   *
+   * @example
+   * ```typescript
+   * const server = new McpServer({ name: 'my-mcp', version: '1.0.0' });
+   * analytics.instrumentServer(server);               // before connect
+   * await server.connect(new StdioServerTransport()); // transport auto-detected
+   * ```
+   *
+   * @internal Not published yet — pending the public server-binding contract.
+   */
+  instrumentServer<S extends McpServerLike>(server: S, _opts?: InstrumentServerOptions): S {
+    const boundServer = server as McpServerLike & { [INSTRUMENTED]?: boolean };
+    if (boundServer[INSTRUMENTED]) return server;
+
+    // `isConnected()` is only on the high-level McpServer.
+    if ('isConnected' in boundServer && boundServer.isConnected()) {
+      getLogger(this._amplitude).warn(
+        'instrumentServer() was called after the server connected; the transport could not be detected, so instrumented tools will run without analytics context. Call instrumentServer() before server.connect().',
+      );
+      return server;
+    }
+    boundServer[INSTRUMENTED] = true;
+
+    // The low-level Server holding the handshake hooks: `.server` on McpServer,
+    // else the object itself.
+    const lowLevelServer: Server = 'server' in boundServer ? boundServer.server : boundServer;
+    // Capture the current `connect` and delegate, so we compose with a
+    // consumer's own connect wrapper regardless of order.
+    const originalConnect = boundServer.connect.bind(boundServer);
+
+    boundServer.connect = (transport: Transport): Promise<void> => {
+      this._serverCtx = createServerContext({
+        server: { name: this.serverName, version: this.serverVersion },
+        transport: resolveTransport(transport),
+      });
+      // Capture the handshake `clientInfo` into the server scope (legacy / stdio
+      // path), chaining any handler the consumer already installed.
+      const existingOnInitialized = lowLevelServer.oninitialized;
+      lowLevelServer.oninitialized = (): void => {
+        const clientInfo = lowLevelServer.getClientVersion();
+        if (clientInfo != null && this._serverCtx != null) {
+          this._serverCtx.client = { ...this._serverCtx.client, name: clientInfo.name, version: clientInfo.version };
+        }
+        existingOnInitialized?.();
+      };
+      return originalConnect(transport);
+    };
+
+    return server;
   }
 
   flush(): unknown {
