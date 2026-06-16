@@ -75,8 +75,8 @@ describe('instrumentTool', () => {
     expect(ctx?.tool.name).toBe('search_docs');
     expect(ctx?.transport).toBe('streamable-http'); // inherited from server scope
     expect(ctx?.client?.name).toBe('cursor'); // per-request, from _meta.clientInfo
-    expect(ctx?.anchor.type).toBe('anonymous'); // floored — resolution is follow-up
-    expect(ctx?.identity.resolvedFrom).toBe('anonymous'); // floored
+    expect(ctx?.anchor).toEqual({ type: 'session-id', value: 'sess-abc123' }); // legacy HTTP
+    expect(ctx?.identity.resolvedFrom).toBe('anonymous'); // identity resolution is follow-up
   });
 
   it('carries caller-supplied tool metadata onto ctx', async () => {
