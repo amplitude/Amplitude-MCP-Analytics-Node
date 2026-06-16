@@ -25,4 +25,18 @@ export type {
   McpTransport,
 } from './context/index.js';
 export { MockAmplitudeMCPAnalytics } from './testing.js';
+export {
+  ctxToAmplitudeFields,
+  ctxToAmplitudeFieldsForTool,
+  shouldEmit,
+  trackServerEvent,
+  trackToolEvent,
+  wrapTool,
+} from './tracking/index.js';
+export type {
+  AmplitudeFields,
+  ContextExtractor,
+  InstrumentedToolHandler,
+  WrapToolDependencies,
+} from './tracking/index.js';
 export type { AmplitudeClientLike, AmplitudeEvent } from './types.js';

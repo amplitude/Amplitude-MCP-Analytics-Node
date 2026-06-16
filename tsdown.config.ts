@@ -10,6 +10,7 @@ export default defineConfig((opts) => {
     // Please add a file here only when you intend to support importing it.
     entry: [
       'src/context/',
+      'src/tracking/',
       'src/index.ts',
       'src/client.ts',
       'src/config.ts',
