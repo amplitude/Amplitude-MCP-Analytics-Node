@@ -4,6 +4,7 @@ import {
   createToolContext,
 } from '../src/context/index.js';
 import type { McpServerContext } from '../src/context/index.js';
+import type { McpToolError } from '../src/errors.js';
 
 describe('createServerContext', () => {
   it('fills the identity and anchor floor when unset', () => {
@@ -146,13 +147,15 @@ describe('createToolContext', () => {
   });
 
   it('attaches a structured error when provided', () => {
+    const error: McpToolError = { code: 'internal', message: 'boom', type: 'thrown_exception', source: 'mcp_server' };
+
     const ctx = createToolContext(
       { server: { name: 'my-server' }, transport: 'stdio' },
       { name: 'search_docs' },
-      { error: { message: 'boom', type: 'internal' } },
+      { error },
     );
 
-    expect(ctx.error).toEqual({ message: 'boom', type: 'internal' });
+    expect(ctx.error).toEqual(error);
   });
 
   it('produces a tool context assignable to its server-scope base', () => {

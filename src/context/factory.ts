@@ -2,6 +2,7 @@
  * Construction of the MCP context. Caller-supplied values win; unset fields
  * fall back to the always-emit floor (anonymous identity/anchor).
  */
+import type { McpToolError } from '../errors.js';
 import type {
   McpRequestInfo,
   McpServerContext,
@@ -45,7 +46,7 @@ export function createServerContext(input: CreateServerContextInput): McpServerC
 export function createToolContext(
   base: McpServerContext | CreateServerContextInput,
   tool: McpToolMeta,
-  opts?: { request?: McpRequestInfo; error?: unknown },
+  opts?: { request?: McpRequestInfo; error?: McpToolError },
 ): McpToolContext {
   return {
     ...createServerContext(base),

@@ -24,6 +24,13 @@ export type {
   McpToolMeta,
   McpTransport,
 } from './context/index.js';
+export { buildToolError, classifyError, toolErrorResult } from './errors.js';
+export type {
+  McpErrorSource,
+  McpToolError,
+  McpToolErrorType,
+  ToolErrorInput,
+} from './errors.js';
 export { MockAmplitudeMCPAnalytics } from './testing.js';
 export {
   ctxToAmplitudeFields,

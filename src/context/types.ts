@@ -9,6 +9,8 @@
  * that marker may still evolve before they are promoted.
  */
 
+import type { McpToolError } from '../errors.js';
+
 /** Which fallback level produced the resolved subject, for debuggability. */
 export type IdentityResolvedFrom = 'userId' | 'auth' | 'anchor' | 'anonymous';
 
@@ -113,6 +115,6 @@ export interface McpToolContext extends McpServerContext {
   /** @public */
   tool: McpToolMeta;
   request?: McpRequestInfo;
-  /** Populated on failure; a concrete error shape will be defined in the future. */
-  error?: unknown;
+  /** Populated on failure — classified by {@link classifyError} or {@link buildToolError}. */
+  error?: McpToolError;
 }
