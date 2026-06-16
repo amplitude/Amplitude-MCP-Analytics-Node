@@ -13,7 +13,7 @@
  * has serverless pitfalls. When in doubt, pass `ctx`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { McpServerContext } from './types.js';
+import type { McpServerContext, SetIdentityInput } from './types.js';
 
 const storage = new AsyncLocalStorage<McpServerContext>();
 
@@ -33,4 +33,33 @@ export function runWithContext<T>(ctx: McpServerContext, fn: () => T): T {
  */
 export function getCurrentContext(): McpServerContext | undefined {
   return storage.getStore();
+}
+
+/**
+ * Set or override the identity on the current request's ambient context.
+ * Must be called inside a {@link runWithContext} scope (e.g. inside an
+ * instrumented tool handler). Throws if called outside a context scope.
+ *
+ * This is the primary integration point for consumers who resolve identity
+ * in custom auth middleware or inside the handler itself.
+ */
+export function setIdentity(input: SetIdentityInput): void {
+  const ctx = storage.getStore();
+  if (ctx == null) {
+    throw new Error(
+      'setIdentity() called outside an active context scope. ' +
+      'Call it inside an instrumented tool handler or a runWithContext() block.',
+    );
+  }
+
+  if (input.userId != null || input.deviceId != null) {
+    ctx.identity = {
+      ...ctx.identity,
+      ...(input.userId != null ? { userId: input.userId } : {}),
+      ...(input.deviceId != null ? { deviceId: input.deviceId } : {}),
+      resolvedFrom: 'explicit',
+    };
+  }
+
+  if (input.tenant != null) ctx.tenant = input.tenant;
 }

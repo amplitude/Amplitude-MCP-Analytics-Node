@@ -20,7 +20,7 @@ function resolvedCtx(overrides: Parameters<typeof createServerContext>[0] | unde
   return createServerContext({
     server: { name: 'my-server', version: '1.0.0' },
     transport: 'streamable-http',
-    identity: { userId: 'u1', resolvedFrom: 'userId' },
+    identity: { userId: 'u1', resolvedFrom: 'explicit' },
     tenant: { groupType: 'org id', groupValue: '36958' },
     anchor: { type: 'session-id', value: 'sess-1' },
     ...overrides,
@@ -41,7 +41,7 @@ describe('trackServerEvent', () => {
       'session id': 'sess-1',
       'server name': 'my-server',
       'client name': 'unknown',
-      'identity resolved from': 'userId',
+      'identity resolved from': 'explicit',
       'org id': '36958',
     });
   });
@@ -104,7 +104,7 @@ describe('trackServerEvent', () => {
     const ctx = resolvedCtx({
       server: { name: 'my-server' },
       transport: 'streamable-http',
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
       extra: { 'org url': 'amplitude', 'user email': 'a@b.com' },
     });
     trackServerEvent(client, ctx, 'mcp: enriched event');
@@ -119,7 +119,7 @@ describe('trackServerEvent', () => {
     const ctx = resolvedCtx({
       server: { name: 'my-server' },
       transport: 'streamable-http',
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
       extra: { 'user email': 'from-extra@x.com' },
     });
     trackServerEvent(client, ctx, 'mcp: collision', { 'user email': 'from-caller@x.com' });

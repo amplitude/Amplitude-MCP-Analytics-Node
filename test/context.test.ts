@@ -21,7 +21,7 @@ describe('createServerContext', () => {
   it('keeps caller-supplied values (caller > derived)', () => {
     const ctx = createServerContext({
       server: { name: 'my-server', version: '1.0.0', type: 'remote' },
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
       anchor: { type: 'session-id', value: 'sess-1' },
       transport: 'streamable-http',
       protocolVersion: '2026-07-28',
@@ -29,7 +29,7 @@ describe('createServerContext', () => {
       client: { name: 'cursor', version: '0.42', userAgent: 'cursor/0.42' },
     });
 
-    expect(ctx.identity).toEqual({ userId: 'u1', resolvedFrom: 'userId' });
+    expect(ctx.identity).toEqual({ userId: 'u1', resolvedFrom: 'explicit' });
     expect(ctx.anchor).toEqual({ type: 'session-id', value: 'sess-1' });
     expect(ctx.transport).toBe('streamable-http');
     expect(ctx.protocolVersion).toBe('2026-07-28');
@@ -75,7 +75,7 @@ describe('createToolContext', () => {
   it('extends an existing resolved server context with tool metadata', () => {
     const server = createServerContext({
       server: { name: 'my-server' },
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
       transport: 'streamable-http',
     });
     const ctx = createToolContext(server, {
@@ -90,7 +90,7 @@ describe('createToolContext', () => {
     expect(ctx.tool.projectId).toBe('67890');
     // server-scope fields carry through unchanged
     expect(ctx.server.name).toBe('my-server');
-    expect(ctx.identity).toEqual({ userId: 'u1', resolvedFrom: 'userId' });
+    expect(ctx.identity).toEqual({ userId: 'u1', resolvedFrom: 'explicit' });
     expect(ctx.transport).toBe('streamable-http');
   });
 
@@ -115,12 +115,12 @@ describe('createToolContext', () => {
       {
         server: { name: 'my-server' },
         transport: 'stdio',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs' },
     );
 
-    expect(ctx.identity).toEqual({ userId: 'u1', resolvedFrom: 'userId' });
+    expect(ctx.identity).toEqual({ userId: 'u1', resolvedFrom: 'explicit' });
     expect(ctx.anchor).toEqual({ type: 'anonymous', value: '' });
   });
 

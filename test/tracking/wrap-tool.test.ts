@@ -25,7 +25,7 @@ function resolvedExtractor(overrides: Partial<McpServerContext> = {}): ContextEx
     createServerContext({
       server: { name: 'my-server', version: '1.0.0' },
       transport: 'streamable-http',
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
       tenant: { groupType: 'org id', groupValue: '36958' },
       ...overrides,
     });
@@ -151,7 +151,7 @@ describe('wrapTool', () => {
       return createServerContext({
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: `u${invocationId}`, resolvedFrom: 'userId' },
+        identity: { userId: `u${invocationId}`, resolvedFrom: 'explicit' },
       });
     };
 
@@ -199,7 +199,7 @@ describe('wrapTool', () => {
       return createServerContext({
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       });
     };
 

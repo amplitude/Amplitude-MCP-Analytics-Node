@@ -7,13 +7,15 @@ import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
 import { createToolContext } from '../context/factory.js';
 import type {
+  IdentityResolver,
   McpAnchor,
   McpClientInfo,
   McpServerContext,
   McpToolContext,
   McpTransport,
-  McpToolMeta
+  McpToolMeta,
 } from '../context/types.js';
+import { resolveIdentityFromChain, type ServerIdentity } from './identity.js';
 import { metaRecord, readHeader, type McpExtra, type Transport } from './mcp.js';
 
 /**
@@ -108,18 +110,36 @@ function resolveAnchor(transport: McpTransport, extra: McpExtra): McpAnchor {
   return { type: 'anonymous', value: randomUUID() };
 }
 
+/** Options for identity resolution in {@link buildToolContext}. */
+export interface BuildToolContextOpts {
+  resolveIdentity?: IdentityResolver;
+  serverIdentity?: ServerIdentity;
+}
+
 /**
  * Extend the server-scope `serverCtx` with this request's fields. `transport` is
- * inherited from the server scope; per-request fields are are resolved per request.
- * Identity stays floored — its resolution consumes this anchor and is follow-up work.
+ * inherited from the server scope; per-request fields are resolved per request.
+ * Identity is resolved via the fallback chain.
  * @internal
  */
 export function buildToolContext(
   serverCtx: McpServerContext,
   meta: McpToolMeta,
   extra: McpExtra,
+  opts?: BuildToolContextOpts,
 ): McpToolContext {
   const resolvedAnchor = resolveAnchor(serverCtx.transport, extra);
+
+  const authInfo = (extra as Record<string, unknown>).authInfo as
+    | Record<string, unknown>
+    | undefined;
+
+  const resolved = resolveIdentityFromChain({
+    resolveIdentity: opts?.resolveIdentity,
+    authInfo,
+    serverIdentity: opts?.serverIdentity,
+    anchor: resolvedAnchor,
+  });
 
   return createToolContext(
     {
@@ -127,8 +147,8 @@ export function buildToolContext(
       anchor: resolvedAnchor,
       traceId: resolvedAnchor.type === 'trace' ? resolvedAnchor.value : serverCtx.traceId,
       protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
-      // Floored — identity resolution (which consumes the anchor) is follow-up work.
-      identity: { resolvedFrom: 'anonymous' },
+      identity: resolved.identity,
+      tenant: resolved.tenant ?? serverCtx.tenant,
       client: resolveClientInfo(extra, serverCtx),
     },
     meta,

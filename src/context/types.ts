@@ -12,7 +12,7 @@
 import type { McpToolError } from '../errors.js';
 
 /** Which fallback level produced the resolved subject, for debuggability. */
-export type IdentityResolvedFrom = 'userId' | 'auth' | 'anchor' | 'anonymous';
+export type IdentityResolvedFrom = 'explicit' | 'authInfo' | 'anchor' | 'anonymous';
 
 /**
  * Correlation-anchor source: stdio = process; legacy HTTP = session id;
@@ -36,11 +36,29 @@ export interface McpIdentity {
   resolvedFrom: IdentityResolvedFrom;
 }
 
+/**
+ * Consumer-facing input for {@link setIdentity} and the `resolveIdentity`
+ * callback. All fields are optional — the SDK fills in the rest via the
+ * fallback chain.
+ */
+export interface SetIdentityInput {
+  userId?: string;
+  deviceId?: string;
+  tenant?: McpTenant;
+}
+
 /** Correlation anchor. */
 export interface McpAnchor {
   type: AnchorType;
   value: string;
 }
+
+/**
+ * Callback that resolves identity from `extra.authInfo`. For MCP servers using
+ * the standard OAuth flow where `authInfo` carries the user's claims. The SDK
+ * never guesses — the consumer specifies which claim maps to which field.
+ */
+export type IdentityResolver = (authInfo: Record<string, unknown> | undefined) => SetIdentityInput;
 
 /** MCP client info — a dimension, NOT identity. */
 export interface McpClientInfo {

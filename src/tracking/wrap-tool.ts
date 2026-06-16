@@ -16,9 +16,10 @@
  * host's tool response must surface the error to the MCP SDK. The "best-effort"
  * guarantee applies only to event emission, not to the handler return value.
  */
-import { createToolContext } from '../context/factory.js';
 import { runWithContext } from '../context/als.js';
-import type { McpToolContext, McpToolMeta } from '../context/types.js';
+import { createToolContext } from '../context/factory.js';
+import type { IdentityResolver, McpToolContext, McpToolMeta } from '../context/types.js';
+import { resolveIdentityFromChain, type ServerIdentity } from '../core/identity.js';
 import type { McpExtra, ToolResult } from '../core/mcp.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { trackToolEvent } from './track-tool-event.js';
@@ -28,6 +29,8 @@ import type { ContextExtractor } from './types.js';
 export interface WrapToolDependencies {
   amplitude: AmplitudeClientLike;
   extractContext: ContextExtractor;
+  resolveIdentity?: IdentityResolver;
+  serverIdentity?: ServerIdentity;
 }
 
 /**
@@ -56,8 +59,32 @@ export function wrapTool<Args extends unknown[], R extends ToolResult>(
   return (...callArgs: Args): R => {
     const startMs = performance.now();
     const extra = callArgs[callArgs.length - 1] as McpExtra | undefined;
-    const serverCtx = deps.extractContext(extra ?? ({} as McpExtra));
-    const ctx = createToolContext(serverCtx, meta, { request: { method: 'tools/call' } });
+    const safeExtra = extra ?? ({} as McpExtra);
+    const serverCtx = deps.extractContext(safeExtra);
+
+    let identity = serverCtx.identity;
+    let tenant = serverCtx.tenant;
+    if (identity.resolvedFrom === 'anonymous') {
+      const authInfo = (safeExtra as Record<string, unknown>).authInfo as
+        | Record<string, unknown>
+        | undefined;
+
+      const resolved = resolveIdentityFromChain({
+        resolveIdentity: deps.resolveIdentity,
+        authInfo,
+        serverIdentity: deps.serverIdentity,
+        anchor: serverCtx.anchor,
+      });
+
+      identity = resolved.identity;
+      tenant = resolved.tenant ?? tenant;
+    }
+
+    const ctx = createToolContext(
+      { ...serverCtx, identity, tenant },
+      meta,
+      { request: { method: 'tools/call' } },
+    );
 
     let result: R;
     try {

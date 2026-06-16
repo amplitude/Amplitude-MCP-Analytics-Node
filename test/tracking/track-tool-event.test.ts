@@ -23,7 +23,7 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
         tenant: { groupType: 'org id', groupValue: '36958' },
         anchor: { type: 'session-id', value: 'sess-1' },
       },
@@ -62,7 +62,7 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs' },
     );
@@ -100,7 +100,7 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs' },
     );

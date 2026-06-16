@@ -1,9 +1,10 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { MCPAnalyticsConfig } from './config.js';
-import { createServerContext, runWithContext } from './context/index.js';
-import type { McpServerContext, McpToolContext, McpToolMeta } from './context/types.js';
+import { createServerContext, runWithContext, setIdentity as setIdentityOnCtx } from './context/index.js';
+import type { IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
 import { buildToolContext, resolveTransport } from './core/build-context.js';
+import type { ServerIdentity } from './core/identity.js';
 import {
   TrackingProxy,
   installTrackCounter,
@@ -28,9 +29,15 @@ import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
 /** Marks a server whose `connect` we've already wrapped, to stay idempotent. */
 const INSTRUMENTED = Symbol.for('amplitude.mcp.instrumented');
 
-/** Reserved for future identity/tenant inputs (resolution is a later track). @internal */
+/**
+ * Static identity for `instrumentServer()`. Intended for stdio transports or
+ * single-user servers where the identity is known for the server's lifetime.
+ * Server identity of the fallback chain.
+ */
 export interface InstrumentServerOptions {
-  [key: string]: unknown;
+  userId?: string;
+  deviceId?: string;
+  tenant?: McpTenant;
 }
 
 export interface AmplitudeMCPAnalyticsOptions {
@@ -112,6 +119,9 @@ export class AmplitudeMCPAnalytics {
    *  to the anonymous floor with the configured server identity. @internal */
   protected _extractContext: ContextExtractor;
 
+  /** Static identity from `instrumentServer()` — server identity of the fallback chain. @internal */
+  protected _serverIdentity?: ServerIdentity;
+
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
       throw new ConfigurationError('AmplitudeMCPAnalytics: serverName is required');
@@ -185,6 +195,35 @@ export class AmplitudeMCPAnalytics {
   }
 
   /**
+   * Set or override the subject identity on the current request's context.
+   * Must be called inside an instrumented tool handler (or a `runWithContext`
+   * block). This is the first step of the fallback chain that wins over all other
+   * identity sources.
+   *
+   * @example Inside a tool handler (simplest):
+   * ```typescript
+   * server.tool('search', schema, analytics.instrumentTool('search', async (args, extra) => {
+   *   analytics.setIdentity({
+   *     userId: myAuth.getLoginId(),
+   *     tenant: { groupType: 'org id', groupValue: myAuth.getOrgId() },
+   *   });
+   *   return doSearch(args);
+   * }));
+   * ```
+   *
+   * @example Inside a shared helper called from any depth:
+   * ```typescript
+   * function resolveAndSetIdentity() {
+   *   const user = myAuth.getCurrentUser();
+   *   analytics.setIdentity({ userId: user.loginId });
+   * }
+   * ```
+   */
+  setIdentity(input: SetIdentityInput): void {
+    setIdentityOnCtx(input);
+  }
+
+  /**
    * Build a structured MCP error response and store the error on `ctx` for
    * telemetry. Returns a valid `CallToolResult` with `isError: true` and a
    * client-facing message that includes the correction guidance.
@@ -253,7 +292,11 @@ export class AmplitudeMCPAnalytics {
     handler: InstrumentedToolHandler<Args, R>,
   ): (...args: Args) => R {
     return wrapToolFactory(
-      { amplitude: this._amplitude, extractContext: this._extractContext },
+      {
+        amplitude: this._amplitude,
+        extractContext: this._extractContext,
+        serverIdentity: this._serverIdentity,
+      },
       meta,
       handler,
     );
@@ -273,14 +316,20 @@ export class AmplitudeMCPAnalytics {
   instrumentTool<Args extends unknown[], R extends ToolResult>(
     name: string,
     handler: (...args: Args) => R,
-    meta?: Omit<McpToolMeta, 'name'>,
+    meta?: Omit<McpToolMeta, 'name'> & { resolveIdentity?: IdentityResolver },
   ): (...args: Args) => R {
     const toolMeta: McpToolMeta = { name, ...meta };
+
+    const identityResolver = meta?.resolveIdentity;
     return (...callArgs: Args): R => {
       const serverCtx = this._serverCtx;
       if (serverCtx === undefined) return handler(...callArgs);
+
       const extra = callArgs[callArgs.length - 1] as McpExtra;
-      const ctx = buildToolContext(serverCtx, toolMeta, extra);
+      const ctx = buildToolContext(serverCtx, toolMeta, extra, {
+        resolveIdentity: identityResolver,
+        serverIdentity: this._serverIdentity,
+      });
 
       return runWithContext(ctx, () => {
         let result: R;
@@ -319,9 +368,17 @@ export class AmplitudeMCPAnalytics {
    *
    * @internal Not published yet — pending the public server-binding contract.
    */
-  instrumentServer<S extends McpServerLike>(server: S, _opts?: InstrumentServerOptions): S {
+  instrumentServer<S extends McpServerLike>(server: S, opts?: InstrumentServerOptions): S {
     const boundServer = server as McpServerLike & { [INSTRUMENTED]?: boolean };
     if (boundServer[INSTRUMENTED]) return server;
+
+    if (opts != null && (opts.userId != null || opts.deviceId != null || opts.tenant != null)) {
+      this._serverIdentity = {
+        userId: opts.userId,
+        deviceId: opts.deviceId,
+        tenant: opts.tenant,
+      };
+    }
 
     // `isConnected()` is only on the high-level McpServer.
     if ('isConnected' in boundServer && boundServer.isConnected()) {

@@ -16,7 +16,7 @@ function makeAnalytics() {
   return { analytics, tracked };
 }
 
-/** Stand-in for the forthcoming server-binding step: set the server-scope ctx. */
+/** Set the server-scope ctx. */
 function bind(analytics: AmplitudeMCPAnalytics, transport: McpTransport = 'streamable-http') {
   (analytics as unknown as { _serverCtx?: McpServerContext })._serverCtx = createServerContext({
     server: { name: 'test-mcp', version: '9.9.9' },
@@ -76,7 +76,8 @@ describe('instrumentTool', () => {
     expect(ctx?.transport).toBe('streamable-http'); // inherited from server scope
     expect(ctx?.client?.name).toBe('cursor'); // per-request, from _meta.clientInfo
     expect(ctx?.anchor).toEqual({ type: 'session-id', value: 'sess-abc123' }); // legacy HTTP
-    expect(ctx?.identity.resolvedFrom).toBe('anonymous'); // identity resolution is follow-up
+    expect(ctx?.identity.resolvedFrom).toBe('anchor');
+    expect(ctx?.identity.userId).toBe('session-id:sess-abc123');
   });
 
   it('carries caller-supplied tool metadata onto ctx', async () => {
