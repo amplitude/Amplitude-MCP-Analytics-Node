@@ -329,6 +329,7 @@ export class AmplitudeMCPAnalytics {
       const ctx = buildToolContext(serverCtx, toolMeta, extra, {
         resolveIdentity: identityResolver,
         serverIdentity: this._serverIdentity,
+        logger: getLogger(this._amplitude),
       });
 
       return runWithContext(ctx, () => {

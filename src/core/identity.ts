@@ -21,6 +21,9 @@ import type {
   McpIdentity,
   McpTenant,
 } from '../context/types.js';
+import type { Logger } from '../utils/logger.js';
+
+const MIN_ID_LENGTH = 5;
 
 const AMP_MCP_NAMESPACE = '6ba7b812-9dad-11d1-80b4-00c04fd430c8';
 
@@ -52,6 +55,7 @@ export interface ResolveIdentityInput {
   authInfo?: Record<string, unknown>;
   serverIdentity?: ServerIdentity;
   anchor: McpAnchor;
+  logger?: Logger;
 }
 
 /** The result of identity resolution: identity + optional tenant override. */
@@ -67,14 +71,22 @@ export interface ResolvedIdentity {
 export function resolveIdentityFromChain(input: ResolveIdentityInput): ResolvedIdentity {
   // resolveIdentity callback (Streamable HTTP / OAuth path)
   if (input.resolveIdentity != null) {
-    const resolved = input.resolveIdentity(input.authInfo);
-    if (resolved.userId != null || resolved.deviceId != null) {
-      const identity = applyAnchorFallback(
-        { resolvedFrom: 'authInfo', userId: resolved.userId, deviceId: resolved.deviceId },
-        input.anchor,
-      );
+    try {
+      const resolved = input.resolveIdentity(input.authInfo);
+      if (resolved.userId != null || resolved.deviceId != null) {
+        const identity = applyAnchorFallback(
+          { resolvedFrom: 'authInfo', userId: resolved.userId, deviceId: resolved.deviceId },
+          input.anchor,
+        );
+        warnShortIds(input.logger, identity, 'resolveIdentity');
 
-      return { identity, tenant: resolved.tenant };
+        return { identity, tenant: resolved.tenant };
+      }
+      input.logger?.warn('resolveIdentity callback returned empty — falling through to next identity level.');
+    } catch (err) {
+      input.logger?.warn(
+        `resolveIdentity callback threw: ${err instanceof Error ? err.message : String(err)} — falling back to next identity level.`,
+      );
     }
   }
 
@@ -86,6 +98,7 @@ export function resolveIdentityFromChain(input: ResolveIdentityInput): ResolvedI
         { resolvedFrom: 'explicit', userId: si.userId, deviceId: si.deviceId },
         input.anchor,
       );
+      warnShortIds(input.logger, identity, 'instrumentServer');
 
       return { identity, tenant: si.tenant };
     }
@@ -112,6 +125,21 @@ export function resolveIdentityFromChain(input: ResolveIdentityInput): ResolvedI
       userId: `anonymous:${deviceId}`,
     },
   };
+}
+
+function warnShortIds(log: Logger | undefined, identity: McpIdentity, source: string): void {
+  const description = `Amplitude silently drops IDs shorter than ${MIN_ID_LENGTH} characters.`;
+  if (identity.userId != null && identity.userId.length < MIN_ID_LENGTH) {
+    log?.warn(
+      `${source} returned userId "${identity.userId}" (${identity.userId.length} chars) — ${description}`,
+    );
+  }
+
+  if (identity.deviceId != null && identity.deviceId.length < MIN_ID_LENGTH) {
+    log?.warn(
+      `${source} returned deviceId "${identity.deviceId}" (${identity.deviceId.length} chars) — ${description}`,
+    );
+  }
 }
 
 /**

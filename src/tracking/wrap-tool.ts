@@ -22,6 +22,7 @@ import type { IdentityResolver, McpToolContext, McpToolMeta } from '../context/t
 import { resolveIdentityFromChain, type ServerIdentity } from '../core/identity.js';
 import type { McpExtra, ToolResult } from '../core/mcp.js';
 import type { AmplitudeClientLike } from '../types.js';
+import { getLogger } from '../utils/logger.js';
 import { trackToolEvent } from './track-tool-event.js';
 import type { ContextExtractor } from './types.js';
 
@@ -74,6 +75,7 @@ export function wrapTool<Args extends unknown[], R extends ToolResult>(
         authInfo,
         serverIdentity: deps.serverIdentity,
         anchor: serverCtx.anchor,
+        logger: getLogger(deps.amplitude),
       });
 
       identity = resolved.identity;

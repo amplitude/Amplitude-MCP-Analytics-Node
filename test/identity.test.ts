@@ -1,6 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { resolveIdentityFromChain } from '../src/core/identity.js';
 import type { McpAnchor, IdentityResolver, McpTenant } from '../src/context/types.js';
+import type { Logger } from '../src/utils/logger.js';
+
+function mockLogger(): Logger & { calls: { warn: string[]; error: string[] } } {
+  const calls = { warn: [] as string[], error: [] as string[] };
+  return {
+    calls,
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn((msg: string) => calls.warn.push(msg)),
+    error: vi.fn((msg: string) => calls.error.push(msg)),
+  };
+}
 
 const processAnchor: McpAnchor = { type: 'process', value: '12345' };
 const sessionAnchor: McpAnchor = { type: 'session-id', value: 'sess-abc' };
@@ -35,7 +47,7 @@ describe('resolveIdentityFromChain', () => {
 
       expect(result.identity.userId).toBe('alice');
       expect(result.identity.deviceId).toBeDefined();
-      expect(result.identity.deviceId!.length).toBeGreaterThanOrEqual(5);
+      expect(result.identity.deviceId?.length).toBeGreaterThanOrEqual(5);
     });
 
     it('uses explicit deviceId from resolveIdentity (skips anchor derivation)', () => {
@@ -126,7 +138,7 @@ describe('resolveIdentityFromChain', () => {
       expect(result.identity.resolvedFrom).toBe('anchor');
       expect(result.identity.userId).toBe('process:12345');
       expect(result.identity.deviceId).toBeDefined();
-      expect(result.identity.deviceId!.length).toBeGreaterThanOrEqual(5);
+      expect(result.identity.deviceId?.length).toBeGreaterThanOrEqual(5);
     });
 
     it('derives userId and deviceId from a session anchor', () => {
@@ -203,6 +215,105 @@ describe('resolveIdentityFromChain', () => {
 
       expect(result.identity.userId).toBe('from-server');
       expect(result.identity.resolvedFrom).toBe('explicit');
+    });
+  });
+
+  describe('error resilience', () => {
+    it('falls through to next level when resolveIdentity throws', () => {
+      const log = mockLogger();
+      const resolver: IdentityResolver = () => {
+        throw new Error('auth service down');
+      };
+
+      const result = resolveIdentityFromChain({
+        resolveIdentity: resolver,
+        authInfo: {},
+        serverIdentity: { userId: 'fallback-server' },
+        anchor: sessionAnchor,
+        logger: log,
+      });
+
+      expect(result.identity.userId).toBe('fallback-server');
+      expect(result.identity.resolvedFrom).toBe('explicit');
+      expect(log.calls.warn).toHaveLength(1);
+      expect(log.calls.warn[0]).toContain('auth service down');
+    });
+
+    it('falls through to anchor when resolveIdentity throws and no serverIdentity', () => {
+      const log = mockLogger();
+      const resolver: IdentityResolver = () => {
+        throw new TypeError('cannot read property');
+      };
+
+      const result = resolveIdentityFromChain({
+        resolveIdentity: resolver,
+        authInfo: {},
+        anchor: sessionAnchor,
+        logger: log,
+      });
+
+      expect(result.identity.resolvedFrom).toBe('anchor');
+      expect(log.calls.warn).toHaveLength(1);
+    });
+
+    it('warns when resolveIdentity returns empty', () => {
+      const log = mockLogger();
+      const resolver: IdentityResolver = () => ({});
+
+      resolveIdentityFromChain({
+        resolveIdentity: resolver,
+        authInfo: {},
+        anchor: sessionAnchor,
+        logger: log,
+      });
+
+      expect(log.calls.warn).toHaveLength(1);
+      expect(log.calls.warn[0]).toContain('returned empty');
+    });
+
+    it('warns when resolveIdentity returns a too-short userId', () => {
+      const log = mockLogger();
+      const resolver: IdentityResolver = () => ({ userId: 'ab' });
+
+      const result = resolveIdentityFromChain({
+        resolveIdentity: resolver,
+        authInfo: {},
+        anchor: sessionAnchor,
+        logger: log,
+      });
+
+      expect(result.identity.userId).toBe('ab');
+      expect(result.identity.resolvedFrom).toBe('authInfo');
+      expect(log.calls.warn).toHaveLength(1);
+      expect(log.calls.warn[0]).toContain('shorter than 5');
+    });
+
+    it('warns when serverIdentity has a too-short deviceId', () => {
+      const log = mockLogger();
+
+      resolveIdentityFromChain({
+        serverIdentity: { userId: 'valid-user', deviceId: 'xy' },
+        anchor: processAnchor,
+        logger: log,
+      });
+
+      expect(log.calls.warn).toHaveLength(1);
+      expect(log.calls.warn[0]).toContain('deviceId');
+      expect(log.calls.warn[0]).toContain('shorter than 5');
+    });
+
+    it('does not warn when IDs are long enough', () => {
+      const log = mockLogger();
+      const resolver: IdentityResolver = () => ({ userId: 'alice@example.com' });
+
+      resolveIdentityFromChain({
+        resolveIdentity: resolver,
+        authInfo: {},
+        anchor: sessionAnchor,
+        logger: log,
+      });
+
+      expect(log.calls.warn).toHaveLength(0);
     });
   });
 });

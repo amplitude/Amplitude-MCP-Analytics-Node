@@ -17,6 +17,7 @@ import type {
 } from '../context/types.js';
 import { resolveIdentityFromChain, type ServerIdentity } from './identity.js';
 import { metaRecord, readHeader, type McpExtra, type Transport } from './mcp.js';
+import type { Logger } from '../utils/logger.js';
 
 /**
  * Classify the transport passed to `server.connect()` (server-scope). Probes for
@@ -114,6 +115,7 @@ function resolveAnchor(transport: McpTransport, extra: McpExtra): McpAnchor {
 export interface BuildToolContextOpts {
   resolveIdentity?: IdentityResolver;
   serverIdentity?: ServerIdentity;
+  logger?: Logger;
 }
 
 /**
@@ -139,6 +141,7 @@ export function buildToolContext(
     authInfo,
     serverIdentity: opts?.serverIdentity,
     anchor: resolvedAnchor,
+    logger: opts?.logger,
   });
 
   return createToolContext(
