@@ -11,6 +11,6 @@ export {
 } from './ctx-to-properties.js';
 export { trackServerEvent } from './track-server-event.js';
 export { trackToolEvent } from './track-tool-event.js';
-export { wrapTool } from './wrap-tool.js';
-export type { InstrumentedToolHandler, WrapToolDependencies } from './wrap-tool.js';
-export type { AmplitudeFields, ContextExtractor } from './types.js';
+// Tool instrumentation is the `AmplitudeMCPAnalytics.instrumentTool` method; the
+// standalone factory in ./instrument-tool.js is internal.
+export type { AmplitudeFields } from './types.js';

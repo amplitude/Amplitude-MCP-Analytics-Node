@@ -22,7 +22,6 @@ describe('smoke test: all public exports are defined', () => {
     // Tracking (custom event API)
     expect(mod.trackServerEvent).toBeDefined();
     expect(mod.trackToolEvent).toBeDefined();
-    expect(mod.wrapTool).toBeDefined();
     expect(mod.ctxToAmplitudeFields).toBeDefined();
     expect(mod.ctxToAmplitudeFieldsForTool).toBeDefined();
     expect(mod.shouldEmit).toBeDefined();
@@ -32,7 +31,6 @@ describe('smoke test: all public exports are defined', () => {
     const tracking = await import('../src/tracking/index.js');
     expect(tracking.trackServerEvent).toBeDefined();
     expect(tracking.trackToolEvent).toBeDefined();
-    expect(tracking.wrapTool).toBeDefined();
     expect(tracking.ctxToAmplitudeFields).toBeDefined();
     expect(tracking.ctxToAmplitudeFieldsForTool).toBeDefined();
     expect(tracking.shouldEmit).toBeDefined();

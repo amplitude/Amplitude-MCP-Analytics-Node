@@ -4,8 +4,10 @@ Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking
 for Amplitude Analytics.
 
 > **Status:** Early preview. The MCP context object (`ctx`), its types, and
-> factory helpers are available now. Event tracking, identity resolution, and
-> transport integration are still in active development.
+> factory helpers are available now. Transport and correlation handling (stdio
+> and Streamable HTTP, across protocol revisions) is in place under the hood;
+> the server-binding API, event tracking, and identity resolution land with the
+> upcoming tracking releases.
 
 ## Install
 
@@ -35,9 +37,9 @@ const analytics = createMcpAnalytics({
 
 ## Context (`ctx`)
 
-Every tracked event will share a per-invocation context object. You can build
-one today and pass it explicitly through your server, or optionally expose it
-via `runWithContext` for deep call stacks.
+Every tracked event carries a per-invocation context object. You can construct
+one and pass it explicitly to the tracking APIs, or expose it via
+`runWithContext` so deeper call stacks can read it through `getCurrentContext()`.
 
 ```ts
 import {
