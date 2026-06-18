@@ -29,7 +29,7 @@ export type ToolHandler<Args extends unknown[], R extends ToolResult> = (...args
 
 // Re-exported SDK server/transport types so the rest of `core/` reads them from
 // this one adapter rather than reaching into SDK subpaths directly.
-export type { McpServer, Server, Transport };
+export type { CallToolResult, McpServer, Server, Transport };
 
 /**
  * A server we can instrument: the high-level {@link McpServer} (owns a

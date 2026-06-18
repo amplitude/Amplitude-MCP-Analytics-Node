@@ -63,6 +63,16 @@ runWithContext(toolCtx, () => {
 Types and helpers are also re-exported from the main entry
 (`@amplitude/mcp-analytics`).
 
+### Instrumentation requires a bound server
+
+Tool instrumentation is activated by binding the SDK to your MCP server (the
+server-binding API lands in an upcoming release). Until a tool's server is
+bound, the instrumentation wrapper is a **no-op passthrough**: your handler runs
+untouched, nothing is emitted, and no ambient context is established — the SDK
+logs a one-time warning per tool rather than silently dropping events. This
+keeps analytics strictly opt-in and guarantees instrumenting a tool can never
+change its behavior before tracking is wired up.
+
 ## Architecture decisions
 
 ### Separate repo from `@amplitude/ai`

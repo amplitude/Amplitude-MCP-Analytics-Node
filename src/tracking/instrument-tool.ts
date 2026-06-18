@@ -11,8 +11,9 @@
  *      The SDK builds the context; you never construct or pass it.
  *   2. Runs the handler with that context available via `getCurrentContext()`
  *      (the `track*` methods also accept it explicitly).
- *   3. Emits a tool-call event (success + duration, or failure) and records any
- *      thrown error on the context.
+ *   3. Emits a tool-call event (success + duration, or failure) and records the
+ *      error on the context. A failure is either a thrown exception OR a tool
+ *      result carrying `isError: true`.
  *   4. Preserves the underlying handler's sync/async shape — a sync handler
  *      returns its sync result; an async handler returns a promise.
  *
@@ -27,7 +28,7 @@ import { runWithContext } from '../context/als.js';
 import type { McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
 import type { McpExtra, ToolHandler, ToolResult } from '../core/mcp.js';
-import { classifyError } from '../errors.js';
+import { buildToolError, classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
 import { trackToolEvent } from './track-tool-event.js';
@@ -96,12 +97,12 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     try {
       result = runWithContext(ctx, () => handler(...callArgs));
     } catch (err) {
-      // Synchronous throw — classify, emit failure, rethrow so the SDK surfaces it.
-      ctx.error = classifyError(err);
-      emitToolCallResponseStub(deps.amplitude, ctx, {
-        status: 'error',
-        durationMs: performance.now() - startMs,
-        error: err,
+      // Synchronous throw — record the failure, then rethrow so the SDK surfaces
+      // it. The wrapper owns the rethrow; the recorder only emits telemetry.
+      recordToolCall({
+        amplitude: deps.amplitude,
+        ctx,
+        args: { durationMs: performance.now() - startMs, thrown: err },
       });
       throw err;
     }
@@ -111,18 +112,18 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     if (isPromise(result)) {
       const tracked = result.then(
         (value) => {
-          emitToolCallResponseStub(deps.amplitude, ctx, {
-            status: 'success',
-            durationMs: performance.now() - startMs,
+          recordToolCall({
+            amplitude: deps.amplitude,
+            ctx,
+            args: { durationMs: performance.now() - startMs, returned: value },
           });
           return value;
         },
         (err) => {
-          ctx.error = classifyError(err);
-          emitToolCallResponseStub(deps.amplitude, ctx, {
-            status: 'error',
-            durationMs: performance.now() - startMs,
-            error: err,
+          recordToolCall({
+            amplitude: deps.amplitude,
+            ctx,
+            args: { durationMs: performance.now() - startMs, thrown: err },
           });
           throw err;
         },
@@ -130,12 +131,67 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       return tracked as R;
     }
 
-    emitToolCallResponseStub(deps.amplitude, ctx, {
-      status: 'success',
-      durationMs: performance.now() - startMs,
+    recordToolCall({
+      amplitude: deps.amplitude,
+      ctx,
+      args: { durationMs: performance.now() - startMs, returned: result },
     });
     return result;
   };
+}
+
+/**
+ * The per-call outcome payload. `thrown` / `returned` select the outcome path;
+ * any other fields are passed through to the emitter unchanged.
+ *
+ * @internal
+ */
+interface ToolCallArgs {
+  /** Present when the handler threw — the raw thrown value. */
+  thrown?: unknown;
+  /** Present when the handler returned — the raw tool result. */
+  returned?: unknown;
+  /** Wall-clock duration of the handler call, in milliseconds. */
+  durationMs: number;
+}
+
+/**
+ * The single point `instrumentTool` funnels every tool call through. It resolves 
+ * the call status, classifies any error onto `ctx.error`, then forwards the status 
+ * plus the remaining `args` to the event emitter. 
+ *
+ * A call is considered a failure when:
+ *   - a thrown exception (protocol-level error), classified via {@link classifyError}; 
+ *   - a returned result carrying `isError: true` (tool-execution error reported in-band — the SDK does not throw it), classified as `returned_error`.
+ * @internal
+ */
+function recordToolCall({
+  amplitude,
+  ctx,
+  args,
+}: {
+  amplitude: AmplitudeClientLike;
+  ctx: McpToolContext;
+  args: ToolCallArgs;
+}): void {
+  const { thrown, returned, ...rest } = args;
+  let status: 'success' | 'error' = 'success';
+
+  if ('thrown' in args) {
+    ctx.error = classifyError(args.thrown);
+    status = 'error';
+  } else if ('returned' in args && isErrorResult(args.returned)) {
+    ctx.error = ctx.error != null
+      // preserve the pre-existing error context (e.g. when constructed by `analytics.toolError(ctx, input)`)
+      ? ctx.error
+      : buildToolError({
+        code: 'returned_error',
+        message: errorMessageFromResult(args.returned) ?? 'Tool returned an error result',
+      });
+    status = 'error';
+  }
+
+  emitToolCallResponseStub(amplitude, ctx, { ...rest, status });
 }
 
 /**
@@ -143,27 +199,29 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
  * `instrumentTool` is testable today. Future work replaces it with the
  * canonical `mcp: tool call response` event and removes this helper.
  *
+ * Error details are read from `ctx.error` (set by {@link recordToolCall}),
+ * so a thrown exception and an in-band `isError` result emit the same event
+ * shape — only the classified error `type` differs.
+ *
  * @internal
  */
 function emitToolCallResponseStub(
   amplitude: AmplitudeClientLike,
   ctx: McpToolContext,
-  outcome:
-    | { status: 'success'; durationMs: number }
-    | { status: 'error'; durationMs: number; error: unknown },
+  outcome: { status: 'success' | 'error'; durationMs: number },
 ): void {
   const properties: Record<string, unknown> = {
     'tool call status': outcome.status,
     'tool call duration ms': Math.round(outcome.durationMs),
   };
-  if (outcome.status === 'error') {
-    const err = outcome.error;
-    properties['error message'] = err instanceof Error ? err.message : String(err);
-    properties['error type'] = err instanceof Error ? err.name : 'unknown';
+  if (outcome.status === 'error' && ctx.error != null) {
+    properties['error message'] = ctx.error.message;
+    properties['error type'] = ctx.error.type;
   }
   trackToolEvent(amplitude, ctx, 'mcp: tool call response', properties);
 }
 
+/** @internal */
 function isPromise(value: unknown): value is Promise<unknown> {
   return (
     value != null &&

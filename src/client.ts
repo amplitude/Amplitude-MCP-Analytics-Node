@@ -1,5 +1,3 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
 import { MCPAnalyticsConfig } from './config.js';
 import { createServerContext } from './context/index.js';
 import type { McpServerContext, McpToolContext, McpToolMeta } from './context/types.js';
@@ -11,7 +9,14 @@ import {
   registerExitHook,
   settleUnflushedCount,
 } from './core/delivery/index.js';
-import type { McpServerLike, Server, ToolHandler, ToolResult, Transport } from './core/mcp.js';
+import type {
+  CallToolResult,
+  McpServerLike,
+  Server,
+  ToolHandler,
+  ToolResult,
+  Transport,
+} from './core/mcp.js';
 import { buildToolError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
 import { trackServerEvent } from './tracking/track-server-event.js';
@@ -89,8 +94,8 @@ export class AmplitudeMCPAnalytics {
   protected _trackCountSinceFlush = 0;
 
   /** Server-scope context inherited by every instrumented tool ctx, set by
-   *  {@link instrumentServer}. When unset, {@link instrumentTool} falls back to
-   *  a floor carrying the configured server identity. @internal */
+   *  {@link instrumentServer}. When unset, {@link instrumentTool} is a no-op 
+   *  passthrough (warns once) and the handler runs untouched. @internal */
   protected _serverCtx?: McpServerContext;
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {

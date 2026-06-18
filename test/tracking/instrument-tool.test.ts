@@ -123,6 +123,113 @@ describe('instrumentTool', () => {
     expect(events[0]?.event_properties?.['tool call duration ms']).toEqual(expect.any(Number));
   });
 
+  it('treats an `isError: true` result as a failure (MCP in-band error channel)', async () => {
+    const { client, tracked } = makeAmplitude();
+    let ctx: McpToolContext | undefined;
+    const wrapped = instrumentTool(
+      mkDeps(client, () => boundCtx()),
+      async (_extra: McpExtra): Promise<CallToolResult> => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        // Handler returns (does not throw) but signals failure in-band.
+        return { content: [{ type: 'text', text: 'chart not found' }], isError: true };
+      },
+      { name: 'get_chart' },
+    );
+
+    const result = await wrapped(legacyExtra);
+
+    // The result still flows back to the SDK untouched.
+    expect(result).toMatchObject({ isError: true });
+    const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event_properties).toMatchObject({
+      'tool call status': 'error',
+      'tool name': 'get_chart',
+      'error message': 'chart not found',
+      'error type': 'returned_error',
+    });
+    expect(ctx?.error?.type).toBe('returned_error');
+  });
+
+  it('treats a synchronous `isError: true` result as a failure', () => {
+    const { client, tracked } = makeAmplitude();
+    const wrapped = instrumentTool(
+      mkDeps(client, () => boundCtx()),
+      (_extra: McpExtra): CallToolResult => ({
+        content: [{ type: 'text', text: 'bad input' }],
+        isError: true,
+      }),
+      { name: 'sync_returns_error' },
+    );
+
+    wrapped(legacyExtra);
+
+    const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event_properties).toMatchObject({
+      'tool call status': 'error',
+      'error message': 'bad input',
+      'error type': 'returned_error',
+    });
+  });
+
+  it('emits with an anonymous-floor anchor when there is no session id (stateless HTTP)', async () => {
+    const { client, tracked } = makeAmplitude();
+    let ctx: McpToolContext | undefined;
+    const wrapped = instrumentTool(
+      mkDeps(client, () => boundCtx()),
+      async (_extra: McpExtra) => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        return ok();
+      },
+      { name: 'search_docs' },
+    );
+
+    // No sessionId, no trace context → stateless anonymous floor.
+    await wrapped(mkExtra());
+
+    expect(ctx?.anchor.type).toBe('anonymous');
+    // The session-id property falls back to its sentinel, and the event still emits
+    // (the bound tenant keeps it above the skip rule).
+    const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event_properties?.['session id']).toBe('no-session');
+    expect(events[0]?.event_properties?.['tool call status']).toBe('success');
+  });
+
+  it('anchors on the W3C trace id from _meta.traceparent when there is no session id', async () => {
+    const { client, tracked } = makeAmplitude();
+    let ctx: McpToolContext | undefined;
+    const wrapped = instrumentTool(
+      mkDeps(client, () => boundCtx()),
+      async (_extra: McpExtra) => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        return ok();
+      },
+      { name: 'search_docs' },
+    );
+
+    // Stateless HTTP: no sessionId, but trace context is propagated in _meta.
+    // traceparent = version-traceid-parentid-flags (W3C).
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    await wrapped(
+      mkExtra({ _meta: { traceparent: `00-${traceId}-00f067aa0ba902b7-01` } }),
+    );
+
+    // The anchor (and ctx.traceId) come from the propagated trace, not a session.
+    expect(ctx?.anchor).toEqual({ type: 'trace', value: traceId });
+    expect(ctx?.traceId).toBe(traceId);
+
+    const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event_properties).toMatchObject({
+      'anchor type': 'trace',
+      'trace id': traceId,
+      'session id': 'no-session',
+      'tool call status': 'success',
+    });
+  });
+
   it('classifies onto ctx.error and emits a failure event when the handler throws', async () => {
     const { client, tracked } = makeAmplitude();
     let ctx: McpToolContext | undefined;
@@ -143,7 +250,8 @@ describe('instrumentTool', () => {
       'tool call status': 'error',
       'tool name': 'boom',
       'error message': 'kaboom',
-      'error type': 'Error',
+      // The event carries the *classified* type, same shape as a returned error.
+      'error type': 'thrown_exception',
     });
     expect(ctx?.error?.type).toBe('thrown_exception');
   });
