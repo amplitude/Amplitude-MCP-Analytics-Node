@@ -100,9 +100,9 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       // Synchronous throw — record the failure, then rethrow so the SDK surfaces
       // it. The wrapper owns the rethrow; the recorder only emits telemetry.
       recordToolCall({
-        amplitude: deps.amplitude,
         ctx,
-        args: { durationMs: performance.now() - startMs, thrown: err },
+        thrown: err,
+        args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
       });
       throw err;
     }
@@ -113,17 +113,17 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       const tracked = result.then(
         (value) => {
           recordToolCall({
-            amplitude: deps.amplitude,
             ctx,
-            args: { durationMs: performance.now() - startMs, returned: value },
+            returned: value,
+            args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
           });
           return value;
         },
         (err) => {
           recordToolCall({
-            amplitude: deps.amplitude,
             ctx,
-            args: { durationMs: performance.now() - startMs, thrown: err },
+            thrown: err,
+            args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
           });
           throw err;
         },
@@ -132,61 +132,55 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     }
 
     recordToolCall({
-      amplitude: deps.amplitude,
       ctx,
-      args: { durationMs: performance.now() - startMs, returned: result },
+      returned: result,
+      args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
     });
     return result;
   };
 }
 
 /**
- * The per-call outcome payload. `thrown` / `returned` select the outcome path;
- * any other fields are passed through to the emitter unchanged.
+ * Fields forwarded to the emitter unchanged.
  *
  * @internal
  */
 interface ToolCallArgs {
-  /** Present when the handler threw — the raw thrown value. */
-  thrown?: unknown;
-  /** Present when the handler returned — the raw tool result. */
-  returned?: unknown;
+  amplitude: AmplitudeClientLike;
   /** Wall-clock duration of the handler call, in milliseconds. */
   durationMs: number;
 }
 
 /**
- * The single point `instrumentTool` funnels every tool call through. It resolves 
- * the call status, classifies any error onto `ctx.error`, then forwards the status 
- * plus the remaining `args` to the event emitter. 
+ * The single point `instrumentTool` funnels every tool call through. It resolves
+ * the call status, classifies any error onto `ctx.error`, then forwards the status
+ * plus the pass-through `args` to the event emitter. 
  *
  * A call is considered a failure when:
- *   - a thrown exception (protocol-level error), classified via {@link classifyError}; 
+ *   - a thrown exception (protocol-level error), classified via {@link classifyError};
  *   - a returned result carrying `isError: true` (tool-execution error reported in-band — the SDK does not throw it), classified as `returned_error`.
  * @internal
  */
-function recordToolCall({
-  amplitude,
-  ctx,
-  args,
-}: {
-  amplitude: AmplitudeClientLike;
+function recordToolCall(params: {
   ctx: McpToolContext;
+  thrown?: unknown;
+  returned?: unknown;
   args: ToolCallArgs;
 }): void {
-  const { thrown, returned, ...rest } = args;
+  const { ctx, args } = params;
+  const { amplitude, ...rest } = args;
   let status: 'success' | 'error' = 'success';
 
-  if ('thrown' in args) {
-    ctx.error = classifyError(args.thrown);
+  if ('thrown' in params) {
+    ctx.error = classifyError(params.thrown);
     status = 'error';
-  } else if ('returned' in args && isErrorResult(args.returned)) {
+  } else if ('returned' in params && isErrorResult(params.returned)) {
     ctx.error = ctx.error != null
       // preserve the pre-existing error context (e.g. when constructed by `analytics.toolError(ctx, input)`)
       ? ctx.error
       : buildToolError({
         code: 'returned_error',
-        message: errorMessageFromResult(args.returned) ?? 'Tool returned an error result',
+        message: errorMessageFromResult(params.returned) ?? 'Tool returned an error result',
       });
     status = 'error';
   }
