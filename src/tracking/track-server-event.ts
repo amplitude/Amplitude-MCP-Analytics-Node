@@ -6,6 +6,7 @@
  * event-specific delta. Caller-supplied `properties` win on collision; emit
  * failures are swallowed (best-effort) and logged via the configured logger.
  */
+import type { PrivacyConfig } from '../core/privacy.js';
 import type { McpServerContext } from '../context/types.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
@@ -24,18 +25,24 @@ export function trackServerEvent(
   ctx: McpServerContext,
   eventName: string,
   properties?: Record<string, unknown>,
+  privacy?: PrivacyConfig,
 ): void {
   if (!shouldEmit(ctx)) return;
 
   try {
-    const { user_id, device_id, groups, event_properties } = ctxToAmplitudeFields(ctx);
+    const { user_id, device_id, groups, event_properties } = ctxToAmplitudeFields(ctx, privacy);
+    // Caller-supplied properties are free-form content — redact before merge.
+    const props =
+      privacy && properties != null
+        ? (privacy.redactValue(properties) as Record<string, unknown>)
+        : properties;
     amplitude.track({
       event_type: eventName,
       user_id,
       device_id,
       groups,
       // Caller-supplied properties win on collision — documented precedence.
-      event_properties: { ...event_properties, ...properties },
+      event_properties: { ...event_properties, ...props },
     });
   } catch (err) {
     getLogger(amplitude).warn(
