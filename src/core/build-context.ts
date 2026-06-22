@@ -125,7 +125,6 @@ export function buildToolContext(
     {
       ...serverCtx,
       anchor: resolvedAnchor,
-      traceId: resolvedAnchor.type === 'trace' ? resolvedAnchor.value : serverCtx.traceId,
       protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
       // Floored — identity resolution (which consumes the anchor) is follow-up work.
       identity: { resolvedFrom: 'anonymous' },

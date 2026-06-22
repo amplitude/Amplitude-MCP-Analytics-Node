@@ -41,13 +41,13 @@ describe('createServerContext', () => {
     const ctx = createServerContext({
       server: { name: 'my-server' },
       transport: 'streamable-http',
-      traceId: 'abc123',
+      protocolVersion: '2026-07-28',
       authType: 'OAuth',
       // server-domain values (e.g. Amplitude's `org url`) ride in `extra`
       extra: { 'org url': 'amplitude' },
     });
 
-    expect(ctx.traceId).toBe('abc123');
+    expect(ctx.protocolVersion).toBe('2026-07-28');
     expect(ctx.authType).toBe('OAuth');
     expect(ctx.extra).toEqual({ 'org url': 'amplitude' });
   });
