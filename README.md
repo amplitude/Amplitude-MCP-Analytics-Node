@@ -73,6 +73,39 @@ logs a one-time warning per tool rather than silently dropping events. This
 keeps analytics strictly opt-in and guarantees instrumenting a tool can never
 change its behavior before tracking is wired up.
 
+## Privacy & redaction
+
+By default the SDK redacts personally identifiable information from the
+**free-form content** of every event it emits — the properties you pass to
+`trackServerEvent` / `trackToolEvent` and any host enrichment on `ctx.extra`.
+The built-in patterns cover emails, phone numbers (incl. international), credit
+cards, SSNs, and IPv4/IPv6 addresses; base64-encoded images are replaced with a
+placeholder.
+
+Identity and dimension fields (user id, session id, server name, etc.) are
+**never** redacted — redacting them would corrupt attribution.
+
+```ts
+import { MCPAnalyticsConfig, createMcpAnalytics } from '@amplitude/mcp-analytics';
+
+const analytics = createMcpAnalytics({
+  apiKey: process.env.AMPLITUDE_API_KEY!,
+  serverName: 'my-mcp-server',
+  serverVersion: '1.0.0',
+  config: new MCPAnalyticsConfig({
+    // redactPii: true,                       // built-in PII patterns (default)
+    customRedactionPatterns: [                // extra rules, applied after
+      'secret-\\d+',                          //   bare string → "[REDACTED]"
+      { pattern: '\\bACME-\\d+\\b', replacement: '[ticket]' },
+    ],
+    customRedactionFn: (text) => text.replace(/internal-\w+/g, '[hidden]'),
+  }),
+});
+```
+
+To turn built-in PII redaction off (e.g. you redact upstream), set
+`redactPii: false`. Custom patterns and the custom function still run.
+
 ## Architecture decisions
 
 ### Separate repo from `@amplitude/ai`
@@ -99,8 +132,8 @@ intentionally does not reuse agent vocabulary.
 ### Vendor the core, no hard dependency
 
 A small set of shared, low-level utilities (the delivery proxy + hooks,
-serverless flush accounting) is vendored from `@amplitude/ai` rather than
-taken as a dependency. This keeps the two packages independent at runtime —
+serverless flush accounting, privacy/PII redaction) is vendored from
+`@amplitude/ai` rather than taken as a dependency. This keeps the two packages independent at runtime —
 no shared package, no version coupling — while reusing battle-tested code.
 Contributor notes on the vendoring policy live in `VENDORED.md`.
 

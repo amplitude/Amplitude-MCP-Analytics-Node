@@ -13,7 +13,14 @@
  * after the typed fields, so a host can surface domain values (e.g. `org url`,
  * `user email`) without a custom emit path. Caller-supplied properties on the
  * `track*` methods always win over both.
+ *
+ * When a {@link PrivacyConfig} is supplied, the free-form `extra` values are
+ * run through it (PII patterns, base64-image redaction, custom rules) before
+ * being spread. The typed identity/dimension fields above are NEVER redacted —
+ * redacting an email-shaped `user_id` or an IP-shaped session id would corrupt
+ * attribution.
  */
+import type { PrivacyConfig } from '../core/privacy.js';
 import type { McpServerContext, McpToolContext } from '../context/types.js';
 import type { AmplitudeFields } from './types.js';
 
@@ -27,7 +34,10 @@ const UNKNOWN = 'unknown';
  * MCP-363's connection events) consume this directly; tool-scope events go
  * through {@link ctxToAmplitudeFieldsForTool} which extends the result.
  */
-export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields {
+export function ctxToAmplitudeFields(
+  ctx: McpServerContext,
+  privacy?: PrivacyConfig,
+): AmplitudeFields {
   const event_properties: Record<string, unknown> = {
     // Cross-cutting properties per audit §8 (sentinels when absent).
     'session id': ctx.anchor.type === 'session-id' ? ctx.anchor.value : NO_SESSION,
@@ -52,8 +62,14 @@ export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields {
 
   // Host-supplied enrichment (e.g. `org url`, `user email`) — spread after typed
   // fields so domain values surface, but before caller-supplied properties on
-  // the track*-method, which win on collision.
-  if (ctx.extra != null) Object.assign(event_properties, ctx.extra);
+  // the track*-method, which win on collision. Redacted when a privacy config
+  // is supplied; the typed fields above are deliberately left untouched.
+  if (ctx.extra != null) {
+    const extra = privacy
+      ? (privacy.redactValue(ctx.extra) as Record<string, unknown>)
+      : ctx.extra;
+    Object.assign(event_properties, extra);
+  }
 
   const fields: AmplitudeFields = { event_properties };
   if (ctx.identity.userId != null) fields.user_id = ctx.identity.userId;
@@ -69,8 +85,11 @@ export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields {
  * — `tags`, `category`, `projectId`, `projectName` — are free-form per the ctx
  * contract).
  */
-export function ctxToAmplitudeFieldsForTool(ctx: McpToolContext): AmplitudeFields {
-  const base = ctxToAmplitudeFields(ctx);
+export function ctxToAmplitudeFieldsForTool(
+  ctx: McpToolContext,
+  privacy?: PrivacyConfig,
+): AmplitudeFields {
+  const base = ctxToAmplitudeFields(ctx, privacy);
   base.event_properties['tool name'] = ctx.tool.name;
   if (ctx.tool.owner != null) base.event_properties['tool owner'] = ctx.tool.owner;
   const tags = ctx.tool.tags;

@@ -28,6 +28,7 @@ import { runWithContext } from '../context/als.js';
 import type { McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
 import type { McpExtra, ToolHandler, ToolResult } from '../core/mcp.js';
+import type { PrivacyConfig } from '../core/privacy.js';
 import { buildToolError, classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
@@ -52,6 +53,8 @@ export interface InstrumentToolDependencies {
    * (see its doc) — it does NOT fabricate a floor and emit.
    */
   getServerCtx: () => McpServerContext | undefined;
+  /** Redaction policy applied to the emitted event's free-form properties. */
+  privacy?: PrivacyConfig;
 }
 
 /**
@@ -102,7 +105,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       recordToolCall({
         ctx,
         thrown: err,
-        args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+        args: {
+          amplitude: deps.amplitude,
+          privacy: deps.privacy,
+          durationMs: performance.now() - startMs,
+        },
       });
       throw err;
     }
@@ -115,7 +122,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
           recordToolCall({
             ctx,
             returned: value,
-            args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+            args: {
+              amplitude: deps.amplitude,
+              privacy: deps.privacy,
+              durationMs: performance.now() - startMs,
+            },
           });
           return value;
         },
@@ -123,7 +134,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
           recordToolCall({
             ctx,
             thrown: err,
-            args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+            args: {
+              amplitude: deps.amplitude,
+              privacy: deps.privacy,
+              durationMs: performance.now() - startMs,
+            },
           });
           throw err;
         },
@@ -134,7 +149,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     recordToolCall({
       ctx,
       returned: result,
-      args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+      args: {
+        amplitude: deps.amplitude,
+        privacy: deps.privacy,
+        durationMs: performance.now() - startMs,
+      },
     });
     return result;
   };
@@ -147,6 +166,8 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
  */
 interface ToolCallArgs {
   amplitude: AmplitudeClientLike;
+  /** Redaction policy forwarded to the emitter for the event's free-form properties. */
+  privacy?: PrivacyConfig;
   /** Wall-clock duration of the handler call, in milliseconds. */
   durationMs: number;
 }
@@ -168,7 +189,7 @@ function recordToolCall(params: {
   args: ToolCallArgs;
 }): void {
   const { ctx, args } = params;
-  const { amplitude, ...rest } = args;
+  const { amplitude, privacy, ...rest } = args;
   let status: 'success' | 'error' = 'success';
 
   if ('thrown' in params) {
@@ -185,7 +206,7 @@ function recordToolCall(params: {
     status = 'error';
   }
 
-  emitToolCallResponseStub(amplitude, ctx, { ...rest, status });
+  emitToolCallResponseStub(amplitude, ctx, { ...rest, status, }, privacy);
 }
 
 /**
@@ -203,6 +224,7 @@ function emitToolCallResponseStub(
   amplitude: AmplitudeClientLike,
   ctx: McpToolContext,
   outcome: { status: 'success' | 'error'; durationMs: number },
+  privacy?: PrivacyConfig,
 ): void {
   const properties: Record<string, unknown> = {
     'tool call status': outcome.status,
@@ -212,7 +234,7 @@ function emitToolCallResponseStub(
     properties['error message'] = ctx.error.message;
     properties['error type'] = ctx.error.type;
   }
-  trackToolEvent(amplitude, ctx, 'mcp: tool call response', properties);
+  trackToolEvent(amplitude, ctx, 'mcp: tool call response', properties, privacy);
 }
 
 /** @internal */

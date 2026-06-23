@@ -17,6 +17,7 @@ import type {
   ToolResult,
   Transport,
 } from './core/mcp.js';
+import type { PrivacyConfig } from './core/privacy.js';
 import { buildToolError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
 import { trackServerEvent } from './tracking/track-server-event.js';
@@ -89,6 +90,9 @@ export class AmplitudeMCPAnalytics {
   /** True when this SDK created the underlying client and must shut it down
    *  (apiKey path); false when the caller owns it. @internal */
   protected _ownsClient: boolean;
+  /** Redaction policy applied to free-form event content at emit time, derived
+   *  from `config`. Threaded into every track* / wrapTool emit site. @internal */
+  protected _privacy: PrivacyConfig;
   /** Events tracked since the last flush()/shutdown(); drives the serverless
    *  exit warning. @internal */
   protected _trackCountSinceFlush = 0;
@@ -142,6 +146,7 @@ export class AmplitudeMCPAnalytics {
     this.serverName = options.serverName;
     this.serverVersion = options.serverVersion;
     this.config = options.config ?? new MCPAnalyticsConfig();
+    this._privacy = this.config.toPrivacyConfig();
 
     // Wrap the raw client in a mutable proxy (it may be a frozen ES module
     // namespace) and install the delivery hooks. Order matters: the counter
@@ -194,7 +199,7 @@ export class AmplitudeMCPAnalytics {
     eventName: string,
     properties?: Record<string, unknown>,
   ): void {
-    trackServerEvent(this._amplitude, ctx, eventName, properties);
+    trackServerEvent(this._amplitude, ctx, eventName, properties, this._privacy);
   }
 
   /**
@@ -208,7 +213,7 @@ export class AmplitudeMCPAnalytics {
     eventName: string,
     properties?: Record<string, unknown>,
   ): void {
-    trackToolEvent(this._amplitude, ctx, eventName, properties);
+    trackToolEvent(this._amplitude, ctx, eventName, properties, this._privacy);
   }
 
   /**
@@ -247,6 +252,7 @@ export class AmplitudeMCPAnalytics {
     return instrumentToolFactory(
       {
         amplitude: this._amplitude,
+        privacy: this._privacy,
         // Resolved per invocation (not captured by value): `_serverCtx` is set
         // by instrumentServer's connect wrapper — after tools are wrapped — and
         // mutated again at the handshake. `undefined` until instrumentServer()
