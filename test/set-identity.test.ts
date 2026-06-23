@@ -112,14 +112,14 @@ describe('setIdentity — via analytics.setIdentity() inside instrumentTool', ()
     bind(analytics, 'streamable-http');
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('search', async (_extra: McpExtra) => {
+    const wrapped = analytics.instrumentTool(async (_extra: McpExtra) => {
       analytics.setIdentity({
         userId: 'alice@example.com',
         tenant: { groupType: 'org id', groupValue: '42' },
       });
       ctx = getCurrentContext() as McpToolContext | undefined;
       return ok();
-    });
+    }, { name: 'search' });
 
     await wrapped(legacyExtra);
 
@@ -137,11 +137,11 @@ describe('setIdentity — via analytics.setIdentity() inside instrumentTool', ()
     }
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('search', async (_extra: McpExtra) => {
+    const wrapped = analytics.instrumentTool(async (_extra: McpExtra) => {
       await resolveAndSetIdentity();
       ctx = getCurrentContext() as McpToolContext | undefined;
       return ok();
-    });
+    }, { name: 'search' });
 
     await wrapped(legacyExtra);
     expect(ctx?.identity.userId).toBe('deep-call@example.com');

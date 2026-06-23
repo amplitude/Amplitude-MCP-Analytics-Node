@@ -324,7 +324,6 @@ describe('AmplitudeMCPAnalytics.toolError', () => {
     let result: CallToolResult | undefined;
 
     const wrapped = analytics.instrumentTool(
-      'search_docs',
       async (_extra: McpExtra) => {
         ctx = getCurrentContext() as McpToolContext | undefined;
         result = analytics.toolError(ctx!, {
@@ -335,6 +334,7 @@ describe('AmplitudeMCPAnalytics.toolError', () => {
         });
         return result;
       },
+      { name: 'search_docs' },
     );
 
     return wrapped(extra).then(() => {
@@ -358,10 +358,13 @@ describe('instrumentTool error classification', () => {
     bind(analytics);
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('boom', (_extra: McpExtra): CallToolResult => {
-      ctx = getCurrentContext() as McpToolContext | undefined;
-      throw new Error('kaboom');
-    });
+    const wrapped = analytics.instrumentTool(
+      (_extra: McpExtra): CallToolResult => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        throw new Error('kaboom');
+      },
+      { name: 'boom' },
+    );
 
     expect(() => wrapped(extra)).toThrow('kaboom');
     expect(ctx!.error).toBeDefined();
@@ -375,10 +378,13 @@ describe('instrumentTool error classification', () => {
     bind(analytics);
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('boom', async (_extra: McpExtra): Promise<CallToolResult> => {
-      ctx = getCurrentContext() as McpToolContext | undefined;
-      throw new Error('async kaboom');
-    });
+    const wrapped = analytics.instrumentTool(
+      async (_extra: McpExtra): Promise<CallToolResult> => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        throw new Error('async kaboom');
+      },
+      { name: 'boom' },
+    );
 
     await expect(wrapped(extra)).rejects.toThrow('async kaboom');
 
@@ -392,10 +398,13 @@ describe('instrumentTool error classification', () => {
     bind(analytics);
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('ok-tool', async (_extra: McpExtra): Promise<CallToolResult> => {
-      ctx = getCurrentContext() as McpToolContext | undefined;
-      return { content: [{ type: 'text', text: 'ok' }] };
-    });
+    const wrapped = analytics.instrumentTool(
+      async (_extra: McpExtra): Promise<CallToolResult> => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+      { name: 'ok-tool' },
+    );
 
     await wrapped(extra);
 
@@ -407,10 +416,13 @@ describe('instrumentTool error classification', () => {
     bind(analytics);
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('timeout-tool', async (_extra: McpExtra): Promise<CallToolResult> => {
-      ctx = getCurrentContext() as McpToolContext | undefined;
-      throw new DOMException('signal aborted', 'AbortError');
-    });
+    const wrapped = analytics.instrumentTool(
+      async (_extra: McpExtra): Promise<CallToolResult> => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        throw new DOMException('signal aborted', 'AbortError');
+      },
+      { name: 'timeout-tool' },
+    );
 
     await expect(wrapped(extra)).rejects.toThrow('signal aborted');
 

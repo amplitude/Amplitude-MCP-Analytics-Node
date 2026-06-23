@@ -66,10 +66,10 @@ describe('instrumentServer with identity options', () => {
     await server.connect(stdioTransport);
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('search', async (_extra: McpExtra) => {
+    const wrapped = analytics.instrumentTool(async (_extra: McpExtra) => {
       ctx = getCurrentContext() as McpToolContext | undefined;
       return ok();
-    });
+    }, { name: 'search' });
 
     await wrapped(mkExtra());
 
@@ -89,10 +89,10 @@ describe('instrumentServer with identity options', () => {
     await server.connect(stdioTransport);
 
     let ctx: McpToolContext | undefined;
-    const wrapped = analytics.instrumentTool('search', async (_extra: McpExtra) => {
+    const wrapped = analytics.instrumentTool(async (_extra: McpExtra) => {
       ctx = getCurrentContext() as McpToolContext | undefined;
       return ok();
-    });
+    }, { name: 'search' });
 
     await wrapped(mkExtra());
 
@@ -109,11 +109,11 @@ describe('instrumentTool with resolveIdentity callback', () => {
 
     let ctx: McpToolContext | undefined;
     const wrapped = analytics.instrumentTool(
-      'search',
       async (_extra: McpExtra) => {
         ctx = getCurrentContext() as McpToolContext | undefined;
         return ok();
       },
+      { name: 'search' },
       {
         resolveIdentity: (authInfo) => ({
           userId: authInfo?.email as string,
@@ -137,11 +137,11 @@ describe('instrumentTool with resolveIdentity callback', () => {
 
     let ctx: McpToolContext | undefined;
     const wrapped = analytics.instrumentTool(
-      'search',
       async (_extra: McpExtra) => {
         ctx = getCurrentContext() as McpToolContext | undefined;
         return ok();
       },
+      { name: 'search' },
       {
         resolveIdentity: () => ({ userId: 'from-auth' }),
       },
@@ -161,11 +161,11 @@ describe('instrumentTool with resolveIdentity callback', () => {
 
     let ctx: McpToolContext | undefined;
     const wrapped = analytics.instrumentTool(
-      'search',
       async (_extra: McpExtra) => {
         ctx = getCurrentContext() as McpToolContext | undefined;
         return ok();
       },
+      { name: 'search' },
       {
         resolveIdentity: () => ({}),
       },
@@ -185,12 +185,12 @@ describe('instrumentTool with resolveIdentity callback', () => {
 
     let ctx: McpToolContext | undefined;
     const wrapped = analytics.instrumentTool(
-      'search',
       async (_extra: McpExtra) => {
         analytics.setIdentity({ userId: 'explicit-override' });
         ctx = getCurrentContext() as McpToolContext | undefined;
         return ok();
       },
+      { name: 'search' },
       {
         resolveIdentity: () => ({ userId: 'from-auth' }),
       },

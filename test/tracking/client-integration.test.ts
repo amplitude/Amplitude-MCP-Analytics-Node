@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { createServerContext, createToolContext } from '../../src/context/index.js';
-import type { McpToolContext } from '../../src/context/types.js';
+import {
+  createServerContext,
+  createToolContext,
+  getCurrentContext,
+} from '../../src/context/index.js';
+import type { McpServerContext, McpToolContext } from '../../src/context/types.js';
 import type { McpExtra } from '../../src/core/mcp.js';
 import { MockAmplitudeMCPAnalytics } from '../../src/testing.js';
 
@@ -61,53 +65,59 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     });
   });
 
-  it('exposes wrapTool that emits the stub response event around the handler', async () => {
+  it('exposes instrumentTool that emits the stub response event around the handler', async () => {
     const mock = new MockAmplitudeMCPAnalytics({
       serverName: 'test-server',
       serverVersion: '0.0.0',
-      extractContext: () =>
-        createServerContext({
-          server: { name: 'test-server', version: '0.0.0' },
-          transport: 'streamable-http',
-          identity: { userId: 'u1', resolvedFrom: 'explicit' },
-        }),
+    });
+    // Bind a server scope with a tenant so the event is emitted (events with
+    // neither an identity nor a tenant are dropped; identity is floored here).
+    (mock as unknown as { _serverCtx?: McpServerContext })._serverCtx = createServerContext({
+      server: { name: 'test-server', version: '0.0.0' },
+      transport: 'streamable-http',
+      tenant: { groupType: 'org id', groupValue: '36958' },
     });
 
     let receivedCtx: McpToolContext | undefined;
-    const wrapped = mock.wrapTool<[{ q: string }, McpExtra], Promise<CallToolResult>>(
-      { name: 'search_docs' },
-      async (ctx, args, _extra) => {
-        receivedCtx = ctx;
+    const wrapped = mock.instrumentTool<[{ q: string }, McpExtra], Promise<CallToolResult>>(
+      async (args, _extra) => {
+        receivedCtx = getCurrentContext() as McpToolContext | undefined;
         return ok(args.q);
       },
+      { name: 'search_docs' },
     );
 
     const result = await wrapped({ q: 'hi' }, mkExtra());
 
     expect(result).toEqual(ok('hi'));
     expect(receivedCtx?.tool.name).toBe('search_docs');
-    expect(receivedCtx?.identity.userId).toBe('u1');
 
     const response = mock.getEvents('mcp: tool call response');
     expect(response).toHaveLength(1);
     expect(response[0]?.event_properties).toMatchObject({
-      'tool call status': 'success',
+      'is error': false,
       'tool name': 'search_docs',
     });
   });
 
-  it('wrapTool with the default extractor emits nothing (anonymous floor → skip rule)', async () => {
+  it('instrumentTool is a no-op passthrough when instrumentServer was not called', async () => {
     const mock = new MockAmplitudeMCPAnalytics({
       serverName: 'test-server',
       serverVersion: '0.0.0',
     });
 
-    const wrapped = mock.wrapTool<[McpExtra], Promise<CallToolResult>>(
+    // No instrumentServer() → no server scope bound → analytics is off.
+    let ran = false;
+    const wrapped = mock.instrumentTool<[McpExtra], Promise<CallToolResult>>(
+      async (_extra) => {
+        ran = true;
+        return ok();
+      },
       { name: 'search_docs' },
-      async (_ctx, _extra) => ok(),
     );
 
     await wrapped(mkExtra());
-    expect(mock.events).toHaveLength(0);
+    expect(ran).toBe(true); // the tool still runs
+    expect(mock.events).toHaveLength(0); // nothing emitted
   });
 });

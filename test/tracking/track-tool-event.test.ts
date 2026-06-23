@@ -32,31 +32,29 @@ describe('trackToolEvent', () => {
         owner: 'docs-team',
         tags: ['search'],
         category: 'retrieval',
-        projectId: '67890',
       },
     );
 
     trackToolEvent(client, ctx, 'mcp: tool result rendered');
 
     expect(tracked).toHaveLength(1);
-    const event = tracked[0]!;
-    expect(event.event_type).toBe('mcp: tool result rendered');
-    expect(event.user_id).toBe('u1');
-    expect(event.groups).toEqual({ 'org id': '36958' });
-    expect(event.event_properties).toMatchObject({
+    const event = tracked[0];
+    expect(event?.event_type).toBe('mcp: tool result rendered');
+    expect(event?.user_id).toBe('u1');
+    expect(event?.groups).toEqual({ 'org id': '36958' });
+    expect(event?.event_properties).toMatchObject({
       // server-scope inherited
-      'session id': 'sess-1',
+      '[MCP] Session ID': 'sess-1',
       'server name': 'my-server',
       // tool-scope added
       'tool name': 'search_docs',
       'tool owner': 'docs-team',
       'tool tags': ['search'],
       'tool category': 'retrieval',
-      'project id': '67890',
     });
   });
 
-  it('merges caller-supplied properties with caller-wins precedence', () => {
+  it('merges caller properties, which win over reserved on collision', () => {
     const { client, tracked } = makeAmplitude();
     const ctx = createToolContext(
       {
@@ -69,16 +67,34 @@ describe('trackToolEvent', () => {
 
     trackToolEvent(client, ctx, 'mcp: tool query', {
       'query text': 'how to do X',
-      // Override tool name — caller wins (uncommon but supported).
+      // Collides with the reserved 'tool name' → caller wins.
       'tool name': 'overridden_name',
     });
 
-    const event = tracked[0]!;
-    expect(event.event_properties?.['query text']).toBe('how to do X');
-    expect(event.event_properties?.['tool name']).toBe('overridden_name');
+    const event = tracked[0];
+    expect(event?.event_properties?.['query text']).toBe('how to do X');
+    expect(event?.event_properties?.['tool name']).toBe('overridden_name'); // caller wins
   });
 
-  it('drops emission under audit §2 skip rule (anonymous + no tenant)', () => {
+  it("emits the tool's extra enrichment, and lets caller properties override it", () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = createToolContext(
+      {
+        server: { name: 'my-server' },
+        transport: 'streamable-http',
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
+      },
+      { name: 'search_docs', extra: { 'org url': 'from-extra', region: 'us' } },
+    );
+
+    trackToolEvent(client, ctx, 'mcp: tool query', { 'org url': 'from-caller' });
+
+    const event = tracked[0];
+    expect(event?.event_properties?.region).toBe('us'); // extra, no collision
+    expect(event?.event_properties?.['org url']).toBe('from-caller'); // caller overrides extra
+  });
+
+  it('drops emission under the identity/tenant skip rule (anonymous + no tenant)', () => {
     const { client, tracked } = makeAmplitude();
     const ctx = createToolContext(
       { server: { name: 'my-server' }, transport: 'stdio' },

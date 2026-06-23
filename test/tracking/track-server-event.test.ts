@@ -33,35 +33,48 @@ describe('trackServerEvent', () => {
     trackServerEvent(client, resolvedCtx(), 'mcp: custom server event');
 
     expect(tracked).toHaveLength(1);
-    const event = tracked[0]!;
-    expect(event.event_type).toBe('mcp: custom server event');
-    expect(event.user_id).toBe('u1');
-    expect(event.groups).toEqual({ 'org id': '36958' });
-    expect(event.event_properties).toMatchObject({
-      'session id': 'sess-1',
+    const event = tracked[0];
+    expect(event?.event_type).toBe('mcp: custom server event');
+    expect(event?.user_id).toBe('u1');
+    expect(event?.groups).toEqual({ 'org id': '36958' });
+    expect(event?.event_properties).toMatchObject({
+      '[MCP] Session ID': 'sess-1',
       'server name': 'my-server',
       'client name': 'unknown',
-      'identity resolved from': 'explicit',
-      'org id': '36958',
     });
+    // Tenant is carried on `groups`, not as an event property.
+    expect(event?.groups).toEqual({ 'org id': '36958' });
   });
 
-  it('merges caller-supplied properties with ctx-derived ones, caller wins on collision', () => {
+  it('merges caller properties, which win over reserved on collision', () => {
     const { client, tracked } = makeAmplitude();
+
     trackServerEvent(client, resolvedCtx(), 'mcp: custom server event', {
       'query type': 'cohort',
-      // Override a ctx-derived property — caller wins.
+      // Collides with the reserved 'client name' → caller wins.
       'client name': 'custom-client-name',
     });
 
-    const event = tracked[0]!;
-    expect(event.event_properties?.['query type']).toBe('cohort');
-    expect(event.event_properties?.['client name']).toBe('custom-client-name');
-    // Other ctx-derived properties still present.
-    expect(event.event_properties?.['session id']).toBe('sess-1');
+    const event = tracked[0];
+    expect(event?.event_properties?.['query type']).toBe('cohort');
+    expect(event?.event_properties?.['client name']).toBe('custom-client-name'); // caller wins
+    expect(event?.event_properties?.['[MCP] Session ID']).toBe('sess-1');
   });
 
-  it('drops emission when identity is anonymous AND no tenant (audit §2 skip rule)', () => {
+  it('omits the ctx.extra bag when dropExtraProps is set', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = resolvedCtx({
+      server: { name: 'my-server' },
+      transport: 'streamable-http',
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
+      extra: { 'org url': 'amplitude' },
+    });
+    trackServerEvent(client, ctx, 'mcp: no extra', undefined, { dropExtraProps: true });
+
+    expect('org url' in (tracked[0]?.event_properties ?? {})).toBe(false);
+  });
+
+  it('drops emission when identity is anonymous AND no tenant (skip rule)', () => {
     const { client, tracked } = makeAmplitude();
     const ctx = createServerContext({ server: { name: 'my-server' }, transport: 'stdio' });
     trackServerEvent(client, ctx, 'mcp: never emitted');
@@ -109,9 +122,9 @@ describe('trackServerEvent', () => {
     });
     trackServerEvent(client, ctx, 'mcp: enriched event');
 
-    const event = tracked[0]!;
-    expect(event.event_properties?.['org url']).toBe('amplitude');
-    expect(event.event_properties?.['user email']).toBe('a@b.com');
+    const event = tracked[0];
+    expect(event?.event_properties?.['org url']).toBe('amplitude');
+    expect(event?.event_properties?.['user email']).toBe('a@b.com');
   });
 
   it('caller properties win over ctx.extra values (precedence chain: typed < extra < caller)', () => {

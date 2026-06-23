@@ -41,12 +41,11 @@ export {
   shouldEmit,
   trackServerEvent,
   trackToolEvent,
-  wrapTool,
 } from './tracking/index.js';
 export type {
   AmplitudeFields,
-  ContextExtractor,
-  InstrumentedToolHandler,
-  WrapToolDependencies,
+  DefaultServerFields,
+  DefaultToolFields,
+  TrackEventOptions,
 } from './tracking/index.js';
 export type { AmplitudeClientLike, AmplitudeEvent } from './types.js';

@@ -28,7 +28,6 @@ export function createServerContext(input: CreateServerContextInput): McpServerC
     tenant: input.tenant,
     identity: input.identity ?? { resolvedFrom: 'anonymous' },
     anchor: input.anchor ?? { type: 'anonymous', value: '' },
-    traceId: input.traceId,
     transport: input.transport,
     protocolVersion: input.protocolVersion,
     client: input.client,

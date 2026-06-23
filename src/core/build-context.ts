@@ -148,7 +148,6 @@ export function buildToolContext(
     {
       ...serverCtx,
       anchor: resolvedAnchor,
-      traceId: resolvedAnchor.type === 'trace' ? resolvedAnchor.value : serverCtx.traceId,
       protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
       identity: resolved.identity,
       tenant: resolved.tenant ?? serverCtx.tenant,

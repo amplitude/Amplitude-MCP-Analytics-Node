@@ -1,10 +1,7 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
 import { MCPAnalyticsConfig } from './config.js';
-import { createServerContext, runWithContext, setIdentity as setIdentityOnCtx } from './context/index.js';
+import { createServerContext, setIdentity as setIdentityOnCtx } from './context/index.js';
 import type { IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
-import { buildToolContext, resolveTransport } from './core/build-context.js';
-import type { ServerIdentity } from './core/identity.js';
+import { resolveTransport } from './core/build-context.js';
 import {
   TrackingProxy,
   installTrackCounter,
@@ -12,16 +9,20 @@ import {
   registerExitHook,
   settleUnflushedCount,
 } from './core/delivery/index.js';
-import type { McpExtra, McpServerLike, Server, ToolResult, Transport } from './core/mcp.js';
-import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
+import type {
+  CallToolResult,
+  McpServerLike,
+  Server,
+  ToolHandler,
+  ToolResult,
+  Transport,
+} from './core/mcp.js';
+import { buildToolError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
 import { trackServerEvent } from './tracking/track-server-event.js';
 import { trackToolEvent } from './tracking/track-tool-event.js';
-import type { ContextExtractor } from './tracking/types.js';
-import {
-  type InstrumentedToolHandler,
-  wrapTool as wrapToolFactory,
-} from './tracking/wrap-tool.js';
+import type { TrackEventOptions } from './tracking/types.js';
+import { instrumentTool as instrumentToolFactory } from './tracking/instrument-tool.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { getLogger } from './utils/logger.js';
 import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
@@ -52,17 +53,6 @@ export interface AmplitudeMCPAnalyticsOptions {
   apiKey?: string;
   /** Optional SDK configuration. */
   config?: MCPAnalyticsConfig;
-  /**
-   * Builds a server-scope `ctx` from the MCP SDK's per-request `extra`. Called
-   * on every {@link AmplitudeMCPAnalytics.wrapTool} invocation to resolve
-   * identity/tenant/auth/session for that request. The host owns this — the
-   * SDK doesn't bake transport extraction in (that's MCP-366).
-   *
-   * Defaults to the anonymous floor with the configured server identity, which
-   * the audit §2 skip rule then drops; supply a real extractor to actually
-   * emit events from `wrapTool`.
-   */
-  extractContext?: ContextExtractor;
 }
 
 /**
@@ -110,17 +100,13 @@ export class AmplitudeMCPAnalytics {
    *  exit warning. @internal */
   protected _trackCountSinceFlush = 0;
 
-  /** Server-scope context inherited by every instrumented tool ctx. Set by a
-   *  forthcoming server-binding API; until then tool wrapping runs untouched.
-   *  @internal */
+  /** Server-scope context inherited by every instrumented tool ctx, set by
+   *  {@link instrumentServer}. When unset, {@link instrumentTool} is a no-op
+   *  passthrough (warns once) and the handler runs untouched. @internal */
   protected _serverCtx?: McpServerContext;
 
-  /** Pluggable per-request server-ctx builder for {@link wrapTool}. Defaults
-   *  to the anonymous floor with the configured server identity. @internal */
-  protected _extractContext: ContextExtractor;
-
-  /** Static identity from `instrumentServer()` — server identity of the fallback chain. @internal */
-  protected _serverIdentity?: ServerIdentity;
+  /** Static identity from `instrumentServer(server, opts)`. @internal */
+  protected _serverIdentity?: { userId?: string; deviceId?: string; tenant?: McpTenant };
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -166,15 +152,6 @@ export class AmplitudeMCPAnalytics {
     this.serverName = options.serverName;
     this.serverVersion = options.serverVersion;
     this.config = options.config ?? new MCPAnalyticsConfig();
-    this._extractContext =
-      options.extractContext ??
-      ((_extra) =>
-        createServerContext({
-          server: { name: this.serverName, version: this.serverVersion },
-          // No transport assumption in the default — the audit §2 skip rule
-          // will drop these events anyway (anonymous floor + no tenant).
-          transport: 'stdio',
-        }));
 
     // Wrap the raw client in a mutable proxy (it may be a frozen ES module
     // namespace) and install the delivery hooks. Order matters: the counter
@@ -202,13 +179,16 @@ export class AmplitudeMCPAnalytics {
    *
    * @example Inside a tool handler (simplest):
    * ```typescript
-   * server.tool('search', schema, analytics.instrumentTool('search', async (args, extra) => {
-   *   analytics.setIdentity({
-   *     userId: myAuth.getLoginId(),
-   *     tenant: { groupType: 'org id', groupValue: myAuth.getOrgId() },
-   *   });
-   *   return doSearch(args);
-   * }));
+   * server.tool('search', schema, analytics.instrumentTool(
+   *   async (args, extra) => {
+   *     analytics.setIdentity({
+   *       userId: myAuth.getLoginId(),
+   *       tenant: { groupType: 'org id', groupValue: myAuth.getOrgId() },
+   *     });
+   *     return doSearch(args);
+   *   },
+   *   { name: 'search' },
+   * ));
    * ```
    *
    * @example Inside a shared helper called from any depth:
@@ -248,15 +228,16 @@ export class AmplitudeMCPAnalytics {
   /**
    * Emit a server-scope custom event. Inherits identity/tenant/session/client/
    * server/auth/transport/trace from `ctx`; caller-supplied properties win on
-   * collision. Drops silently under the audit §2 skip rule (anonymous identity
-   * AND no tenant) and on underlying client failure — never throws.
+   * collision. Drops silently when the event has neither an identity nor a
+   * tenant, and on underlying client failure — never throws.
    */
   trackServerEvent(
     ctx: McpServerContext,
     eventName: string,
     properties?: Record<string, unknown>,
+    options?: TrackEventOptions,
   ): void {
-    trackServerEvent(this._amplitude, ctx, eventName, properties);
+    trackServerEvent(this._amplitude, ctx, eventName, properties, options);
   }
 
   /**
@@ -269,88 +250,56 @@ export class AmplitudeMCPAnalytics {
     ctx: McpToolContext,
     eventName: string,
     properties?: Record<string, unknown>,
+    options?: TrackEventOptions,
   ): void {
-    trackToolEvent(this._amplitude, ctx, eventName, properties);
+    trackToolEvent(this._amplitude, ctx, eventName, properties, options);
   }
 
   /**
-   * Wrap an MCP tool handler so each invocation:
-   *  - Builds a tool-scope `ctx` via the configured {@link ContextExtractor}
-   *    extended with `meta`.
-   *  - Runs the handler with `ctx` as its first argument, under
-   *    `runWithContext(ctx)` so deep emit sites can fall back to
-   *    {@link import('./context/index.js').getCurrentContext}.
-   *  - Emits a stub `mcp: tool call response` event around the call (success +
-   *    duration, or failure + error). The canonical emitter lands with MCP-358.
+   * Instrument an MCP tool handler — the single tool-instrumentation entry
+   * point. The returned function drops into the MCP SDK's
+   * `server.tool(name, schema, fn)` slot.
    *
-   * Sync and async handlers are both supported — the wrapper preserves the
-   * underlying return shape. Handler exceptions are re-thrown after the failure
-   * event is emitted so the MCP SDK can surface them to the client.
-   */
-  wrapTool<Args extends unknown[], R extends ToolResult>(
-    meta: McpToolMeta,
-    handler: InstrumentedToolHandler<Args, R>,
-  ): (...args: Args) => R {
-    return wrapToolFactory(
-      {
-        amplitude: this._amplitude,
-        extractContext: this._extractContext,
-        serverIdentity: this._serverIdentity,
-      },
-      meta,
-      handler,
-    );
-  }
-
-  /**
-   * Wrap a tool handler so each call builds the tool-scope `ctx` (extending the
-   * server scope; ambient via `getCurrentContext()`) and runs the unchanged
-   * handler. Returns the same handler type, so it drops into
-   * `server.tool(name, schema, analytics.instrumentTool(name, handler, meta))`.
-   * Until a server binding sets the server scope, the tool runs untouched.
-   * Thrown exceptions are classified and stored on `ctx.error` for telemetry
-   * but always re-thrown — the wrapper never swallows errors.
+   * On each call it builds the per-request tool-scope `ctx` (transport-aware
+   * anchor, `_meta` client info, protocol version) from the server scope bound
+   * by {@link instrumentServer}, runs your **unchanged** handler under
+   * `runWithContext(ctx)` (so it can reach `ctx` via `getCurrentContext()` and
+   * the `track*` methods take it explicitly), emits a stub
+   * `mcp: tool call response` event (success + duration, or failure), and
+   * classifies thrown errors onto `ctx.error`. Errors are re-thrown so the MCP
+   * SDK surfaces them; the best-effort guarantee applies only to emission.
    *
-   * @internal Not published yet — pending the default event contract.
+   * **Requires {@link instrumentServer}.** If the server was never bound, this
+   * is a no-op passthrough: the original handler runs untouched and NO event is
+   * emitted (it also warns once). Analytics is opt-in via `instrumentServer`.
+   *
+   * @example
+   * ```typescript
+   * analytics.instrumentServer(server);               // enables analytics
+   * server.tool('search', schema, analytics.instrumentTool(
+   *   async (args, extra) => doSearch(args),          // your handler, unchanged
+   *   { name: 'search', owner: 'docs-team', extra: { 'feature flag': 'new-ranker' } },
+   * ));
+   * ```
+   *
+   * @internal Not published yet — pending the public tool-instrumentation contract.
    */
   instrumentTool<Args extends unknown[], R extends ToolResult>(
-    name: string,
-    handler: (...args: Args) => R,
-    meta?: Omit<McpToolMeta, 'name'> & { resolveIdentity?: IdentityResolver },
+    handler: ToolHandler<Args, R>,
+    meta: McpToolMeta,
+    opts?: { resolveIdentity?: IdentityResolver },
   ): (...args: Args) => R {
-    const toolMeta: McpToolMeta = { name, ...meta };
-
-    const identityResolver = meta?.resolveIdentity;
-    return (...callArgs: Args): R => {
-      const serverCtx = this._serverCtx;
-      if (serverCtx === undefined) return handler(...callArgs);
-
-      const extra = callArgs[callArgs.length - 1] as McpExtra;
-      const ctx = buildToolContext(serverCtx, toolMeta, extra, {
-        resolveIdentity: identityResolver,
+    return instrumentToolFactory(
+      {
+        amplitude: this._amplitude,
+        getServerCtx: () => this._serverCtx,
+        resolveIdentity: opts?.resolveIdentity,
         serverIdentity: this._serverIdentity,
         logger: getLogger(this._amplitude),
-      });
-
-      return runWithContext(ctx, () => {
-        let result: R;
-        try {
-          result = handler(...callArgs);
-        } catch (err) {
-          ctx.error = classifyError(err);
-          throw err;
-        }
-
-        if (result && typeof (result as Promise<unknown>).then === 'function') {
-          return (result as Promise<unknown>).catch((err: unknown) => {
-            ctx.error = classifyError(err);
-            throw err;
-          }) as R;
-        }
-
-        return result;
-      });
-    };
+      },
+      handler,
+      meta,
+    );
   }
 
   /**
