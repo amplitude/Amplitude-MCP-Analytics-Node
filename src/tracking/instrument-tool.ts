@@ -28,9 +28,11 @@ import { runWithContext } from '../context/als.js';
 import type { IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
 import type { ServerIdentity } from '../core/identity.js';
+import { byteSize } from '../core/serialize.js';
 import type { McpExtra, ToolHandler, ToolResult } from '../core/mcp.js';
 import { buildToolError, classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
 import type { AmplitudeClientLike } from '../types.js';
+import { isPromise } from '../utils/common.js';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import { emitToolCallResponse } from './events/tool-call-response.js';
@@ -200,27 +202,4 @@ function recordToolCall<Args extends unknown[]>(params: {
     requestSizeBytes: byteSize(callArgs.length > 1 ? callArgs[0] : undefined),
     responseSizeBytes: 'returned' in params ? byteSize(params.returned) : undefined,
   });
-}
-
-/**
- * Serialized byte size of a value, or `undefined` when absent or not
- * JSON-serializable. Best-effort — never throws into the emit path. @internal
- */
-function byteSize(value: unknown): number | undefined {
-  if (value === undefined) return undefined;
-  try {
-    const json = JSON.stringify(value);
-    return json == null ? undefined : Buffer.byteLength(json);
-  } catch {
-    return undefined;
-  }
-}
-
-/** @internal */
-function isPromise(value: unknown): value is Promise<unknown> {
-  return (
-    value != null &&
-    (typeof value === 'object' || typeof value === 'function') &&
-    typeof (value as { then?: unknown }).then === 'function'
-  );
 }
