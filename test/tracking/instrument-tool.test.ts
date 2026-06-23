@@ -104,7 +104,7 @@ describe('instrumentTool', () => {
     expect(ctx?.identity.resolvedFrom).toBe('anonymous'); // identity resolution is a later track
   });
 
-  it('emits a stub `mcp: tool call response` event with success status + duration', async () => {
+  it('emits the `mcp: tool call response` event with is-tool-error + duration on success', async () => {
     const { client, tracked } = makeAmplitude();
     const wrapped = instrumentTool(
       mkDeps(client, () => boundCtx()),
@@ -117,10 +117,41 @@ describe('instrumentTool', () => {
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
     expect(events[0]?.event_properties).toMatchObject({
-      'tool call status': 'success',
+      'is error': false,
       'tool name': 'search_docs',
     });
-    expect(events[0]?.event_properties?.['tool call duration ms']).toEqual(expect.any(Number));
+    expect(events[0]?.event_properties?.['response duration']).toEqual(expect.any(Number));
+    // No error keys on a successful call.
+    expect(events[0]?.event_properties).not.toHaveProperty('tool error message');
+    expect(events[0]?.event_properties).not.toHaveProperty('tool error type');
+  });
+
+  it('emits request/response size when computable, omits request size when no args', async () => {
+    const { client, tracked } = makeAmplitude();
+
+    // Handler with a schema → first positional arg is the request body.
+    const withArgs = instrumentTool(
+      mkDeps(client, () => boundCtx()),
+      async (_args: { q: string }, _extra: McpExtra) => ok('result'),
+      { name: 'with_args' },
+    );
+    await withArgs({ q: 'hello' }, legacyExtra);
+
+    // Handler without a schema → only `extra`, so there is no request body.
+    const noArgs = instrumentTool(
+      mkDeps(client, () => boundCtx()),
+      async (_extra: McpExtra) => ok('result'),
+      { name: 'no_args' },
+    );
+    await noArgs(legacyExtra);
+
+    const [withArgsEvent, noArgsEvent] = tracked.filter(
+      (e) => e.event_type === 'mcp: tool call response',
+    );
+    expect(withArgsEvent?.event_properties?.['request size']).toEqual(expect.any(Number));
+    expect(withArgsEvent?.event_properties?.['response size']).toEqual(expect.any(Number));
+    expect(noArgsEvent?.event_properties).not.toHaveProperty('request size');
+    expect(noArgsEvent?.event_properties?.['response size']).toEqual(expect.any(Number));
   });
 
   it('treats an `isError: true` result as a failure (MCP in-band error channel)', async () => {
@@ -143,10 +174,10 @@ describe('instrumentTool', () => {
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
     expect(events[0]?.event_properties).toMatchObject({
-      'tool call status': 'error',
+      'is error': true,
       'tool name': 'get_chart',
-      'error message': 'chart not found',
-      'error type': 'returned_error',
+      'tool error message': 'chart not found',
+      'tool error type': 'returned_error',
     });
     expect(ctx?.error?.type).toBe('returned_error');
   });
@@ -167,9 +198,9 @@ describe('instrumentTool', () => {
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
     expect(events[0]?.event_properties).toMatchObject({
-      'tool call status': 'error',
-      'error message': 'bad input',
-      'error type': 'returned_error',
+      'is error': true,
+      'tool error message': 'bad input',
+      'tool error type': 'returned_error',
     });
   });
 
@@ -193,8 +224,8 @@ describe('instrumentTool', () => {
     // (the bound tenant keeps it above the skip rule).
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
-    expect(events[0]?.event_properties?.['session id']).toBe('no-session');
-    expect(events[0]?.event_properties?.['tool call status']).toBe('success');
+    expect(events[0]?.event_properties?.['[MCP] Session ID']).toBe('no-session');
+    expect(events[0]?.event_properties?.['is error']).toBe(false);
   });
 
   it('anchors on the W3C trace id from _meta.traceparent when there is no session id', async () => {
@@ -216,17 +247,15 @@ describe('instrumentTool', () => {
       mkExtra({ _meta: { traceparent: `00-${traceId}-00f067aa0ba902b7-01` } }),
     );
 
-    // The anchor (and ctx.traceId) come from the propagated trace, not a session.
+    // The anchor comes from the propagated trace, not a session.
     expect(ctx?.anchor).toEqual({ type: 'trace', value: traceId });
-    expect(ctx?.traceId).toBe(traceId);
 
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
     expect(events[0]?.event_properties).toMatchObject({
       'anchor type': 'trace',
-      'trace id': traceId,
-      'session id': 'no-session',
-      'tool call status': 'success',
+      '[MCP] Session ID': 'no-session',
+      'is error': false,
     });
   });
 
@@ -247,11 +276,11 @@ describe('instrumentTool', () => {
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
     expect(events[0]?.event_properties).toMatchObject({
-      'tool call status': 'error',
+      'is error': true,
       'tool name': 'boom',
-      'error message': 'kaboom',
+      'tool error message': 'kaboom',
       // The event carries the *classified* type, same shape as a returned error.
-      'error type': 'thrown_exception',
+      'tool error type': 'thrown_exception',
     });
     expect(ctx?.error?.type).toBe('thrown_exception');
   });
@@ -284,7 +313,7 @@ describe('instrumentTool', () => {
     expect(() => wrapped(legacyExtra)).toThrow('sync boom');
     const events = tracked.filter((e) => e.event_type === 'mcp: tool call response');
     expect(events).toHaveLength(1);
-    expect(events[0]?.event_properties?.['tool call status']).toBe('error');
+    expect(events[0]?.event_properties?.['is error']).toBe(true);
     expect(ctx?.error?.type).toBe('thrown_exception');
   });
 
@@ -326,6 +355,79 @@ describe('instrumentTool', () => {
     await wrapped({ q: 'hi' }, mkExtra({ sessionId: 'sess-xyz' }));
     // The anchor reflects the passed extra's session id — proving it was read.
     expect(ctx?.anchor).toEqual({ type: 'session-id', value: 'sess-xyz' });
+  });
+
+  describe('custom event fields (meta.extra)', () => {
+    it('merges meta.extra into the default event', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (_extra: McpExtra) => ok(),
+        { name: 'search_docs', extra: { 'feature flag': 'new-ranker' } },
+      );
+
+      await wrapped(legacyExtra);
+
+      const event = tracked.find((e) => e.event_type === 'mcp: tool call response');
+      expect(event?.event_properties).toMatchObject({
+        'feature flag': 'new-ranker',
+        'is error': false,
+      });
+    });
+
+    it('reads meta.extra at emit time, so a handler can enrich it before returning', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (args: { q: string }, _extra: McpExtra) => {
+          // Dynamic enrichment: mutate the tool-scope extra bag mid-call.
+          const ctx = getCurrentContext() as McpToolContext;
+          ctx.tool.extra = { ...ctx.tool.extra, query: args.q };
+          return ok();
+        },
+        { name: 'search_docs' },
+      );
+
+      await wrapped({ q: 'climate' }, legacyExtra);
+
+      const event = tracked.find((e) => e.event_type === 'mcp: tool call response');
+      expect(event?.event_properties?.query).toBe('climate');
+    });
+
+    it('reserved contract keys win over colliding meta.extra keys (parity guard)', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (_extra: McpExtra) => ok(),
+        { name: 'search_docs', extra: { 'is error': 'definitely not a boolean' } },
+      );
+
+      await wrapped(legacyExtra);
+
+      const event = tracked.find((e) => e.event_type === 'mcp: tool call response');
+      // The canonical outcome value wins; the custom collision is discarded.
+      expect(event?.event_properties?.['is error']).toBe(false);
+    });
+
+    it('forwards meta.extra values faithfully (no escaping/redaction in this layer)', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (args: { q: string }, _extra: McpExtra) => {
+          const ctx = getCurrentContext() as McpToolContext;
+          ctx.tool.extra = { 'echoed query': args.q };
+          return ok();
+        },
+        { name: 'search_docs' },
+      );
+
+      // Values pass through verbatim — output encoding is the renderer's job and
+      // value sanitization belongs at the serialize-and-send boundary, not here.
+      await wrapped({ q: '<script>alert(1)</script>' }, legacyExtra);
+
+      const event = tracked.find((e) => e.event_type === 'mcp: tool call response');
+      expect(event?.event_properties?.['echoed query']).toBe('<script>alert(1)</script>');
+    });
   });
 
   describe('no server binding (instrumentServer not called)', () => {

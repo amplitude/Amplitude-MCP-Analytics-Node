@@ -21,6 +21,7 @@ import { buildToolError, toolErrorResult, type ToolErrorInput } from './errors.j
 import { ConfigurationError } from './exceptions.js';
 import { trackServerEvent } from './tracking/track-server-event.js';
 import { trackToolEvent } from './tracking/track-tool-event.js';
+import type { TrackEventOptions } from './tracking/types.js';
 import { instrumentTool as instrumentToolFactory } from './tracking/instrument-tool.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
 import { getLogger } from './utils/logger.js';
@@ -193,8 +194,9 @@ export class AmplitudeMCPAnalytics {
     ctx: McpServerContext,
     eventName: string,
     properties?: Record<string, unknown>,
+    options?: TrackEventOptions,
   ): void {
-    trackServerEvent(this._amplitude, ctx, eventName, properties);
+    trackServerEvent(this._amplitude, ctx, eventName, properties, options);
   }
 
   /**
@@ -207,8 +209,9 @@ export class AmplitudeMCPAnalytics {
     ctx: McpToolContext,
     eventName: string,
     properties?: Record<string, unknown>,
+    options?: TrackEventOptions,
   ): void {
-    trackToolEvent(this._amplitude, ctx, eventName, properties);
+    trackToolEvent(this._amplitude, ctx, eventName, properties, options);
   }
 
   /**
@@ -234,11 +237,11 @@ export class AmplitudeMCPAnalytics {
    * analytics.instrumentServer(server);               // enables analytics
    * server.tool('search', schema, analytics.instrumentTool(
    *   async (args, extra) => doSearch(args),          // your handler, unchanged
-   *   { name: 'search', owner: 'docs-team' },
+   *   { name: 'search', owner: 'docs-team', extra: { 'feature flag': 'new-ranker' } },
    * ));
    * ```
    *
-   * @internal Not published yet — pending the default tracking event.
+   * @internal Not published yet — pending the public tool-instrumentation contract.
    */
   instrumentTool<Args extends unknown[], R extends ToolResult>(
     handler: ToolHandler<Args, R>,
@@ -247,10 +250,8 @@ export class AmplitudeMCPAnalytics {
     return instrumentToolFactory(
       {
         amplitude: this._amplitude,
-        // Resolved per invocation (not captured by value): `_serverCtx` is set
-        // by instrumentServer's connect wrapper — after tools are wrapped — and
-        // mutated again at the handshake. `undefined` until instrumentServer()
-        // runs, which makes this wrapper a no-op passthrough (see factory).
+        // Resolved per invocation: `_serverCtx` is set late (by instrumentServer's
+        // connect wrapper) and undefined until then.
         getServerCtx: () => this._serverCtx,
       },
       handler,

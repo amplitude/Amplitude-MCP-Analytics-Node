@@ -1,18 +1,48 @@
 /**
- * Shared types for the custom event API (`trackServerEvent`, `trackToolEvent`,
- * `instrumentTool`). The `ctx → AmplitudeFields` shape is the seam every emit
- * site lowers through, so it lives here as a stable contract.
+ * Reserved field types for the event emitters. The wire property names 
+ * are produced at emit time by `reservedFieldsToProperties`.
  */
+import type { AnchorType, McpTransport } from '../context/types.js';
 
-/**
- * Internal shape `ctxToAmplitudeFields` lowers to — the parts of an
- * {@link import('../types.js').AmplitudeEvent} derived from `ctx` alone, before
- * caller-supplied properties are merged in. `event_properties` is always
- * present (possibly empty) so callers can spread without an undefined guard.
+/** Reserved, SDK-derived fields shared by every event. */
+export interface DefaultServerFields {
+  /** `'no-session'` when the anchor is not a session id. */
+  sessionId: string;
+  /** `'unknown'` when absent. */
+  clientName: string;
+  /** `'unknown'` when absent. */
+  userAgent: string;
+  serverName: string;
+  transport: McpTransport;
+  anchorType: AnchorType;
+  clientVersion?: string;
+  serverVersion?: string;
+  serverType?: string;
+  protocolVersion?: string;
+  authType?: string;
+}
+
+/** Reserved tool-scope fields — extends the server-scope set. */
+export interface DefaultToolFields extends DefaultServerFields {
+  toolName: string;
+  toolOwner?: string;
+  toolTags?: string[];
+  toolCategory?: string;
+}
+
+/** What the ctx mappers return: identity fields, typed reserved 
+ * `event_properties`, and the `extra` bag. 
  */
-export interface AmplitudeFields {
+export interface AmplitudeFields<F extends DefaultServerFields> {
   user_id?: string;
   device_id?: string;
   groups?: Record<string, string>;
-  event_properties: Record<string, unknown>;
+  event_properties: F;
+  extraProperties: Record<string, unknown>;
+}
+
+/** Options for the custom-event emitters. */
+export interface TrackEventOptions {
+  /** Omit the ctx `extra` bags from this event. Off by default. */
+  dropExtraProps?: boolean;
 }

@@ -39,5 +39,10 @@ export {
   trackServerEvent,
   trackToolEvent,
 } from './tracking/index.js';
-export type { AmplitudeFields } from './tracking/index.js';
+export type {
+  AmplitudeFields,
+  DefaultServerFields,
+  DefaultToolFields,
+  TrackEventOptions,
+} from './tracking/index.js';
 export type { AmplitudeClientLike, AmplitudeEvent } from './types.js';
