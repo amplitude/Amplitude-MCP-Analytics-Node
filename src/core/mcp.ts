@@ -21,9 +21,15 @@ export type McpExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 /** An MCP tool handler's return — a tool result, sync or async. */
 export type ToolResult = CallToolResult | Promise<CallToolResult>;
 
+/**
+ * An MCP tool handler, as registered with `server.tool(name, schema, fn)`:
+ * `(args, extra)` with an input schema, `(extra)` without.
+ */
+export type ToolHandler<Args extends unknown[], R extends ToolResult> = (...args: Args) => R;
+
 // Re-exported SDK server/transport types so the rest of `core/` reads them from
 // this one adapter rather than reaching into SDK subpaths directly.
-export type { McpServer, Server, Transport };
+export type { CallToolResult, McpServer, Server, Transport };
 
 /**
  * A server we can instrument: the high-level {@link McpServer} (owns a

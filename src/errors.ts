@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from './core/mcp.js';
 
 export type McpToolErrorType =
   | 'returned_error'
@@ -104,6 +104,37 @@ export function toolErrorResult(error: McpToolError): CallToolResult {
     content: [{ type: 'text', text }],
     isError: true,
   };
+}
+
+/**
+ * Whether a tool result signals an in-band protocol error — a `CallToolResult`
+ * with `isError: true`. Accepts `unknown` (a handler's raw return) and narrows.
+ *
+ * @internal
+ */
+export function isErrorResult(value: unknown): value is CallToolResult & { isError: true } {
+  return (
+    value != null && typeof value === 'object' && (value as CallToolResult).isError === true
+  );
+}
+
+/**
+ * Best-effort human-readable message from an `isError` result's `content` text
+ * parts. Falls back to undefined when the content carries no text.
+ *
+ * @internal
+ */
+export function errorMessageFromResult(result: CallToolResult): string | undefined {
+  const content = result.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((part) => (part?.type === 'text' ? part.text : ''))
+      .filter((t) => t.length > 0)
+      .join(' ')
+      .trim();
+    if (text.length > 0) return text;
+  }
+  return undefined;
 }
 
 const NETWORK_CODES = new Set([
