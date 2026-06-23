@@ -23,7 +23,7 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
         tenant: { groupType: 'org id', groupValue: '36958' },
         anchor: { type: 'session-id', value: 'sess-1' },
       },
@@ -38,11 +38,11 @@ describe('trackToolEvent', () => {
     trackToolEvent(client, ctx, 'mcp: tool result rendered');
 
     expect(tracked).toHaveLength(1);
-    const event = tracked[0]!;
-    expect(event.event_type).toBe('mcp: tool result rendered');
-    expect(event.user_id).toBe('u1');
-    expect(event.groups).toEqual({ 'org id': '36958' });
-    expect(event.event_properties).toMatchObject({
+    const event = tracked[0];
+    expect(event?.event_type).toBe('mcp: tool result rendered');
+    expect(event?.user_id).toBe('u1');
+    expect(event?.groups).toEqual({ 'org id': '36958' });
+    expect(event?.event_properties).toMatchObject({
       // server-scope inherited
       '[MCP] Session ID': 'sess-1',
       'server name': 'my-server',
@@ -60,7 +60,7 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs' },
     );
@@ -71,9 +71,9 @@ describe('trackToolEvent', () => {
       'tool name': 'overridden_name',
     });
 
-    const event = tracked[0]!;
-    expect(event.event_properties?.['query text']).toBe('how to do X');
-    expect(event.event_properties?.['tool name']).toBe('overridden_name'); // caller wins
+    const event = tracked[0];
+    expect(event?.event_properties?.['query text']).toBe('how to do X');
+    expect(event?.event_properties?.['tool name']).toBe('overridden_name'); // caller wins
   });
 
   it("emits the tool's extra enrichment, and lets caller properties override it", () => {
@@ -82,16 +82,16 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs', extra: { 'org url': 'from-extra', region: 'us' } },
     );
 
     trackToolEvent(client, ctx, 'mcp: tool query', { 'org url': 'from-caller' });
 
-    const event = tracked[0]!;
-    expect(event.event_properties?.region).toBe('us'); // extra, no collision
-    expect(event.event_properties?.['org url']).toBe('from-caller'); // caller overrides extra
+    const event = tracked[0];
+    expect(event?.event_properties?.region).toBe('us'); // extra, no collision
+    expect(event?.event_properties?.['org url']).toBe('from-caller'); // caller overrides extra
   });
 
   it('drops emission under the identity/tenant skip rule (anonymous + no tenant)', () => {
@@ -116,7 +116,7 @@ describe('trackToolEvent', () => {
       {
         server: { name: 'my-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs' },
     );

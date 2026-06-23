@@ -29,7 +29,7 @@ describe('ctxToAmplitudeFields', () => {
     const ctx = createServerContext({
       server: { name: 'my-server' },
       transport: 'streamable-http',
-      identity: { userId: 'u1', deviceId: 'd9', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', deviceId: 'd9', resolvedFrom: 'explicit' },
     });
     const mapped = ctxToAmplitudeFields(ctx);
 
@@ -42,7 +42,7 @@ describe('ctxToAmplitudeFields', () => {
       server: { name: 'my-server' },
       transport: 'streamable-http',
       tenant: { groupType: 'org id', groupValue: '36958' },
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
     });
     const mapped = ctxToAmplitudeFields(ctx);
 
@@ -55,7 +55,7 @@ describe('ctxToAmplitudeFields', () => {
         server: { name: 'my-server' },
         transport: 'streamable-http',
         anchor: { type: 'session-id', value: 'sess-abc' },
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       }),
     ).event_properties;
     expect(sessionful.sessionId).toBe('sess-abc');
@@ -66,7 +66,7 @@ describe('ctxToAmplitudeFields', () => {
         server: { name: 'my-server' },
         transport: 'streamable-http',
         anchor: { type: 'trace', value: 'trace-xyz' },
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       }),
     ).event_properties;
     expect(traced.sessionId).toBe('no-session');
@@ -112,7 +112,7 @@ describe('ctxToAmplitudeFields', () => {
       createServerContext({
         server: { name: 'my-server' },
         transport: 'stdio',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       }),
     );
 
@@ -181,7 +181,7 @@ describe('ctxToAmplitudeFieldsForTool', () => {
         server: { name: 'my-server' },
         transport: 'streamable-http',
         tenant: { groupType: 'org id', groupValue: '36958' },
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
         anchor: { type: 'session-id', value: 'sess-1' },
       },
       { name: 'search_docs' },
@@ -231,7 +231,7 @@ describe('shouldEmit (identity/tenant skip rule)', () => {
     const ctx = createServerContext({
       server: { name: 'my-server' },
       transport: 'stdio',
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
     });
     expect(shouldEmit(ctx)).toBe(true);
   });

@@ -25,12 +25,14 @@
  * only to event emission, not to the handler's return value.
  */
 import { runWithContext } from '../context/als.js';
-import type { McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
+import type { IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
+import type { ServerIdentity } from '../core/identity.js';
 import type { McpExtra, ToolHandler, ToolResult } from '../core/mcp.js';
 import { buildToolError, classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
+import type { Logger } from '../utils/logger.js';
 import { emitToolCallResponse } from './events/tool-call-response.js';
 
 /**
@@ -52,6 +54,9 @@ export interface InstrumentToolDependencies {
    * (see its doc) — it does NOT fabricate a floor and emit.
    */
   getServerCtx: () => McpServerContext | undefined;
+  resolveIdentity?: IdentityResolver;
+  serverIdentity?: ServerIdentity;
+  logger?: Logger;
 }
 
 /**
@@ -91,7 +96,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
 
     const startMs = performance.now();
     const extra = (callArgs[callArgs.length - 1] ?? {}) as McpExtra;
-    const ctx = buildToolContext(serverCtx, meta, extra);
+    const ctx = buildToolContext(serverCtx, meta, extra, {
+      resolveIdentity: deps.resolveIdentity,
+      serverIdentity: deps.serverIdentity,
+      logger: deps.logger,
+    });
 
     let result: R;
     try {

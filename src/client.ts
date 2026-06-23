@@ -1,6 +1,6 @@
 import { MCPAnalyticsConfig } from './config.js';
-import { createServerContext } from './context/index.js';
-import type { McpServerContext, McpToolContext, McpToolMeta } from './context/types.js';
+import { createServerContext, setIdentity as setIdentityOnCtx } from './context/index.js';
+import type { IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
 import { resolveTransport } from './core/build-context.js';
 import {
   TrackingProxy,
@@ -30,9 +30,15 @@ import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
 /** Marks a server whose `connect` we've already wrapped, to stay idempotent. */
 const INSTRUMENTED = Symbol.for('amplitude.mcp.instrumented');
 
-/** Reserved for future identity/tenant inputs (resolution is a later track). @internal */
+/**
+ * Static identity for `instrumentServer()`. Intended for stdio transports or
+ * single-user servers where the identity is known for the server's lifetime.
+ * Server identity of the fallback chain.
+ */
 export interface InstrumentServerOptions {
-  [key: string]: unknown;
+  userId?: string;
+  deviceId?: string;
+  tenant?: McpTenant;
 }
 
 export interface AmplitudeMCPAnalyticsOptions {
@@ -95,9 +101,12 @@ export class AmplitudeMCPAnalytics {
   protected _trackCountSinceFlush = 0;
 
   /** Server-scope context inherited by every instrumented tool ctx, set by
-   *  {@link instrumentServer}. When unset, {@link instrumentTool} is a no-op 
+   *  {@link instrumentServer}. When unset, {@link instrumentTool} is a no-op
    *  passthrough (warns once) and the handler runs untouched. @internal */
   protected _serverCtx?: McpServerContext;
+
+  /** Static identity from `instrumentServer(server, opts)`. @internal */
+  protected _serverIdentity?: { userId?: string; deviceId?: string; tenant?: McpTenant };
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -160,6 +169,38 @@ export class AmplitudeMCPAnalytics {
   /** @internal Low-level passthrough to the underlying Amplitude client. */
   track(event: AmplitudeEvent): void {
     this._amplitude.track(event);
+  }
+
+  /**
+   * Set or override the subject identity on the current request's context.
+   * Must be called inside an instrumented tool handler (or a `runWithContext`
+   * block). This is the first step of the fallback chain that wins over all other
+   * identity sources.
+   *
+   * @example Inside a tool handler (simplest):
+   * ```typescript
+   * server.tool('search', schema, analytics.instrumentTool(
+   *   async (args, extra) => {
+   *     analytics.setIdentity({
+   *       userId: myAuth.getLoginId(),
+   *       tenant: { groupType: 'org id', groupValue: myAuth.getOrgId() },
+   *     });
+   *     return doSearch(args);
+   *   },
+   *   { name: 'search' },
+   * ));
+   * ```
+   *
+   * @example Inside a shared helper called from any depth:
+   * ```typescript
+   * function resolveAndSetIdentity() {
+   *   const user = myAuth.getCurrentUser();
+   *   analytics.setIdentity({ userId: user.loginId });
+   * }
+   * ```
+   */
+  setIdentity(input: SetIdentityInput): void {
+    setIdentityOnCtx(input);
   }
 
   /**
@@ -246,13 +287,15 @@ export class AmplitudeMCPAnalytics {
   instrumentTool<Args extends unknown[], R extends ToolResult>(
     handler: ToolHandler<Args, R>,
     meta: McpToolMeta,
+    opts?: { resolveIdentity?: IdentityResolver },
   ): (...args: Args) => R {
     return instrumentToolFactory(
       {
         amplitude: this._amplitude,
-        // Resolved per invocation: `_serverCtx` is set late (by instrumentServer's
-        // connect wrapper) and undefined until then.
         getServerCtx: () => this._serverCtx,
+        resolveIdentity: opts?.resolveIdentity,
+        serverIdentity: this._serverIdentity,
+        logger: getLogger(this._amplitude),
       },
       handler,
       meta,
@@ -275,9 +318,17 @@ export class AmplitudeMCPAnalytics {
    *
    * @internal Not published yet — pending the public server-binding contract.
    */
-  instrumentServer<S extends McpServerLike>(server: S, _opts?: InstrumentServerOptions): S {
+  instrumentServer<S extends McpServerLike>(server: S, opts?: InstrumentServerOptions): S {
     const boundServer = server as McpServerLike & { [INSTRUMENTED]?: boolean };
     if (boundServer[INSTRUMENTED]) return server;
+
+    if (opts != null && (opts.userId != null || opts.deviceId != null || opts.tenant != null)) {
+      this._serverIdentity = {
+        userId: opts.userId,
+        deviceId: opts.deviceId,
+        tenant: opts.tenant,
+      };
+    }
 
     // `isConnected()` is only on the high-level McpServer.
     if ('isConnected' in boundServer && boundServer.isConnected()) {

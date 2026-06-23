@@ -101,7 +101,7 @@ describe('instrumentTool', () => {
     expect(ctx?.anchor).toEqual({ type: 'session-id', value: 'sess-abc123' });
     expect(ctx?.client?.name).toBe('cursor'); // per-request, from _meta.clientInfo
     expect(ctx?.transport).toBe('streamable-http'); // inherited from server scope
-    expect(ctx?.identity.resolvedFrom).toBe('anonymous'); // identity resolution is a later track
+    expect(ctx?.identity.resolvedFrom).toBe('anchor');
   });
 
   it('emits the `mcp: tool call response` event with is-tool-error + duration on success', async () => {

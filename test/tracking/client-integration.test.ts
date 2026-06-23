@@ -30,7 +30,7 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     const ctx = createServerContext({
       server: { name: 'test-server', version: '0.0.0' },
       transport: 'streamable-http',
-      identity: { userId: 'u1', resolvedFrom: 'userId' },
+      identity: { userId: 'u1', resolvedFrom: 'explicit' },
     });
 
     mock.trackServerEvent(ctx, 'mcp: custom event', { foo: 'bar' });
@@ -50,7 +50,7 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
       {
         server: { name: 'test-server' },
         transport: 'streamable-http',
-        identity: { userId: 'u1', resolvedFrom: 'userId' },
+        identity: { userId: 'u1', resolvedFrom: 'explicit' },
       },
       { name: 'search_docs', owner: 'docs-team' },
     );
