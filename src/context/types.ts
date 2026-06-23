@@ -64,9 +64,6 @@ export interface McpServerContext {
   tenant?: McpTenant;
   identity: McpIdentity;
   anchor: McpAnchor;
-  /** Request trace id (distributed tracing) as a distinct property; independent
-   *  of `anchor`, though equal to `anchor.value` when `anchor.type` is `trace`. */
-  traceId?: string;
   /** Server-scope MCP transport. @public */
   transport: McpTransport;
   /** Negotiated MCP protocol version. */
@@ -83,6 +80,13 @@ export interface McpServerContext {
 export interface McpToolMeta {
   name: string;
   owner?: string;
+
+  /**
+   * Custom enrichment for this tool — its key/value pairs are carried on the ctx
+   * and emitted as event properties on the default `mcp: tool call response`
+   * event (reserved contract keys win on collision).
+   */
+  extra?: Record<string, unknown>;
 
   /** Free-form metadata; forward-compatible and the home for server-specific fields. */
   [key: string]: unknown;

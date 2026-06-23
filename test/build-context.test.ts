@@ -54,13 +54,12 @@ describe('buildToolContext — anchor', () => {
     expect(ctx.anchor).toEqual({ type: 'session-id', value: 'sess-abc123' });
   });
 
-  it('stateless HTTP → trace anchor + traceId from traceparent in _meta (no session id)', () => {
+  it('stateless HTTP → trace anchor from traceparent in _meta (no session id)', () => {
     const ctx = toolCtx(
       'streamable-http',
       mkExtra({ _meta: { traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' } }),
     );
     expect(ctx.anchor).toEqual({ type: 'trace', value: '4bf92f3577b34da6a3ce929d0e0e4736' });
-    expect(ctx.traceId).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
   });
 
   it('stateless HTTP → anonymous per-request floor when neither session nor trace exists', () => {

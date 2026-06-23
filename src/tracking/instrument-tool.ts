@@ -31,7 +31,7 @@ import type { McpExtra, ToolHandler, ToolResult } from '../core/mcp.js';
 import { buildToolError, classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
-import { trackToolEvent } from './track-tool-event.js';
+import { emitToolCallResponse } from './events/tool-call-response.js';
 
 /**
  * Dependencies the standalone {@link instrumentTool} factory needs from the client.
@@ -102,7 +102,9 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       recordToolCall({
         ctx,
         thrown: err,
-        args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+        amplitude: deps.amplitude,
+        durationMs: performance.now() - startMs,
+        callArgs,
       });
       throw err;
     }
@@ -115,7 +117,9 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
           recordToolCall({
             ctx,
             returned: value,
-            args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+            amplitude: deps.amplitude,
+            durationMs: performance.now() - startMs,
+            callArgs,
           });
           return value;
         },
@@ -123,7 +127,9 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
           recordToolCall({
             ctx,
             thrown: err,
-            args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+            amplitude: deps.amplitude,
+            durationMs: performance.now() - startMs,
+            callArgs,
           });
           throw err;
         },
@@ -134,46 +140,39 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     recordToolCall({
       ctx,
       returned: result,
-      args: { amplitude: deps.amplitude, durationMs: performance.now() - startMs },
+      amplitude: deps.amplitude,
+      durationMs: performance.now() - startMs,
+      callArgs,
     });
     return result;
   };
 }
 
 /**
- * Fields forwarded to the emitter unchanged.
- *
- * @internal
- */
-interface ToolCallArgs {
-  amplitude: AmplitudeClientLike;
-  /** Wall-clock duration of the handler call, in milliseconds. */
-  durationMs: number;
-}
-
-/**
  * The single point `instrumentTool` funnels every tool call through. It resolves
- * the call status, classifies any error onto `ctx.error`, then forwards the status
- * plus the pass-through `args` to the event emitter. 
+ * the call status, classifies any error onto `ctx.error`, then emits the default
+ * event.
  *
  * A call is considered a failure when:
  *   - a thrown exception (protocol-level error), classified via {@link classifyError};
  *   - a returned result carrying `isError: true` (tool-execution error reported in-band — the SDK does not throw it), classified as `returned_error`.
  * @internal
  */
-function recordToolCall(params: {
+function recordToolCall<Args extends unknown[]>(params: {
   ctx: McpToolContext;
+  amplitude: AmplitudeClientLike;
+  durationMs: number;
+  /** The handler's call args — request body (`args[0]`) + `extra`. */
+  callArgs: Args;
   thrown?: unknown;
   returned?: unknown;
-  args: ToolCallArgs;
 }): void {
-  const { ctx, args } = params;
-  const { amplitude, ...rest } = args;
-  let status: 'success' | 'error' = 'success';
+  const { ctx, amplitude, durationMs, callArgs } = params;
+  let isToolError = false;
 
   if ('thrown' in params) {
     ctx.error = classifyError(params.thrown);
-    status = 'error';
+    isToolError = true;
   } else if ('returned' in params && isErrorResult(params.returned)) {
     ctx.error = ctx.error != null
       // preserve the pre-existing error context (e.g. when constructed by `analytics.toolError(ctx, input)`)
@@ -182,37 +181,30 @@ function recordToolCall(params: {
         code: 'returned_error',
         message: errorMessageFromResult(params.returned) ?? 'Tool returned an error result',
       });
-    status = 'error';
+    isToolError = true;
   }
 
-  emitToolCallResponseStub(amplitude, ctx, { ...rest, status });
+  // Custom fields ride on `ctx.tool.extra` and are resolved downstream.
+  emitToolCallResponse(amplitude, ctx, {
+    isToolError,
+    durationMs,
+    requestSizeBytes: byteSize(callArgs.length > 1 ? callArgs[0] : undefined),
+    responseSizeBytes: 'returned' in params ? byteSize(params.returned) : undefined,
+  });
 }
 
 /**
- * Stub emitter for the default tool-execution event — a placeholder so
- * `instrumentTool` is testable today. Future work replaces it with the
- * canonical `mcp: tool call response` event and removes this helper.
- *
- * Error details are read from `ctx.error` (set by {@link recordToolCall}),
- * so a thrown exception and an in-band `isError` result emit the same event
- * shape — only the classified error `type` differs.
- *
- * @internal
+ * Serialized byte size of a value, or `undefined` when absent or not
+ * JSON-serializable. Best-effort — never throws into the emit path. @internal
  */
-function emitToolCallResponseStub(
-  amplitude: AmplitudeClientLike,
-  ctx: McpToolContext,
-  outcome: { status: 'success' | 'error'; durationMs: number },
-): void {
-  const properties: Record<string, unknown> = {
-    'tool call status': outcome.status,
-    'tool call duration ms': Math.round(outcome.durationMs),
-  };
-  if (outcome.status === 'error' && ctx.error != null) {
-    properties['error message'] = ctx.error.message;
-    properties['error type'] = ctx.error.type;
+function byteSize(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const json = JSON.stringify(value);
+    return json == null ? undefined : Buffer.byteLength(json);
+  } catch {
+    return undefined;
   }
-  trackToolEvent(amplitude, ctx, 'mcp: tool call response', properties);
 }
 
 /** @internal */

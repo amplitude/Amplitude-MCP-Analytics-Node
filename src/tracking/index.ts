@@ -13,4 +13,9 @@ export { trackServerEvent } from './track-server-event.js';
 export { trackToolEvent } from './track-tool-event.js';
 // Tool instrumentation is the `AmplitudeMCPAnalytics.instrumentTool` method; the
 // standalone factory in ./instrument-tool.js is internal.
-export type { AmplitudeFields } from './types.js';
+export type {
+  AmplitudeFields,
+  DefaultServerFields,
+  DefaultToolFields,
+  TrackEventOptions,
+} from './types.js';

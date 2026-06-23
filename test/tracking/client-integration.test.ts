@@ -95,7 +95,7 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     const response = mock.getEvents('mcp: tool call response');
     expect(response).toHaveLength(1);
     expect(response[0]?.event_properties).toMatchObject({
-      'tool call status': 'success',
+      'is error': false,
       'tool name': 'search_docs',
     });
   });
