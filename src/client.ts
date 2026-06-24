@@ -48,13 +48,13 @@ export interface InstrumentServerOptions {
   deviceId?: string;
   tenant?: McpTenant;
   /** How subjects authenticate to this server (e.g. `'oauth'`). Emitted as
-   *  `auth type` on every event derived from the server scope. */
+   *  `[MCP] Auth Type` on every event derived from the server scope. */
   authType?: string;
   /**
    * Custom enrichment attached to the server scope. These key/value pairs are
    * emitted as event properties on every event derived from this server —
-   * including the default connection events (`mcp: session initialized` /
-   * `mcp: session ended` / `mcp: tools listed`) — unless a key collides with a
+   * including the default connection events (`[MCP] Session Initialized` /
+   * `[MCP] Session Ended` / `[MCP] Tools Listed`) — unless a key collides with a
    * reserved property, in which case the reserved value wins.
    */
   extra?: Record<string, unknown>;
@@ -290,7 +290,7 @@ export class AmplitudeMCPAnalytics {
    * by {@link instrumentServer}, runs your **unchanged** handler under
    * `runWithContext(ctx)` (so it can reach `ctx` via `getCurrentContext()` and
    * the `track*` methods take it explicitly), emits a
-   * `mcp: tool call response` event (success + duration, or failure), and
+   * `[MCP] Tool Call Response` event (success + duration, or failure), and
    * classifies thrown errors onto `ctx.error`. Errors are re-thrown so the MCP
    * SDK surfaces them; the best-effort guarantee applies only to emission.
    *
@@ -328,8 +328,8 @@ export class AmplitudeMCPAnalytics {
 
   /**
    * Bind a server so its instrumented tools inherit a server-scope context and
-   * the SDK emits the default connection events (`mcp: session initialized` /
-   * `mcp: session ended` / `mcp: tools listed`). Wraps `connect` to auto-detect
+   * the SDK emits the default connection events (`[MCP] Session Initialized` /
+   * `[MCP] Session Ended` / `[MCP] Tools Listed`). Wraps `connect` to auto-detect
    * the transport (fixed per connection), captures the handshake `clientInfo`,
    * and emits the lifecycle events at the points it controls. Call **before**
    * `connect` — the transport only exists then. Returns the same server for
@@ -380,7 +380,7 @@ export class AmplitudeMCPAnalytics {
 
       // Default server connection / capability events (opt-out via config).
       if (this.config.autocapture.serverEvents) {
-        // `tools/list` → `mcp: tools listed`. Wrap now: every handler is
+        // `tools/list` → `[MCP] Tools Listed`. Wrap now: every handler is
         // registered by connect time, so the live tool set is counted per call.
         installToolsListHook(lowLevelServer, ({ result, error, durationMs }, extra) => {
           if (this._serverCtx == null) return;
@@ -404,7 +404,7 @@ export class AmplitudeMCPAnalytics {
           });
         });
 
-        // `mcp: session ended` on transport close — only when a session was
+        // `[MCP] Session Ended` on transport close — only when a session was
         // initialized (gates out stateless HTTP, which never handshakes).
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
@@ -427,7 +427,7 @@ export class AmplitudeMCPAnalytics {
           this._serverCtx.client = { ...this._serverCtx.client, name: clientInfo.name, version: clientInfo.version };
         }
 
-        // `mcp: session initialized` — the handshake only fires on the
+        // `[MCP] Session Initialized` — the handshake only fires on the
         // session-bearing transports (stdio + legacy HTTP), so this is never
         // emitted on `2026-07-28+` stateless HTTP. Resolve the floored server ctx
         // into its connection form (real anchor/identity) once, in place;

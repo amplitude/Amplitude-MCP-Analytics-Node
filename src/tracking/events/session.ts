@@ -1,6 +1,6 @@
 /**
- * The default server-connection session events — `mcp: session initialized` and
- * `mcp: session ended`. Both apply only where a protocol session exists (stdio +
+ * The default server-connection session events — `[MCP] Session Initialized` and
+ * `[MCP] Session Ended`. Both apply only where a protocol session exists (stdio +
  * legacy Streamable HTTP); `instrumentServer` only calls them off the
  * `initialize` handshake / transport close, so they are never fabricated on
  * `2026-07-28+` stateless HTTP.
@@ -17,7 +17,7 @@ interface SessionEndedOutcome {
 }
 
 /**
- * Emit `mcp: session initialized` at the `initialize` handshake. Carries only
+ * Emit `[MCP] Session Initialized` at the `initialize` handshake. Carries only
  * the ctx-derived reserved props (client/server identity, transport, protocol,
  * auth, session/anchor); the server `ctx.extra` bag rides along downstream.
  *
@@ -31,8 +31,8 @@ export function emitSessionInitialized(
 }
 
 /**
- * Emit `mcp: session ended` when the transport closes — only for sessions that
- * emitted `mcp: session initialized` first. Adds `session duration` when known.
+ * Emit `[MCP] Session Ended` when the transport closes — only for sessions that
+ * emitted `[MCP] Session Initialized` first. Adds `[MCP] Session Duration` when known.
  *
  * @internal
  */

@@ -3,13 +3,13 @@
  *  explicit `track*` call. */
 export interface AutocaptureConfig {
   /** 
-   * Server connection / capability events: `mcp: session initialized`,
-   * `mcp: session ended`, `mcp: tools listed`.
+   * Server connection / capability events: `[MCP] Session Initialized`,
+   * `[MCP] Session Ended`, `[MCP] Tools Listed`.
    * @default true
   */
   serverEvents?: boolean;
   /** 
-   * Tool-execution event: `mcp: tool call response`.
+   * Tool-execution event: `[MCP] Tool Call Response`.
    * @default true
    */
   toolCalls?: boolean;

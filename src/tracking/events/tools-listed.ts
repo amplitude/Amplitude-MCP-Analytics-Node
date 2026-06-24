@@ -1,4 +1,4 @@
-/** The default server-capability event — `mcp: tools listed`. */
+/** The default server-capability event — `[MCP] Tools Listed`. */
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOLS_LISTED, TOOL_NAMES_MAX } from '../constants.js';
@@ -22,7 +22,7 @@ interface ToolsListedOutcome {
 }
 
 /**
- * Emit `mcp: tools listed`. Called by `instrumentServer` when a `tools/list`
+ * Emit `[MCP] Tools Listed`. Called by `instrumentServer` when a `tools/list`
  * request is served. 
  *
  * @internal

@@ -59,7 +59,7 @@ export interface InstrumentToolDependencies {
   resolveIdentity?: IdentityResolver;
   serverIdentity?: ServerIdentity;
   /**
-   * Whether to emit the default `mcp: tool call response` event. When `false`, 
+   * Whether to emit the default `[MCP] Tool Call Response` event. When `false`, 
    * the wrapper still builds and runs under `ctx` (so custom events and 
    * `setIdentity` work), but emits no default event. 
    * @default true
@@ -190,7 +190,7 @@ function recordToolCall<Args extends unknown[]>(params: {
   callArgs: Args;
   thrown?: unknown;
   returned?: unknown;
-  /** Emit the default `mcp: tool call response` event. */
+  /** Emit the default `[MCP] Tool Call Response` event. */
   track: boolean;
 }): void {
   const { ctx, amplitude, durationMs, callArgs } = params;

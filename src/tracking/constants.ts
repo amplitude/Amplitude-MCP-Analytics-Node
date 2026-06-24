@@ -2,7 +2,7 @@ export const NO_SESSION = 'no-session';
 export const UNKNOWN = 'unknown';
 
 /** Default tool-execution event. */
-export const TOOL_CALL_RESPONSE = 'mcp: tool call response';
+export const TOOL_CALL_RESPONSE = '[MCP] Tool Call Response';
 
 /**
  * Default server connection / capability events. Session lifecycle
@@ -10,48 +10,49 @@ export const TOOL_CALL_RESPONSE = 'mcp: tool call response';
  * (`2025-11-25`) Streamable HTTP; they are never fabricated on `2026-07-28+`
  * stateless HTTP (no `initialize` handshake fires there).
  */
-export const SESSION_INITIALIZED = 'mcp: session initialized';
-export const SESSION_ENDED = 'mcp: session ended';
-export const TOOLS_LISTED = 'mcp: tools listed';
+export const SESSION_INITIALIZED = '[MCP] Session Initialized';
+export const SESSION_ENDED = '[MCP] Session Ended';
+export const TOOLS_LISTED = '[MCP] Tools Listed';
 
-/** Upper bound on `tool names` emitted on `mcp: tools listed`; larger lists are
- *  truncated to this many names and flagged `tool names truncated` (the `tool
- *  count` always reflects the true total). */
+/** Upper bound on `[MCP] Tool Names` emitted on `[MCP] Tools Listed`; larger
+ *  lists are truncated to this many names and flagged `[MCP] Tool Names
+ *  Truncated` (the `[MCP] Tool Count` always reflects the true total). */
 export const TOOL_NAMES_MAX = 100;
 
 /**
  * camelCase → wire property-name map for the default events: the reserved
- * ctx-derived fields plus the tool-call outcome keys.
+ * ctx-derived fields plus the tool-call outcome keys. Every property carries the
+ * `[MCP] ` prefix so MCP analytics never collide with same-named properties on
+ * other Amplitude events (e.g. a native `session id`).
  */
 export const EVENT_PROPERTY_KEYS = {
   // server-scope reserved fields
   sessionId: '[MCP] Session ID',
-  clientName: 'client name',
-  clientVersion: 'client version',
-  userAgent: 'user agent',
-  serverName: 'server name',
-  serverVersion: 'server version',
-  transport: 'transport',
-  anchorType: 'anchor type',
-  serverType: 'server type',
-  protocolVersion: 'protocol version',
-  authType: 'auth type',
+  clientName: '[MCP] Client Name',
+  clientVersion: '[MCP] Client Version',
+  userAgent: '[MCP] User Agent',
+  serverName: '[MCP] Server Name',
+  serverVersion: '[MCP] Server Version',
+  transport: '[MCP] Transport',
+  anchorType: '[MCP] Anchor Type',
+  serverType: '[MCP] Server Type',
+  protocolVersion: '[MCP] Protocol Version',
+  authType: '[MCP] Auth Type',
   // tool-scope reserved fields
-  toolName: 'tool name',
-  toolOwner: 'tool owner',
-  toolTags: 'tool tags',
-  toolCategory: 'tool category',
+  toolName: '[MCP] Tool Name',
+  toolOwner: '[MCP] Tool Owner',
+  toolTags: '[MCP] Tool Tags',
+  toolCategory: '[MCP] Tool Category',
   // tool-call outcome
-  isError: 'is error',
-  errorMessage: 'error message',
-  errorType: 'error type',
-  responseDuration: 'response duration',
-  responseSize: 'response size',
-  requestSize: 'request size',
+  isError: '[MCP] Is Error',
+  errorMessage: '[MCP] Error Message',
+  errorType: '[MCP] Error Type',
+  responseDuration: '[MCP] Response Duration',
+  responseSize: '[MCP] Response Size',
+  requestSize: '[MCP] Request Size',
   // server connection / capability outcome
-  toolCount: 'tool count',
-  toolNames: 'tool names',
-  toolNamesTruncated: 'tool names truncated',
-  sessionDuration: 'session duration',
+  toolCount: '[MCP] Tool Count',
+  toolNames: '[MCP] Tool Names',
+  toolNamesTruncated: '[MCP] Tool Names Truncated',
+  sessionDuration: '[MCP] Session Duration',
 } as const;
-

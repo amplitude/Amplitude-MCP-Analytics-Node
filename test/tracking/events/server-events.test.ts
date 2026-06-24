@@ -32,13 +32,13 @@ describe('emitSessionInitialized', () => {
     emitSessionInitialized(client, serverCtx());
 
     expect(tracked).toHaveLength(1);
-    expect(tracked[0]?.event_type).toBe('mcp: session initialized');
+    expect(tracked[0]?.event_type).toBe('[MCP] Session Initialized');
     expect(tracked[0]?.event_properties).toMatchObject({
-      'server name': 'svc',
-      'client name': 'cursor',
-      transport: 'stdio',
-      'protocol version': '2025-11-25',
-      'auth type': 'oauth',
+      '[MCP] Server Name': 'svc',
+      '[MCP] Client Name': 'cursor',
+      '[MCP] Transport': 'stdio',
+      '[MCP] Protocol Version': '2025-11-25',
+      '[MCP] Auth Type': 'oauth',
     });
     expect(tracked[0]?.user_id).toBe('user-123');
   });
@@ -58,14 +58,14 @@ describe('emitSessionEnded', () => {
     const { client, tracked } = makeAmplitude();
     emitSessionEnded(client, serverCtx(), { durationMs: 1234.7 });
 
-    expect(tracked[0]?.event_type).toBe('mcp: session ended');
-    expect(tracked[0]?.event_properties?.['session duration']).toBe(1235);
+    expect(tracked[0]?.event_type).toBe('[MCP] Session Ended');
+    expect(tracked[0]?.event_properties?.['[MCP] Session Duration']).toBe(1235);
   });
 
   it('omits session duration when unknown', () => {
     const { client, tracked } = makeAmplitude();
     emitSessionEnded(client, serverCtx());
-    expect(tracked[0]?.event_properties).not.toHaveProperty('session duration');
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Session Duration');
   });
 });
 
@@ -80,13 +80,13 @@ describe('emitToolsListed', () => {
       responseSizeBytes: 256,
     });
 
-    expect(tracked[0]?.event_type).toBe('mcp: tools listed');
+    expect(tracked[0]?.event_type).toBe('[MCP] Tools Listed');
     expect(tracked[0]?.event_properties).toMatchObject({
-      'is error': false,
-      'tool count': 2,
-      'tool names': ['search', 'create'],
-      'response duration': 3,
-      'response size': 256,
+      '[MCP] Is Error': false,
+      '[MCP] Tool Count': 2,
+      '[MCP] Tool Names': ['search', 'create'],
+      '[MCP] Response Duration': 3,
+      '[MCP] Response Size': 256,
     });
   });
 
@@ -100,10 +100,10 @@ describe('emitToolsListed', () => {
     });
 
     expect(tracked[0]?.event_properties).toMatchObject({
-      'is error': true,
-      'tool count': 0,
-      'error message': 'boom',
-      'error type': 'thrown_exception',
+      '[MCP] Is Error': true,
+      '[MCP] Tool Count': 0,
+      '[MCP] Error Message': 'boom',
+      '[MCP] Error Type': 'thrown_exception',
     });
   });
 
@@ -113,14 +113,14 @@ describe('emitToolsListed', () => {
     emitToolsListed(client, serverCtx(), { isError: false, toolCount: names.length, toolNames: names });
 
     const props = tracked[0]?.event_properties;
-    expect(props?.['tool count']).toBe(101); // true total preserved
-    expect((props?.['tool names'] as string[]).length).toBe(100); // clipped to the cap
-    expect(props?.['tool names truncated']).toBe(true);
+    expect(props?.['[MCP] Tool Count']).toBe(101); // true total preserved
+    expect((props?.['[MCP] Tool Names'] as string[]).length).toBe(100); // clipped to the cap
+    expect(props?.['[MCP] Tool Names Truncated']).toBe(true);
   });
 
   it('does not set the truncated flag when the list fits', () => {
     const { client, tracked } = makeAmplitude();
     emitToolsListed(client, serverCtx(), { isError: false, toolCount: 2, toolNames: ['a', 'b'] });
-    expect(tracked[0]?.event_properties).not.toHaveProperty('tool names truncated');
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Tool Names Truncated');
   });
 });

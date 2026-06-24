@@ -30,15 +30,15 @@ describe('emitToolCallResponse', () => {
     emitToolCallResponse(client, toolCtx(), okOutcome);
 
     expect(tracked).toHaveLength(1);
-    expect(tracked[0]?.event_type).toBe('mcp: tool call response');
+    expect(tracked[0]?.event_type).toBe('[MCP] Tool Call Response');
     expect(tracked[0]?.event_properties).toMatchObject({
-      'is error': false,
-      'response duration': 13, // rounded
-      'tool name': 'search_docs', // ctx-derived
+      '[MCP] Is Error': false,
+      '[MCP] Response Duration': 13, // rounded
+      '[MCP] Tool Name': 'search_docs', // ctx-derived
     });
     // No error keys on success, no size keys when absent.
-    expect(tracked[0]?.event_properties).not.toHaveProperty('error message');
-    expect(tracked[0]?.event_properties).not.toHaveProperty('request size');
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error Message');
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Request Size');
   });
 
   it('includes request/response sizes when present', () => {
@@ -51,8 +51,8 @@ describe('emitToolCallResponse', () => {
     });
 
     expect(tracked[0]?.event_properties).toMatchObject({
-      'request size': 40,
-      'response size': 128,
+      '[MCP] Request Size': 40,
+      '[MCP] Response Size': 128,
     });
   });
 
@@ -63,9 +63,9 @@ describe('emitToolCallResponse', () => {
     emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
 
     expect(tracked[0]?.event_properties).toMatchObject({
-      'is error': true,
-      'error message': 'boom',
-      'error type': 'thrown_exception',
+      '[MCP] Is Error': true,
+      '[MCP] Error Message': 'boom',
+      '[MCP] Error Type': 'thrown_exception',
     });
   });
 
@@ -78,9 +78,9 @@ describe('emitToolCallResponse', () => {
 
   it('lets the outcome props override a colliding `extra` value (SDK value wins)', () => {
     const { client, tracked } = makeAmplitude();
-    const ctx = toolCtx({ name: 'search_docs', extra: { 'is error': 'bogus' } });
+    const ctx = toolCtx({ name: 'search_docs', extra: { '[MCP] Is Error': 'bogus' } });
     emitToolCallResponse(client, ctx, okOutcome);
 
-    expect(tracked[0]?.event_properties?.['is error']).toBe(false);
+    expect(tracked[0]?.event_properties?.['[MCP] Is Error']).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Intercept the MCP server's `tools/list` request handler so the SDK can emit
- * `mcp: tools listed` without the consumer changing anything.
+ * `[MCP] Tools Listed` without the consumer changing anything.
  *
  * The high-level `McpServer` registers a single `tools/list` handler on the
  * low-level `Server` the first time a tool is registered; that closure

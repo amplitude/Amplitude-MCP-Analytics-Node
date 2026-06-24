@@ -62,7 +62,7 @@ the transport becomes available. It's idempotent and returns the same server.
 **`instrumentTool(handler, meta)`** wraps a tool handler. The returned function
 has the exact same shape as the one you pass in (`(args, extra)` with a schema,
 `(extra)` without), so it drops straight into `server.tool(...)`. On each call it
-emits `mcp: tool call response` with timing, error, and size details.
+emits `[MCP] Tool Call Response` with timing, error, and size details.
 
 ```ts
 analytics.instrumentServer(server);
@@ -83,16 +83,19 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 
 | Event | When | Notable properties |
 | -- | -- | -- |
-| `mcp: session initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `transport`, `protocol version`, `auth type` |
-| `mcp: session ended` | Transport close (same transports) | `session duration` |
-| `mcp: tools listed` | A `tools/list` request | `tool count`, `tool names` (capped), `response duration`, `response size` |
-| `mcp: tool call response` | Every instrumented tool call | `is error`, `error message`/`error type`, `response duration`, `request size`, `response size` |
+| `[MCP] Session Initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `[MCP] Transport`, `[MCP] Protocol Version`, `[MCP] Auth Type` |
+| `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
+| `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
+| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Type`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size` |
+
+All event names and properties are prefixed `[MCP] ` so they never collide with
+same-named events/properties from other Amplitude SDKs on the same project.
 
 Session events model a real protocol session, which only exists on stdio and
 legacy (`2025-11-25`) Streamable HTTP. On stateless (`2026-07-28+`) HTTP there is
-no session handshake, so `session initialized` / `session ended` are **not**
-emitted rather than fabricated. Every event also carries the shared context
-properties (identity, client/server, transport, trace correlation).
+no session handshake, so `[MCP] Session Initialized` / `[MCP] Session Ended` are
+**not** emitted rather than fabricated. Every event also carries the shared
+context properties (identity, client/server, transport, trace correlation).
 
 ## Identity
 

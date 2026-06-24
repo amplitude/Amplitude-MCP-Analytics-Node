@@ -65,26 +65,26 @@ function eventsOf(tracked: AmplitudeEvent[], type: string): AmplitudeEvent[] {
 }
 
 describe('instrumentServer — default connection events', () => {
-  it('emits `mcp: session initialized` at the handshake', async () => {
+  it('emits `[MCP] Session Initialized` at the handshake', async () => {
     const { analytics, tracked } = makeAnalytics();
     const { server } = makeFakeServer();
     analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1', authType: 'oauth' });
     await server.connect(stdioTransport);
 
-    expect(eventsOf(tracked, 'mcp: session initialized')).toHaveLength(0); // not until initialized
+    expect(eventsOf(tracked, '[MCP] Session Initialized')).toHaveLength(0); // not until initialized
     server.fireInitialized();
 
-    const [init] = eventsOf(tracked, 'mcp: session initialized');
+    const [init] = eventsOf(tracked, '[MCP] Session Initialized');
     expect(init?.user_id).toBe('user-1');
     expect(init?.event_properties).toMatchObject({
-      'server name': 'test-mcp',
-      'client name': 'cursor',
-      transport: 'stdio',
-      'auth type': 'oauth',
+      '[MCP] Server Name': 'test-mcp',
+      '[MCP] Client Name': 'cursor',
+      '[MCP] Transport': 'stdio',
+      '[MCP] Auth Type': 'oauth',
     });
   });
 
-  it('emits `mcp: session ended` with a duration on transport close', async () => {
+  it('emits `[MCP] Session Ended` with a duration on transport close', async () => {
     const { analytics, tracked } = makeAnalytics();
     const { server } = makeFakeServer();
     analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
@@ -92,9 +92,9 @@ describe('instrumentServer — default connection events', () => {
     server.fireInitialized();
     server.fireClose();
 
-    const ended = eventsOf(tracked, 'mcp: session ended');
+    const ended = eventsOf(tracked, '[MCP] Session Ended');
     expect(ended).toHaveLength(1);
-    expect(ended[0]?.event_properties).toHaveProperty('session duration');
+    expect(ended[0]?.event_properties).toHaveProperty('[MCP] Session Duration');
   });
 
   it('does not emit `session ended` when no session was initialized (stateless / no handshake)', async () => {
@@ -104,10 +104,10 @@ describe('instrumentServer — default connection events', () => {
     await server.connect(stdioTransport);
     server.fireClose(); // close without a prior initialize
 
-    expect(eventsOf(tracked, 'mcp: session ended')).toHaveLength(0);
+    expect(eventsOf(tracked, '[MCP] Session Ended')).toHaveLength(0);
   });
 
-  it('emits `mcp: tools listed` with the live tool count and names on a tools/list call', async () => {
+  it('emits `[MCP] Tools Listed` with the live tool count and names on a tools/list call', async () => {
     const { analytics, tracked } = makeAnalytics();
     const { server } = makeFakeServer();
     analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
@@ -116,14 +116,14 @@ describe('instrumentServer — default connection events', () => {
     const result = server.listTools();
     expect(result).toEqual({ tools: [{ name: 'search' }, { name: 'create' }] }); // passthrough unchanged
 
-    const [listed] = eventsOf(tracked, 'mcp: tools listed');
+    const [listed] = eventsOf(tracked, '[MCP] Tools Listed');
     expect(listed?.event_properties).toMatchObject({
-      'tool count': 2,
-      'tool names': ['search', 'create'],
+      '[MCP] Tool Count': 2,
+      '[MCP] Tool Names': ['search', 'create'],
     });
   });
 
-  it('emits `mcp: tools listed` with is error when the handler throws, preserving the throw', async () => {
+  it('emits `[MCP] Tools Listed` with is error when the handler throws, preserving the throw', async () => {
     const { analytics, tracked } = makeAnalytics();
     const { server } = makeFakeServer({ toolsListThrows: new Error('kaboom') });
     analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
@@ -131,9 +131,9 @@ describe('instrumentServer — default connection events', () => {
 
     expect(() => server.listTools()).toThrow('kaboom'); // handler behavior preserved
 
-    const [listed] = eventsOf(tracked, 'mcp: tools listed');
-    expect(listed?.event_properties).toMatchObject({ 'is error': true, 'tool count': 0 });
-    expect(listed?.event_properties?.['error message']).toBe('kaboom');
+    const [listed] = eventsOf(tracked, '[MCP] Tools Listed');
+    expect(listed?.event_properties).toMatchObject({ '[MCP] Is Error': true, '[MCP] Tool Count': 0 });
+    expect(listed?.event_properties?.['[MCP] Error Message']).toBe('kaboom');
   });
 
   it('reflects tools added after connect (handler closure is live)', async () => {
@@ -145,8 +145,8 @@ describe('instrumentServer — default connection events', () => {
     server.setTools([{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
     server.listTools();
 
-    const [listed] = eventsOf(tracked, 'mcp: tools listed');
-    expect(listed?.event_properties?.['tool count']).toBe(3);
+    const [listed] = eventsOf(tracked, '[MCP] Tools Listed');
+    expect(listed?.event_properties?.['[MCP] Tool Count']).toBe(3);
   });
 
   it('emits no connection events when autocapture.serverEvents is false', async () => {
@@ -174,7 +174,7 @@ describe('instrumentServer — default connection events', () => {
     server.fireInitialized();
     server.listTools();
 
-    for (const type of ['mcp: session initialized', 'mcp: tools listed']) {
+    for (const type of ['[MCP] Session Initialized', '[MCP] Tools Listed']) {
       const [evt] = eventsOf(tracked, type);
       expect(evt?.event_properties).toMatchObject({ 'org url': 'acme', region: 'us' });
     }
