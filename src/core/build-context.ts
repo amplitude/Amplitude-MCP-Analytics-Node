@@ -5,7 +5,7 @@
  */
 import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
-import { createToolContext } from '../context/factory.js';
+import { createServerContext, createToolContext } from '../context/factory.js';
 import type {
   IdentityResolver,
   McpAnchor,
@@ -111,25 +111,25 @@ function resolveAnchor(transport: McpTransport, extra: McpExtra): McpAnchor {
   return { type: 'anonymous', value: randomUUID() };
 }
 
-/** Options for identity resolution in {@link buildToolContext}. */
-export interface BuildToolContextOpts {
+/** Options for identity resolution in {@link buildServerContext} / {@link buildToolContext}. */
+export interface BuildContextOpts {
   resolveIdentity?: IdentityResolver;
   serverIdentity?: ServerIdentity;
   logger?: Logger;
 }
 
 /**
- * Extend the server-scope `serverCtx` with this request's fields. `transport` is
- * inherited from the server scope; per-request fields are resolved per request.
- * Identity is resolved via the fallback chain.
+ * Extend the server-scope `serverCtx` with one request's resolved fields
+ * (anchor, identity, protocol version, client info), without adding any tool
+ * scope. Used by the per-request server events (e.g. `tools/list`). `transport`
+ * is inherited from the server scope.
  * @internal
  */
-export function buildToolContext(
+export function buildServerContext(
   serverCtx: McpServerContext,
-  meta: McpToolMeta,
   extra: McpExtra,
-  opts?: BuildToolContextOpts,
-): McpToolContext {
+  opts?: BuildContextOpts,
+): McpServerContext {
   const resolvedAnchor = resolveAnchor(serverCtx.transport, extra);
 
   const authInfo = (extra as Record<string, unknown>).authInfo as
@@ -144,15 +144,30 @@ export function buildToolContext(
     logger: opts?.logger,
   });
 
+  return createServerContext({
+    ...serverCtx,
+    anchor: resolvedAnchor,
+    protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
+    identity: resolved.identity,
+    tenant: resolved.tenant ?? serverCtx.tenant,
+    client: resolveClientInfo(extra, serverCtx),
+  });
+}
+
+/**
+ * Extend the server-scope `serverCtx` with this request's fields. `transport` is
+ * inherited from the server scope; per-request fields are resolved per request.
+ * Identity is resolved via the fallback chain.
+ * @internal
+ */
+export function buildToolContext(
+  serverCtx: McpServerContext,
+  meta: McpToolMeta,
+  extra: McpExtra,
+  opts?: BuildContextOpts,
+): McpToolContext {
   return createToolContext(
-    {
-      ...serverCtx,
-      anchor: resolvedAnchor,
-      protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
-      identity: resolved.identity,
-      tenant: resolved.tenant ?? serverCtx.tenant,
-      client: resolveClientInfo(extra, serverCtx),
-    },
+    buildServerContext(serverCtx, extra, opts),
     meta,
     { request: { method: 'tools/call' } },
   );

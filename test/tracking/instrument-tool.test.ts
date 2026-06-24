@@ -37,7 +37,7 @@ function mkDeps(
   client: AmplitudeClientLike,
   getServerCtx: () => McpServerContext | undefined,
 ) {
-  return { amplitude: client, getServerCtx };
+  return { amplitude: client, getServerCtx, trackToolCalls: true };
 }
 
 function mkExtra(partial: Record<string, unknown> = {}): McpExtra {
@@ -122,8 +122,26 @@ describe('instrumentTool', () => {
     });
     expect(events[0]?.event_properties?.['response duration']).toEqual(expect.any(Number));
     // No error keys on a successful call.
-    expect(events[0]?.event_properties).not.toHaveProperty('tool error message');
-    expect(events[0]?.event_properties).not.toHaveProperty('tool error type');
+    expect(events[0]?.event_properties).not.toHaveProperty('error message');
+    expect(events[0]?.event_properties).not.toHaveProperty('error type');
+  });
+
+  it('skips the default event when trackToolCalls is false, but still runs under ctx', async () => {
+    const { client, tracked } = makeAmplitude();
+    let ctx: McpToolContext | undefined;
+    const wrapped = instrumentTool(
+      { ...mkDeps(client, () => boundCtx()), trackToolCalls: false },
+      async (_extra: McpExtra) => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        return ok();
+      },
+      { name: 'search_docs' },
+    );
+
+    await wrapped(legacyExtra);
+
+    expect(tracked).toHaveLength(0); // no mcp: tool call response
+    expect(ctx?.tool.name).toBe('search_docs'); // ctx still established for custom events
   });
 
   it('emits request/response size when computable, omits request size when no args', async () => {
@@ -176,8 +194,8 @@ describe('instrumentTool', () => {
     expect(events[0]?.event_properties).toMatchObject({
       'is error': true,
       'tool name': 'get_chart',
-      'tool error message': 'chart not found',
-      'tool error type': 'returned_error',
+      'error message': 'chart not found',
+      'error type': 'returned_error',
     });
     expect(ctx?.error?.type).toBe('returned_error');
   });
@@ -199,8 +217,8 @@ describe('instrumentTool', () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.event_properties).toMatchObject({
       'is error': true,
-      'tool error message': 'bad input',
-      'tool error type': 'returned_error',
+      'error message': 'bad input',
+      'error type': 'returned_error',
     });
   });
 
@@ -278,9 +296,9 @@ describe('instrumentTool', () => {
     expect(events[0]?.event_properties).toMatchObject({
       'is error': true,
       'tool name': 'boom',
-      'tool error message': 'kaboom',
+      'error message': 'kaboom',
       // The event carries the *classified* type, same shape as a returned error.
-      'tool error type': 'thrown_exception',
+      'error type': 'thrown_exception',
     });
     expect(ctx?.error?.type).toBe('thrown_exception');
   });

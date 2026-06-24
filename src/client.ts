@@ -1,7 +1,7 @@
 import { MCPAnalyticsConfig } from './config.js';
 import { createServerContext, setIdentity as setIdentityOnCtx } from './context/index.js';
 import type { IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
-import { resolveTransport } from './core/build-context.js';
+import { buildServerContext, resolveTransport } from './core/build-context.js';
 import {
   TrackingProxy,
   installTrackCounter,
@@ -11,14 +11,22 @@ import {
 } from './core/delivery/index.js';
 import type {
   CallToolResult,
+  McpExtra,
   McpServerLike,
   Server,
   ToolHandler,
   ToolResult,
   Transport,
 } from './core/mcp.js';
-import { buildToolError, toolErrorResult, type ToolErrorInput } from './errors.js';
+import { byteSize } from './core/serialize.js';
+import { installToolsListHook } from './core/tools-list-hook.js';
+import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
+import {
+  emitSessionEnded,
+  emitSessionInitialized,
+  emitToolsListed,
+} from './tracking/events/index.js';
 import { trackServerEvent } from './tracking/track-server-event.js';
 import { trackToolEvent } from './tracking/track-tool-event.js';
 import type { TrackEventOptions } from './tracking/types.js';
@@ -39,6 +47,17 @@ export interface InstrumentServerOptions {
   userId?: string;
   deviceId?: string;
   tenant?: McpTenant;
+  /** How subjects authenticate to this server (e.g. `'oauth'`). Emitted as
+   *  `auth type` on every event derived from the server scope. */
+  authType?: string;
+  /**
+   * Custom enrichment attached to the server scope. These key/value pairs are
+   * emitted as event properties on every event derived from this server —
+   * including the default connection events (`mcp: session initialized` /
+   * `mcp: session ended` / `mcp: tools listed`) — unless a key collides with a
+   * reserved property, in which case the reserved value wins.
+   */
+  extra?: Record<string, unknown>;
 }
 
 export interface AmplitudeMCPAnalyticsOptions {
@@ -100,13 +119,19 @@ export class AmplitudeMCPAnalytics {
    *  exit warning. @internal */
   protected _trackCountSinceFlush = 0;
 
-  /** Server-scope context inherited by every instrumented tool ctx, set by
-   *  {@link instrumentServer}. When unset, {@link instrumentTool} is a no-op
+  /** Server-scope context, set by {@link instrumentServer}. Every per-request 
+   *  ctx is built from it and inherits the server info, and the server-scope 
+   *  events read it directly. When unset, {@link instrumentTool} is a no-op 
    *  passthrough (warns once) and the handler runs untouched. @internal */
   protected _serverCtx?: McpServerContext;
 
   /** Static identity from `instrumentServer(server, opts)`. @internal */
   protected _serverIdentity?: { userId?: string; deviceId?: string; tenant?: McpTenant };
+
+  /** Handshake timestamp (ms) — set only on the session-bearing transports
+   *  (stdio + legacy HTTP, which handshake), `undefined` on stateless HTTP. 
+   *  Also serves as the "a session is active" flag. @internal */
+  protected _sessionStartMs?: number;
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -264,7 +289,7 @@ export class AmplitudeMCPAnalytics {
    * anchor, `_meta` client info, protocol version) from the server scope bound
    * by {@link instrumentServer}, runs your **unchanged** handler under
    * `runWithContext(ctx)` (so it can reach `ctx` via `getCurrentContext()` and
-   * the `track*` methods take it explicitly), emits a stub
+   * the `track*` methods take it explicitly), emits a
    * `mcp: tool call response` event (success + duration, or failure), and
    * classifies thrown errors onto `ctx.error`. Errors are re-thrown so the MCP
    * SDK surfaces them; the best-effort guarantee applies only to emission.
@@ -281,8 +306,6 @@ export class AmplitudeMCPAnalytics {
    *   { name: 'search', owner: 'docs-team', extra: { 'feature flag': 'new-ranker' } },
    * ));
    * ```
-   *
-   * @internal Not published yet — pending the public tool-instrumentation contract.
    */
   instrumentTool<Args extends unknown[], R extends ToolResult>(
     handler: ToolHandler<Args, R>,
@@ -295,6 +318,7 @@ export class AmplitudeMCPAnalytics {
         getServerCtx: () => this._serverCtx,
         resolveIdentity: opts?.resolveIdentity,
         serverIdentity: this._serverIdentity,
+        trackToolCalls: this.config.autocapture.toolCalls,
         logger: getLogger(this._amplitude),
       },
       handler,
@@ -303,20 +327,20 @@ export class AmplitudeMCPAnalytics {
   }
 
   /**
-   * Bind a server so its instrumented tools inherit a server-scope context.
-   * Wraps `connect` to auto-detect the transport (fixed per connection) and set
-   * `_serverCtx`, and captures the handshake `clientInfo` (legacy/stdio path).
-   * Call **before** `connect` — the transport only exists then. Returns the same
-   * server for chaining. Idempotent; warns and no-ops if already connected.
+   * Bind a server so its instrumented tools inherit a server-scope context and
+   * the SDK emits the default connection events (`mcp: session initialized` /
+   * `mcp: session ended` / `mcp: tools listed`). Wraps `connect` to auto-detect
+   * the transport (fixed per connection), captures the handshake `clientInfo`,
+   * and emits the lifecycle events at the points it controls. Call **before**
+   * `connect` — the transport only exists then. Returns the same server for
+   * chaining. Idempotent; warns and no-ops if already connected.
    *
    * @example
    * ```typescript
    * const server = new McpServer({ name: 'my-mcp', version: '1.0.0' });
-   * analytics.instrumentServer(server);               // before connect
-   * await server.connect(new StdioServerTransport()); // transport auto-detected
+   * analytics.instrumentServer(server, { authType: 'oauth' }); // before connect
+   * await server.connect(new StdioServerTransport());          // transport auto-detected
    * ```
-   *
-   * @internal Not published yet — pending the public server-binding contract.
    */
   instrumentServer<S extends McpServerLike>(server: S, opts?: InstrumentServerOptions): S {
     const boundServer = server as McpServerLike & { [INSTRUMENTED]?: boolean };
@@ -350,7 +374,50 @@ export class AmplitudeMCPAnalytics {
       this._serverCtx = createServerContext({
         server: { name: this.serverName, version: this.serverVersion },
         transport: resolveTransport(transport),
+        authType: opts?.authType,
+        extra: opts?.extra,
       });
+
+      // Default server connection / capability events (opt-out via config).
+      if (this.config.autocapture.serverEvents) {
+        // `tools/list` → `mcp: tools listed`. Wrap now: every handler is
+        // registered by connect time, so the live tool set is counted per call.
+        installToolsListHook(lowLevelServer, ({ result, error, durationMs }, extra) => {
+          if (this._serverCtx == null) return;
+          const ctx = buildServerContext(this._serverCtx, extra, {
+            serverIdentity: this._serverIdentity,
+            logger: getLogger(this._amplitude),
+          });
+          const tools = result?.tools ?? [];
+          const names = tools
+            .map((t) => t.name)
+            .filter((n): n is string => typeof n === 'string');
+          const toolError = error != null ? classifyError(error) : undefined;
+          emitToolsListed(this._amplitude, ctx, {
+            isError: error != null,
+            toolCount: tools.length,
+            toolNames: names.length > 0 ? names : undefined,
+            durationMs,
+            responseSizeBytes: result != null ? byteSize(result) : undefined,
+            errorMessage: toolError?.message,
+            errorType: toolError?.type,
+          });
+        });
+
+        // `mcp: session ended` on transport close — only when a session was
+        // initialized (gates out stateless HTTP, which never handshakes).
+        const existingOnClose = lowLevelServer.onclose;
+        lowLevelServer.onclose = (): void => {
+          if (this._sessionStartMs != null && this._serverCtx != null) {
+            emitSessionEnded(this._amplitude, this._serverCtx, {
+              durationMs: performance.now() - this._sessionStartMs,
+            });
+            this._sessionStartMs = undefined;
+          }
+          existingOnClose?.();
+        };
+      }
+
       // Capture the handshake `clientInfo` into the server scope (legacy / stdio
       // path), chaining any handler the consumer already installed.
       const existingOnInitialized = lowLevelServer.oninitialized;
@@ -359,6 +426,25 @@ export class AmplitudeMCPAnalytics {
         if (clientInfo != null && this._serverCtx != null) {
           this._serverCtx.client = { ...this._serverCtx.client, name: clientInfo.name, version: clientInfo.version };
         }
+
+        // `mcp: session initialized` — the handshake only fires on the
+        // session-bearing transports (stdio + legacy HTTP), so this is never
+        // emitted on `2026-07-28+` stateless HTTP. Resolve the floored server ctx
+        // into its connection form (real anchor/identity) once, in place;
+        // per-request builds still override these per call. No request `extra` at
+        // the handshake; carry the transport session id (legacy HTTP) so the
+        // anchor resolves to it, else stdio → process.
+        if (this.config.autocapture.serverEvents && this._serverCtx != null) {
+          const sessionId = (transport as { sessionId?: string }).sessionId;
+          this._serverCtx = buildServerContext(
+            this._serverCtx,
+            { sessionId } as unknown as McpExtra,
+            { serverIdentity: this._serverIdentity, logger: getLogger(this._amplitude) },
+          );
+          this._sessionStartMs = performance.now();
+          emitSessionInitialized(this._amplitude, this._serverCtx);
+        }
+
         existingOnInitialized?.();
       };
       return originalConnect(transport);

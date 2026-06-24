@@ -37,7 +37,7 @@ export function emitToolCallResponse(
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
 
   if (ctx.error != null) {
-    properties[K.toolErrorMessage] = ctx.error.message;
+    properties[K.errorMessage] = ctx.error.message;
     properties[K.errorType] = ctx.error.type;
   }
 

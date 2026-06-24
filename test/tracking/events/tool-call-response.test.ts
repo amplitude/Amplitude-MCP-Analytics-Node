@@ -37,7 +37,7 @@ describe('emitToolCallResponse', () => {
       'tool name': 'search_docs', // ctx-derived
     });
     // No error keys on success, no size keys when absent.
-    expect(tracked[0]?.event_properties).not.toHaveProperty('tool error message');
+    expect(tracked[0]?.event_properties).not.toHaveProperty('error message');
     expect(tracked[0]?.event_properties).not.toHaveProperty('request size');
   });
 
@@ -64,8 +64,8 @@ describe('emitToolCallResponse', () => {
 
     expect(tracked[0]?.event_properties).toMatchObject({
       'is error': true,
-      'tool error message': 'boom',
-      'tool error type': 'thrown_exception',
+      'error message': 'boom',
+      'error type': 'thrown_exception',
     });
   });
 

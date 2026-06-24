@@ -50,5 +50,10 @@ describe('smoke test: all public exports are defined', () => {
       serverVersion: '0.0.0',
     });
     expect(mock.events).toEqual([]);
+
+    // Instrumentation entry points are part of the public surface.
+    expect(typeof mock.instrumentServer).toBe('function');
+    expect(typeof mock.instrumentTool).toBe('function');
+    expect(typeof mock.setIdentity).toBe('function');
   });
 });

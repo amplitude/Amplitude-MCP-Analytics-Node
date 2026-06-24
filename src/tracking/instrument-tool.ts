@@ -58,6 +58,13 @@ export interface InstrumentToolDependencies {
   getServerCtx: () => McpServerContext | undefined;
   resolveIdentity?: IdentityResolver;
   serverIdentity?: ServerIdentity;
+  /**
+   * Whether to emit the default `mcp: tool call response` event. When `false`, 
+   * the wrapper still builds and runs under `ctx` (so custom events and 
+   * `setIdentity` work), but emits no default event. 
+   * @default true
+   */
+  trackToolCalls: boolean;
   logger?: Logger;
 }
 
@@ -79,6 +86,8 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
   meta: McpToolMeta,
 ): (...args: Args) => R {
   let warnedUnbound = false;
+
+  const trackToolCalls = deps.trackToolCalls !== false;
 
   return (...callArgs: Args): R => {
     const serverCtx = deps.getServerCtx();
@@ -116,6 +125,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
         amplitude: deps.amplitude,
         durationMs: performance.now() - startMs,
         callArgs,
+        track: trackToolCalls,
       });
       throw err;
     }
@@ -131,6 +141,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             amplitude: deps.amplitude,
             durationMs: performance.now() - startMs,
             callArgs,
+            track: trackToolCalls,
           });
           return value;
         },
@@ -141,6 +152,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             amplitude: deps.amplitude,
             durationMs: performance.now() - startMs,
             callArgs,
+            track: trackToolCalls,
           });
           throw err;
         },
@@ -154,6 +166,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       amplitude: deps.amplitude,
       durationMs: performance.now() - startMs,
       callArgs,
+      track: trackToolCalls,
     });
     return result;
   };
@@ -162,7 +175,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
 /**
  * The single point `instrumentTool` funnels every tool call through. It resolves
  * the call status, classifies any error onto `ctx.error`, then emits the default
- * event.
+ *  event unless `track` is `false`.
  *
  * A call is considered a failure when:
  *   - a thrown exception (protocol-level error), classified via {@link classifyError};
@@ -177,6 +190,8 @@ function recordToolCall<Args extends unknown[]>(params: {
   callArgs: Args;
   thrown?: unknown;
   returned?: unknown;
+  /** Emit the default `mcp: tool call response` event. */
+  track: boolean;
 }): void {
   const { ctx, amplitude, durationMs, callArgs } = params;
   let isToolError = false;
@@ -194,6 +209,8 @@ function recordToolCall<Args extends unknown[]>(params: {
       });
     isToolError = true;
   }
+
+  if (!params.track) return;
 
   // Custom fields ride on `ctx.tool.extra` and are resolved downstream.
   emitToolCallResponse(amplitude, ctx, {
