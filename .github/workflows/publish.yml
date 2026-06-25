@@ -3,10 +3,15 @@ name: Publish to npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to publish from
+        required: true
+        default: main
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
@@ -36,6 +41,6 @@ jobs:
         run: pnpm run test:coverage
 
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
