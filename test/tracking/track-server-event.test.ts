@@ -39,8 +39,8 @@ describe('trackServerEvent', () => {
     expect(event?.groups).toEqual({ 'org id': '36958' });
     expect(event?.event_properties).toMatchObject({
       '[MCP] Session ID': 'sess-1',
-      'server name': 'my-server',
-      'client name': 'unknown',
+      '[MCP] Server Name': 'my-server',
+      '[MCP] Client Name': 'unknown',
     });
     // Tenant is carried on `groups`, not as an event property.
     expect(event?.groups).toEqual({ 'org id': '36958' });
@@ -51,13 +51,13 @@ describe('trackServerEvent', () => {
 
     trackServerEvent(client, resolvedCtx(), 'mcp: custom server event', {
       'query type': 'cohort',
-      // Collides with the reserved 'client name' → caller wins.
-      'client name': 'custom-client-name',
+      // Collides with the reserved '[MCP] Client Name' → caller wins.
+      '[MCP] Client Name': 'custom-client-name',
     });
 
     const event = tracked[0];
     expect(event?.event_properties?.['query type']).toBe('cohort');
-    expect(event?.event_properties?.['client name']).toBe('custom-client-name'); // caller wins
+    expect(event?.event_properties?.['[MCP] Client Name']).toBe('custom-client-name'); // caller wins
     expect(event?.event_properties?.['[MCP] Session ID']).toBe('sess-1');
   });
 

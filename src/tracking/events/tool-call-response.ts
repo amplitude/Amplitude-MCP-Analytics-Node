@@ -1,4 +1,4 @@
-/** The default tool-execution event — `mcp: tool call response`. */
+/** The default tool-execution event — `[MCP] Tool Call Response`. */
 import type { McpToolContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOL_CALL_RESPONSE } from '../constants.js';
@@ -17,7 +17,7 @@ interface ToolCallOutcome {
 }
 
 /**
- * Emit `mcp: tool call response`. Called by `instrumentTool`; the outcome props
+ * Emit `[MCP] Tool Call Response`. Called by `instrumentTool`; the outcome props
  * ride as `trackToolEvent`'s `properties` (ctx-derived reserved props and tool
  * `extra` are added downstream). Absent outcome fields are omitted.
  *
@@ -37,7 +37,7 @@ export function emitToolCallResponse(
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
 
   if (ctx.error != null) {
-    properties[K.toolErrorMessage] = ctx.error.message;
+    properties[K.errorMessage] = ctx.error.message;
     properties[K.errorType] = ctx.error.type;
   }
 

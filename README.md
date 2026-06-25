@@ -3,11 +3,10 @@
 Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking
 for Amplitude Analytics.
 
-> **Status:** Early preview. The MCP context object (`ctx`), its types, and
-> factory helpers are available now. Transport and correlation handling (stdio
-> and Streamable HTTP, across protocol revisions) is in place under the hood;
-> the server-binding API, event tracking, and identity resolution land with the
-> upcoming tracking releases.
+> **Status:** Preview. Server and tool instrumentation, the default event set,
+> identity resolution, and custom events are available now. Transport and
+> correlation handling (stdio and Streamable HTTP, across protocol revisions) is
+> handled for you under the hood.
 
 ## Install
 
@@ -29,11 +28,124 @@ const analytics = createMcpAnalytics({
   serverVersion: '1.0.0',
 });
 
-// Or, to reuse an Amplitude client you already own:
-//   createMcpAnalytics({ amplitude, serverName: '...', serverVersion: '...' })
-//
-// Higher-level event tracking methods are coming soon.
+// Bind the server (enables analytics + emits connection events), then wrap your
+// tool handlers. Order matters: instrumentServer() must run before connect().
+analytics.instrumentServer(server, { authType: 'oauth' });
+
+server.tool(
+  'search_docs',
+  schema,
+  analytics.instrumentTool(
+    async (args, extra) => doSearch(args), // your handler, unchanged
+    { name: 'search_docs' },
+  ),
+);
+
+await server.connect(transport);
 ```
+
+To reuse an Amplitude client you already own, pass it instead of `apiKey`:
+
+```ts
+createMcpAnalytics({ amplitude, serverName: '...', serverVersion: '...' });
+```
+
+## Instrumenting your server
+
+Two steps, both wrap things you already have — no handler signatures change.
+
+**`instrumentServer(server, options?)`** binds the SDK to your MCP server. It
+auto-detects the transport, captures the client/server handshake, and emits the
+default connection events. Call it **before** `server.connect()` — that's when
+the transport becomes available. It's idempotent and returns the same server.
+
+**`instrumentTool(handler, meta)`** wraps a tool handler. The returned function
+has the exact same shape as the one you pass in (`(args, extra)` with a schema,
+`(extra)` without), so it drops straight into `server.tool(...)`. On each call it
+emits `[MCP] Tool Call Response` with timing, error, and size details.
+
+```ts
+analytics.instrumentServer(server);
+server.tool('search', schema, analytics.instrumentTool(
+  async (args, extra) => doSearch(args),
+  { name: 'search', owner: 'docs-team', extra: { 'feature flag': 'new-ranker' } },
+));
+```
+
+> **`instrumentTool` requires `instrumentServer`.** If the server was never
+> bound, the wrapper is a **no-op passthrough**: your handler runs untouched,
+> nothing is emitted, and a one-time warning is logged. Instrumenting a tool can
+> never change its behavior.
+
+## Default events
+
+Once a server is bound and its tools wrapped, the SDK emits these automatically:
+
+| Event | When | Notable properties |
+| -- | -- | -- |
+| `[MCP] Session Initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `[MCP] Transport`, `[MCP] Protocol Version`, `[MCP] Auth Type` |
+| `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
+| `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
+| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Type`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size` |
+
+All event names and properties are prefixed `[MCP] ` so they never collide with
+same-named events/properties from other Amplitude SDKs on the same project.
+
+Session events model a real protocol session, which only exists on stdio and
+legacy (`2025-11-25`) Streamable HTTP. On stateless (`2026-07-28+`) HTTP there is
+no session handshake, so `[MCP] Session Initialized` / `[MCP] Session Ended` are
+**not** emitted rather than fabricated. Every event also carries the shared
+context properties (identity, client/server, transport, trace correlation).
+
+## Identity
+
+`user_id` must match whatever you already send to Amplitude for the same user.
+The SDK never guesses it from auth — you provide it, via whichever path fits:
+
+```ts
+// 1. Static, for stdio / single-user servers — set once when binding.
+analytics.instrumentServer(server, {
+  userId: 'user-123',
+  tenant: { groupType: 'org id', groupValue: '456' },
+});
+
+// 2. Per request, inside a handler (wins over everything else).
+analytics.instrumentTool(async (args, extra) => {
+  analytics.setIdentity({ userId: myAuth.getLoginId(extra) });
+  return doWork(args);
+}, { name: 'search' });
+
+// 3. Opt-in, derived from the request's authInfo (you map the claims).
+analytics.instrumentTool(handler, { name: 'search' }, {
+  resolveIdentity: (authInfo) => ({ userId: authInfo?.sub as string }),
+});
+```
+
+Resolution order (first match wins): `setIdentity()` → `resolveIdentity()` →
+`instrumentServer` options → correlation anchor → an anonymous floor. When no
+identity is available the SDK still emits accurate aggregate-only data under a
+synthetic `device_id` (never a polluting placeholder, never a fabricated user).
+
+## Choosing what's captured
+
+All default events are on by default. Toggle them with `autocapture` — a boolean
+for everything, or an object to control families independently:
+
+```ts
+import { createMcpAnalytics, MCPAnalyticsConfig } from '@amplitude/mcp-analytics';
+
+createMcpAnalytics({
+  apiKey: process.env.AMPLITUDE_API_KEY!,
+  serverName: 'my-mcp-server',
+  serverVersion: '1.0.0',
+  config: new MCPAnalyticsConfig({
+    autocapture: { serverEvents: false }, // keep tool-call events, drop connection events
+  }),
+});
+```
+
+`autocapture: false` disables all default events; `{ serverEvents, toolCalls }`
+toggles each family. Custom events (below) are unaffected.
 
 ## Context (`ctx`)
 
@@ -63,15 +175,9 @@ runWithContext(toolCtx, () => {
 Types and helpers are also re-exported from the main entry
 (`@amplitude/mcp-analytics`).
 
-### Instrumentation requires a bound server
-
-Tool instrumentation is activated by binding the SDK to your MCP server (the
-server-binding API lands in an upcoming release). Until a tool's server is
-bound, the instrumentation wrapper is a **no-op passthrough**: your handler runs
-untouched, nothing is emitted, and no ambient context is established — the SDK
-logs a one-time warning per tool rather than silently dropping events. This
-keeps analytics strictly opt-in and guarantees instrumenting a tool can never
-change its behavior before tracking is wired up.
+You usually don't build `ctx` by hand — `instrumentServer` / `instrumentTool`
+construct and inject it for you. Reach for these factories when emitting events
+outside an instrumented handler.
 
 ## Custom event properties
 
@@ -80,10 +186,10 @@ context — identity, session/trace correlation, client/server identity, and (fo
 tool events) the tool metadata. You can attach your own properties on top of
 these from two places:
 
-- **`extra`** — an enrichment bag carried on the context. Put domain values on
-  the server context (`extra` in `createServerContext`) or on a tool
-  (`extra` in the tool metadata) and they ride along on the events derived from
-  that context.
+- **`extra`** — an enrichment bag carried on the context. Put domain values at
+  the server scope (`extra` in `instrumentServer` options) or on a tool (`extra`
+  in the tool metadata) and they ride along on every event derived from that
+  scope — including the default events.
 - **`properties`** — the per-call argument to `trackServerEvent` /
   `trackToolEvent`, for values specific to that one event.
 

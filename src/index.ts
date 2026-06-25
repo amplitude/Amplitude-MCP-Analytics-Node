@@ -1,7 +1,7 @@
 export { AmplitudeMCPAnalytics, createMcpAnalytics } from './client.js';
-export type { AmplitudeMCPAnalyticsOptions } from './client.js';
+export type { AmplitudeMCPAnalyticsOptions, InstrumentServerOptions } from './client.js';
 export { MCPAnalyticsConfig } from './config.js';
-export type { MCPAnalyticsConfigOptions } from './config.js';
+export type { AutocaptureConfig, MCPAnalyticsConfigOptions } from './config.js';
 export {
   createServerContext,
   createToolContext,

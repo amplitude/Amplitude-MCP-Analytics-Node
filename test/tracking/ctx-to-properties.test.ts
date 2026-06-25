@@ -209,12 +209,12 @@ describe('reservedFieldsToProperties', () => {
 
     expect(props).toMatchObject({
       '[MCP] Session ID': 'sess-1',
-      'server name': 'my-server',
-      'server version': '1.0.0',
-      transport: 'streamable-http',
-      'anchor type': 'session-id',
-      'tool name': 'search_docs',
-      'tool owner': 'docs-team',
+      '[MCP] Server Name': 'my-server',
+      '[MCP] Server Version': '1.0.0',
+      '[MCP] Transport': 'streamable-http',
+      '[MCP] Anchor Type': 'session-id',
+      '[MCP] Tool Name': 'search_docs',
+      '[MCP] Tool Owner': 'docs-team',
     });
     // No camelCase keys leak onto the wire payload.
     expect('sessionId' in props).toBe(false);

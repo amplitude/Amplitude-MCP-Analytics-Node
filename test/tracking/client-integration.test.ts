@@ -59,8 +59,8 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
 
     expect(mock.events).toHaveLength(1);
     expect(mock.events[0]?.event_properties).toMatchObject({
-      'tool name': 'search_docs',
-      'tool owner': 'docs-team',
+      '[MCP] Tool Name': 'search_docs',
+      '[MCP] Tool Owner': 'docs-team',
       'query text': 'hi',
     });
   });
@@ -92,11 +92,11 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     expect(result).toEqual(ok('hi'));
     expect(receivedCtx?.tool.name).toBe('search_docs');
 
-    const response = mock.getEvents('mcp: tool call response');
+    const response = mock.getEvents('[MCP] Tool Call Response');
     expect(response).toHaveLength(1);
     expect(response[0]?.event_properties).toMatchObject({
-      'is error': false,
-      'tool name': 'search_docs',
+      '[MCP] Is Error': false,
+      '[MCP] Tool Name': 'search_docs',
     });
   });
 

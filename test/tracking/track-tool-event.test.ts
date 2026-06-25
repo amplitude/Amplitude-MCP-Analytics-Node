@@ -45,12 +45,12 @@ describe('trackToolEvent', () => {
     expect(event?.event_properties).toMatchObject({
       // server-scope inherited
       '[MCP] Session ID': 'sess-1',
-      'server name': 'my-server',
+      '[MCP] Server Name': 'my-server',
       // tool-scope added
-      'tool name': 'search_docs',
-      'tool owner': 'docs-team',
-      'tool tags': ['search'],
-      'tool category': 'retrieval',
+      '[MCP] Tool Name': 'search_docs',
+      '[MCP] Tool Owner': 'docs-team',
+      '[MCP] Tool Tags': ['search'],
+      '[MCP] Tool Category': 'retrieval',
     });
   });
 
@@ -67,13 +67,13 @@ describe('trackToolEvent', () => {
 
     trackToolEvent(client, ctx, 'mcp: tool query', {
       'query text': 'how to do X',
-      // Collides with the reserved 'tool name' → caller wins.
-      'tool name': 'overridden_name',
+      // Collides with the reserved '[MCP] Tool Name' → caller wins.
+      '[MCP] Tool Name': 'overridden_name',
     });
 
     const event = tracked[0];
     expect(event?.event_properties?.['query text']).toBe('how to do X');
-    expect(event?.event_properties?.['tool name']).toBe('overridden_name'); // caller wins
+    expect(event?.event_properties?.['[MCP] Tool Name']).toBe('overridden_name'); // caller wins
   });
 
   it("emits the tool's extra enrichment, and lets caller properties override it", () => {

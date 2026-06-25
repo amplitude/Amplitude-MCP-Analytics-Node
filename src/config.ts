@@ -1,8 +1,53 @@
+/** Per-family toggles for the SDK's auto-captured (default) events — the events
+ *  emitted automatically by `instrumentServer` / `instrumentTool` without an
+ *  explicit `track*` call. */
+export interface AutocaptureConfig {
+  /** 
+   * Server connection / capability events: `[MCP] Session Initialized`,
+   * `[MCP] Session Ended`, `[MCP] Tools Listed`.
+   * @default true
+  */
+  serverEvents?: boolean;
+  /** 
+   * Tool-execution event: `[MCP] Tool Call Response`.
+   * @default true
+   */
+  toolCalls?: boolean;
+}
+
 export interface MCPAnalyticsConfigOptions {
-  /** Emit verbose internal logging to the console. Off by default. */
+  /** 
+   * Emit verbose internal logging to the console.
+   * @default false
+   */
   debug?: boolean;
-  /** When true, the SDK builds events normally but does not deliver them. */
+  /** 
+   * When true, the SDK builds events normally but does not deliver them.
+   * @default false
+   */
   dryRun?: boolean;
+  /**
+   * Which events the SDK captures automatically, without an explicit `track*`
+   * call. `true` (default) or `false` toggles every family at once; pass an
+   * object to toggle families independently (e.g. `{ serverEvents: false }`).
+   * Mirrors Amplitude's `autocapture` option.
+   * @default { serverEvents: true, toolCalls: true }
+   */
+  autocapture?: boolean | AutocaptureConfig;
+}
+
+const ALL_ON: Required<AutocaptureConfig> = { serverEvents: true, toolCalls: true };
+
+/** Normalize the `autocapture` option into resolved per-family flags. */
+function resolveAutocapture(
+  option: boolean | AutocaptureConfig | undefined,
+): Required<AutocaptureConfig> {
+  if (option === undefined || option === true) return { ...ALL_ON };
+  if (option === false) return { serverEvents: false, toolCalls: false };
+  return {
+    serverEvents: option.serverEvents ?? true,
+    toolCalls: option.toolCalls ?? true,
+  };
 }
 
 /**
@@ -20,16 +65,19 @@ export interface MCPAnalyticsConfigOptions {
  *   apiKey: process.env.AMPLITUDE_API_KEY!,
  *   serverName: 'my-mcp-server',
  *   serverVersion: '1.0.0',
- *   config: new MCPAnalyticsConfig({ debug: true }),
+ *   config: new MCPAnalyticsConfig({ autocapture: { serverEvents: false } }),
  * });
  * ```
  */
 export class MCPAnalyticsConfig {
   readonly debug: boolean;
   readonly dryRun: boolean;
+  /** Resolved per-family autocapture flags, normalized from the option. */
+  readonly autocapture: Required<AutocaptureConfig>;
 
   constructor(options: MCPAnalyticsConfigOptions = {}) {
     this.debug = options.debug ?? false;
     this.dryRun = options.dryRun ?? false;
+    this.autocapture = resolveAutocapture(options.autocapture);
   }
 }
