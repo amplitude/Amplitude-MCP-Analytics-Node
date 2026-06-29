@@ -53,8 +53,10 @@ jobs:
 
       - name: Bump version + tag
         id: bump
+        env:
+          VERSION_BUMP: ${{ inputs.version_bump }}
         run: |
-          NEW_VERSION=$(npm version ${{ inputs.version_bump }} -m "chore(release): %s")
+          NEW_VERSION=$(npm version "$VERSION_BUMP" -m "chore(release): %s")
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Push commit + tag to main
