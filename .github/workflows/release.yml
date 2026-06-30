@@ -63,4 +63,12 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "chore(release): ${VERSION}" \
-            --body "Automated release PR. Merge to publish ${VERSION} to npm."
+            --body "Automated release PR for ${VERSION}.
+
+After merging, push the tag to trigger the publish workflow:
+
+\`\`\`
+git fetch origin main && git checkout origin/main
+git tag ${VERSION}
+git push origin ${VERSION}
+\`\`\`"
