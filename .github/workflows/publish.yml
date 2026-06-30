@@ -1,16 +1,9 @@
 name: Publish to npm
 
 on:
-  workflow_dispatch:
-    inputs:
-      version_bump:
-        description: Version bump type
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -19,10 +12,17 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    # Only fire when the merged PR is a release PR opened by release.yml.
+    # Checks both the title prefix and a marker phrase in the body — the
+    # marker is what makes accidental/spoofed matches very unlikely.
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.title, 'chore(release): v') &&
+      contains(github.event.pull_request.body, 'Automated release PR for')
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: true
 
@@ -46,26 +46,29 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Read version from package.json
+        id: pkg
+        run: |
+          VERSION=v$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Configure git
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version + tag
-        id: bump
+      - name: Create + push tag
         env:
-          VERSION_BUMP: ${{ inputs.version_bump }}
+          VERSION: ${{ steps.pkg.outputs.version }}
         run: |
-          NEW_VERSION=$(npm version "$VERSION_BUMP" -m "chore(release): %s")
-          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Push commit + tag to main
-        run: git push --follow-tags origin HEAD:main
+          git tag -a "$VERSION" -m "Release ${VERSION}"
+          git push origin "$VERSION"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ steps.bump.outputs.version }}" --generate-notes --verify-tag
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: gh release create "$VERSION" --generate-notes --verify-tag
 
       - name: Publish to npm
         run: npm publish --access public
