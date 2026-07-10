@@ -192,6 +192,39 @@ describe('ctxToAmplitudeFieldsForTool', () => {
     expect(mapped.groups).toEqual({ 'org id': '36958' });
     expect(mapped.event_properties.sessionId).toBe('sess-1');
   });
+
+  it('promotes the request-scope rationale and response HTTP status', () => {
+    const ctx = createToolContext(
+      { server: { name: 'my-server' }, transport: 'streamable-http' },
+      { name: 'search_docs' },
+      {
+        request: {
+          method: 'tools/call',
+          rationale: 'need ids first',
+          responseHttpStatus: 400,
+        },
+      },
+    );
+    const { event_properties: fields } = ctxToAmplitudeFieldsForTool(ctx);
+
+    expect(fields.rationale).toBe('need ids first');
+    expect(fields.responseHttpStatus).toBe(400);
+
+    const props = reservedFieldsToProperties(fields);
+    expect(props['[MCP] Rationale']).toBe('need ids first');
+    expect(props['[MCP] Response HTTP Status']).toBe(400);
+  });
+
+  it('omits rationale and response HTTP status when unset', () => {
+    const ctx = createToolContext(
+      { server: { name: 'my-server' }, transport: 'stdio' },
+      { name: 'search_docs' },
+    );
+    const { event_properties: fields } = ctxToAmplitudeFieldsForTool(ctx);
+
+    expect('rationale' in fields).toBe(false);
+    expect('responseHttpStatus' in fields).toBe(false);
+  });
 });
 
 describe('reservedFieldsToProperties', () => {

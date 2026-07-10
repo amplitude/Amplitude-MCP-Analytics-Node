@@ -49,6 +49,7 @@ export const EVENT_PROPERTY_KEYS = {
   errorMessage: '[MCP] Error Message',
   errorType: '[MCP] Error Type',
   errorHttpStatus: '[MCP] Error HTTP Status',
+  responseHttpStatus: '[MCP] Response HTTP Status',
   responseDuration: '[MCP] Response Duration',
   responseSize: '[MCP] Response Size',
   requestSize: '[MCP] Request Size',

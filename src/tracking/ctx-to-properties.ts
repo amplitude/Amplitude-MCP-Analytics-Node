@@ -64,6 +64,10 @@ export function ctxToAmplitudeFieldsForTool(ctx: McpToolContext): AmplitudeField
   if (typeof rationale === 'string' && rationale.length > 0) {
     fields.rationale = rationale;
   }
+  const responseHttpStatus = ctx.request?.responseHttpStatus;
+  if (typeof responseHttpStatus === 'number') {
+    fields.responseHttpStatus = responseHttpStatus;
+  }
 
   return {
     ...base,

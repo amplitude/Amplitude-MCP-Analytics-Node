@@ -134,6 +134,17 @@ export interface McpRequestInfo {
    * tool-scope event lowered from this ctx.
    */
   rationale?: string;
+  /**
+   * Transport-level HTTP status of the response to this call, emitted as the
+   * reserved `[MCP] Response HTTP Status` property. Host-supplied — intended
+   * for events a host emits itself for calls that failed before dispatch
+   * (where the transport status actually varies). The instrumented-tool
+   * wrapper never sets it: it emits when the handler settles, before the
+   * response is written, and dispatched tool calls answer 200 anyway (tool
+   * failures are in-band `isError` results; their HTTP class belongs on
+   * `[MCP] Error HTTP Status` via {@link McpToolError.httpStatus}).
+   */
+  responseHttpStatus?: number;
 }
 
 /**

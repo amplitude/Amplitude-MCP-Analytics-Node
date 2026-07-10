@@ -30,6 +30,9 @@ export interface DefaultToolFields extends DefaultServerFields {
   toolCategory?: string;
   /** Host-supplied via `setRationale()`; absent unless the host opted in. */
   rationale?: string;
+  /** Transport HTTP status of the response; host-supplied via
+   *  `ctx.request.responseHttpStatus` (see `McpRequestInfo`). */
+  responseHttpStatus?: number;
 }
 
 /** What the ctx mappers return: identity fields, typed reserved 

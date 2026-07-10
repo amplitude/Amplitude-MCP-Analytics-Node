@@ -161,6 +161,14 @@ so the transport typically answers 200 even when this property is a 4xx/5xx.
 For error shapes the SDK can't sniff, set it explicitly when building the
 error: `analytics.toolError(ctx, { code, message, httpStatus: 502 })`.
 
+Related but distinct: `[MCP] Response HTTP Status` is the transport-level
+status of the HTTP response itself. The instrumented-tool wrapper never emits
+it (dispatched tool calls answer 200; the wrapper emits before the response is
+written). It exists for events you emit yourself — e.g. a hand-built
+`[MCP] Tool Call Response` for a call that was rejected before reaching a tool
+handler — by setting `responseHttpStatus` on the context's `request` info
+before calling `trackToolEvent`.
+
 ## Choosing what's captured
 
 All default events are on by default. Toggle them with `autocapture` — a boolean
