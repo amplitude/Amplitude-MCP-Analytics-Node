@@ -54,8 +54,9 @@ export interface InstrumentServerOptions {
    * Custom enrichment attached to the server scope. These key/value pairs are
    * emitted as event properties on every event derived from this server —
    * including the default connection events (`[MCP] Session Initialized` /
-   * `[MCP] Session Ended` / `[MCP] Tools Listed`) — unless a key collides with a
-   * reserved property, in which case the reserved value wins.
+   * `[MCP] Session Ended` / `[MCP] Tools Listed`). On collision the SDK's
+   * per-event outcome values win; avoid `[MCP] `-prefixed keys, which are
+   * reserved for SDK-derived properties.
    */
   extra?: Record<string, unknown>;
 }
