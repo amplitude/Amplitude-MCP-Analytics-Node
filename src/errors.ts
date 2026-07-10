@@ -39,6 +39,14 @@ export interface McpToolError {
   recoverable?: boolean;
   /** SDK hint that a retry is worth attempting. */
   retrySuggested?: boolean;
+  /**
+   * HTTP status attached to the tool's failure (e.g. an upstream API
+   * response, or a thrown HTTP-shaped error). Note this is NOT the MCP
+   * transport status.
+   * Sniffed from `err.status` / `err.statusCode` by {@link classifyError};
+   * set explicitly via {@link ToolErrorInput.httpStatus} otherwise.
+   */
+  httpStatus?: number;
   /** Privacy-safe hash of the top stack frames; never contains raw paths. */
   stackHash?: string;
   /** Grouping key derived from `type + normalizedMessage`. Override via {@link ToolErrorInput.fingerprint}. */
@@ -65,6 +73,12 @@ export interface ToolErrorInput {
   recoverable?: boolean;
   /** SDK hint that a retry is worth attempting. */
   retrySuggested?: boolean;
+  /**
+   * HTTP status attached to the failure (upstream response / HTTP-shaped
+   * error). The explicit escape hatch for error shapes {@link classifyError}
+   * cannot sniff.
+   */
+  httpStatus?: number;
   /** Custom grouping key. When omitted, auto-derived from `type + normalizedMessage`. */
   fingerprint?: string;
 }
@@ -90,6 +104,10 @@ export function buildToolError(input: ToolErrorInput): McpToolError {
 
   if (input.retrySuggested != null) {
     error.retrySuggested = input.retrySuggested;
+  }
+
+  if (input.httpStatus != null && isHttpStatus(input.httpStatus)) {
+    error.httpStatus = input.httpStatus;
   }
 
   return error;
@@ -146,6 +164,25 @@ const NETWORK_CODES = new Set([
   'EAI_AGAIN',
 ]);
 
+/** Valid HTTP status range guard for the sniffed/explicit values. @internal */
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599;
+}
+
+/**
+ * Sniff an HTTP status off a thrown error via the dominant Node conventions
+ * (`err.status`, then `err.statusCode` — http-errors, Koa/Express-style
+ * errors, got, and most API clients). Same spirit as the `err.code` /
+ * `err.name` sniffing above; errors with other shapes go through
+ * {@link ToolErrorInput.httpStatus} instead. @internal
+ */
+function httpStatusFrom(err: Error): number | undefined {
+  const candidate = err as Error & { status?: unknown; statusCode?: unknown };
+  if (isHttpStatus(candidate.status)) return candidate.status;
+  if (isHttpStatus(candidate.statusCode)) return candidate.statusCode;
+  return undefined;
+}
+
 export function classifyError(err: unknown): McpToolError {
   if (!(err instanceof Error)) {
     const message = typeof err === 'string' ? err : 'Unknown error';
@@ -162,6 +199,7 @@ export function classifyError(err: unknown): McpToolError {
 
   const errWithCode = err as Error & { code?: string };
   const stack = hashStack(err.stack);
+  const httpStatus = httpStatusFrom(err);
 
   if (err.name === 'AbortError') {
     const type = 'timeout';
@@ -172,6 +210,7 @@ export function classifyError(err: unknown): McpToolError {
       type,
       source: 'sdk_wrapper',
       stackHash: stack,
+      ...(httpStatus != null ? { httpStatus } : {}),
       fingerprint: computeFingerprint(type, err.message),
     };
   }
@@ -185,6 +224,7 @@ export function classifyError(err: unknown): McpToolError {
       type,
       source: 'unknown',
       stackHash: stack,
+      ...(httpStatus != null ? { httpStatus } : {}),
       fingerprint: computeFingerprint(type, err.message),
     };
   }
@@ -197,6 +237,7 @@ export function classifyError(err: unknown): McpToolError {
     type,
     source: 'unknown',
     stackHash: stack,
+    ...(httpStatus != null ? { httpStatus } : {}),
     fingerprint: computeFingerprint(type, err.message),
   };
 }

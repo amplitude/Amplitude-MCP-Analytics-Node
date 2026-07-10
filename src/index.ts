@@ -8,6 +8,7 @@ export {
   getCurrentContext,
   runWithContext,
   setIdentity,
+  setRationale,
 } from './context/index.js';
 export type {
   AnchorType,

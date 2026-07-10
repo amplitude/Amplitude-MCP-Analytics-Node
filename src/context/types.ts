@@ -127,6 +127,13 @@ export type McpRequestMethod =
 export interface McpRequestInfo {
   method?: McpRequestMethod;
   sizeBytes?: number;
+  /**
+   * Host-supplied rationale for this invocation ("why the agent called this
+   * tool") — set via {@link setRationale}, never sniffed from tool inputs by
+   * the SDK. Emitted as the reserved `[MCP] Rationale` property on every
+   * tool-scope event lowered from this ctx.
+   */
+  rationale?: string;
 }
 
 /**

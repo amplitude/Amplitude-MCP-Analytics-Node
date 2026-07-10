@@ -28,6 +28,8 @@ export interface DefaultToolFields extends DefaultServerFields {
   toolOwner?: string;
   toolTags?: string[];
   toolCategory?: string;
+  /** Host-supplied via `setRationale()`; absent unless the host opted in. */
+  rationale?: string;
 }
 
 /** What the ctx mappers return: identity fields, typed reserved 

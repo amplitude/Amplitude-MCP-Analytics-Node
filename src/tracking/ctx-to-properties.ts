@@ -60,6 +60,10 @@ export function ctxToAmplitudeFieldsForTool(ctx: McpToolContext): AmplitudeField
   if (typeof category === 'string' && category.length > 0) {
     fields.toolCategory = category;
   }
+  const rationale = ctx.request?.rationale;
+  if (typeof rationale === 'string' && rationale.length > 0) {
+    fields.rationale = rationale;
+  }
 
   return {
     ...base,

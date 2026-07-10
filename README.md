@@ -86,7 +86,7 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | `[MCP] Session Initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `[MCP] Transport`, `[MCP] Protocol Version`, `[MCP] Auth Type` |
 | `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
-| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Type`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size` |
+| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
 same-named events/properties from other Amplitude SDKs on the same project.
@@ -125,6 +125,41 @@ Resolution order (first match wins): `setIdentity()` → `resolveIdentity()` →
 `instrumentServer` options → correlation anchor → an anonymous floor. When no
 identity is available the SDK still emits accurate aggregate-only data under a
 synthetic `device_id` (never a polluting placeholder, never a fabricated user).
+
+## Rationale
+
+Agent clients often supply a free-text rationale for a tool call ("why I'm
+calling this tool"). If your server receives one — as a tool argument, in
+`_meta`, a header, or however your convention works — pass it to the SDK and
+it is emitted as the reserved `[MCP] Rationale` property on the tool-call
+event and on every tool-scope custom event of the same invocation:
+
+```ts
+analytics.instrumentTool(async (args, extra) => {
+  if (typeof args.rationale === 'string') {
+    analytics.setRationale(args.rationale);
+  }
+  return doWork(args);
+}, { name: 'search' });
+```
+
+The SDK never reads rationale out of tool inputs itself: it is content-bearing
+free text, so emitting it is an explicit opt-in, and where it lives is your
+convention. Callable at any depth inside an instrumented handler (like
+`setIdentity`); truncated to 1000 characters; last write wins. Omitted
+entirely when never set.
+
+## Error HTTP status
+
+When a tool call fails on a thrown error that carries an HTTP status
+(`err.status` or `err.statusCode` — the common Node conventions), the
+tool-call event includes `[MCP] Error HTTP Status`. This is the status of the
+failure the tool hit (an upstream API response, an HTTP-shaped error), NOT the
+MCP transport status — per the MCP spec, tool failures are returned in-band,
+so the transport typically answers 200 even when this property is a 4xx/5xx.
+
+For error shapes the SDK can't sniff, set it explicitly when building the
+error: `analytics.toolError(ctx, { code, message, httpStatus: 502 })`.
 
 ## Choosing what's captured
 
