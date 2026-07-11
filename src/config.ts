@@ -2,13 +2,28 @@
  *  emitted automatically by `instrumentServer` / `instrumentTool` without an
  *  explicit `track*` call. */
 export interface AutocaptureConfig {
-  /** 
-   * Server connection / capability events: `[MCP] Session Initialized`,
-   * `[MCP] Session Ended`, `[MCP] Tools Listed`.
+  /**
+   * Umbrella default for the server connection / capability events:
+   * `[MCP] Session Initialized`, `[MCP] Session Ended`, `[MCP] Tools Listed`.
+   * Overridable per sub-family via {@link sessionLifecycle} /
+   * {@link toolsListed} — e.g. hosts that build one `McpServer` per HTTP
+   * request typically want `{ sessionLifecycle: false, toolsListed: true }`,
+   * because there a transport closes at the end of every request, not at
+   * session end.
    * @default true
   */
   serverEvents?: boolean;
-  /** 
+  /**
+   * `[MCP] Session Initialized` + `[MCP] Session Ended`.
+   * @default the `serverEvents` value
+   */
+  sessionLifecycle?: boolean;
+  /**
+   * `[MCP] Tools Listed`.
+   * @default the `serverEvents` value
+   */
+  toolsListed?: boolean;
+  /**
    * Tool-execution event: `[MCP] Tool Call Response`.
    * @default true
    */
@@ -36,16 +51,32 @@ export interface MCPAnalyticsConfigOptions {
   autocapture?: boolean | AutocaptureConfig;
 }
 
-const ALL_ON: Required<AutocaptureConfig> = { serverEvents: true, toolCalls: true };
+const ALL_ON: Required<AutocaptureConfig> = {
+  serverEvents: true,
+  sessionLifecycle: true,
+  toolsListed: true,
+  toolCalls: true,
+};
 
 /** Normalize the `autocapture` option into resolved per-family flags. */
 function resolveAutocapture(
   option: boolean | AutocaptureConfig | undefined,
 ): Required<AutocaptureConfig> {
   if (option === undefined || option === true) return { ...ALL_ON };
-  if (option === false) return { serverEvents: false, toolCalls: false };
+  if (option === false) {
+    return {
+      serverEvents: false,
+      sessionLifecycle: false,
+      toolsListed: false,
+      toolCalls: false,
+    };
+  }
+
+  const serverEvents = option.serverEvents ?? true;
   return {
-    serverEvents: option.serverEvents ?? true,
+    serverEvents,
+    sessionLifecycle: option.sessionLifecycle ?? serverEvents,
+    toolsListed: option.toolsListed ?? serverEvents,
     toolCalls: option.toolCalls ?? true,
   };
 }

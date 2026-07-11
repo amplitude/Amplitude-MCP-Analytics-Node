@@ -23,6 +23,11 @@ import type {
   Transport,
 } from './core/mcp.js';
 import { byteSize } from './core/serialize.js';
+import {
+  currentServerScope,
+  installServerScopeDispatch,
+  type ServerScope,
+} from './core/server-scope.js';
 import { installToolsListHook } from './core/tools-list-hook.js';
 import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
@@ -43,9 +48,10 @@ import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
 const INSTRUMENTED = Symbol.for('amplitude.mcp.instrumented');
 
 /**
- * Static identity for `instrumentServer()`. Intended for stdio transports or
- * single-user servers where the identity is known for the server's lifetime.
- * Server identity of the fallback chain.
+ * Per-connection options for `instrumentServer()`. The identity fields sit at
+ * the server-identity step of the fallback chain. Scoped to THIS server
+ * binding: hosts that build one `McpServer` per request can safely pass
+ * per-request values — concurrent bindings do not overwrite each other.
  */
 export interface InstrumentServerOptions {
   userId?: string;
@@ -54,6 +60,27 @@ export interface InstrumentServerOptions {
   /** How subjects authenticate to this server (e.g. `'oauth'`). Emitted as
    *  `[MCP] Auth Type` on every event derived from the server scope. */
   authType?: string;
+  /**
+   * MCP client info when the host resolves it out-of-band (e.g. from an
+   * OAuth client registration or a per-session cache). Handshake `clientInfo`
+   * and per-request `_meta` / `User-Agent` still win when present — this is
+   * the fallback for bindings that never handshake (per-request servers).
+   */
+  client?: { name?: string; version?: string; userAgent?: string };
+  /**
+   * Correlation session id when the host manages sessions itself (e.g. an
+   * `Mcp-Session-Id` header validated against an external session store).
+   * Becomes the `[MCP] Session ID` anchor for events from this binding;
+   * a session id carried by the transport still wins when present.
+   */
+  sessionId?: string;
+  /**
+   * Negotiated MCP protocol version when the host tracks it out-of-band
+   * (e.g. a per-session cache for legacy clients that only send the
+   * `MCP-Protocol-Version` header on initialize). The per-request header /
+   * `_meta` value still wins when present.
+   */
+  protocolVersion?: string;
   /**
    * Custom enrichment attached to the server scope. These key/value pairs are
    * emitted as event properties on every event derived from this server —
@@ -124,19 +151,17 @@ export class AmplitudeMCPAnalytics {
    *  exit warning. @internal */
   protected _trackCountSinceFlush = 0;
 
-  /** Server-scope context, set by {@link instrumentServer}. Every per-request 
-   *  ctx is built from it and inherits the server info, and the server-scope 
-   *  events read it directly. When unset, {@link instrumentTool} is a no-op 
+  /** LAST-connected server scope — the fallback when a call runs outside a
+   *  dispatch frame (see `core/server-scope.ts`). The authoritative per-server
+   *  state lives on each binding's {@link ServerScope}; these fields only
+   *  mirror the most recent one so single-server hosts and direct handler
+   *  invocation keep working. When unset, {@link instrumentTool} is a no-op
    *  passthrough (warns once) and the handler runs untouched. @internal */
   protected _serverCtx?: McpServerContext;
 
-  /** Static identity from `instrumentServer(server, opts)`. @internal */
+  /** Identity from the most recent `instrumentServer(server, opts)` — same
+   *  fallback role as {@link _serverCtx}. @internal */
   protected _serverIdentity?: { userId?: string; deviceId?: string; tenant?: McpTenant };
-
-  /** Handshake timestamp (ms) — set only on the session-bearing transports
-   *  (stdio + legacy HTTP, which handshake), `undefined` on stateless HTTP. 
-   *  Also serves as the "a session is active" flag. @internal */
-  protected _sessionStartMs?: number;
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -349,9 +374,13 @@ export class AmplitudeMCPAnalytics {
     return instrumentToolFactory(
       {
         amplitude: this._amplitude,
-        getServerCtx: () => this._serverCtx,
+        // Resolve the dispatching server's scope first (set per binding by
+        // `instrumentServer` — see `core/server-scope.ts`); fall back to the
+        // last-connected scope for direct invocation outside a dispatch.
+        getServerCtx: () => currentServerScope()?.ctx ?? this._serverCtx,
         resolveIdentity: opts?.resolveIdentity,
-        serverIdentity: this._serverIdentity,
+        getServerIdentity: () =>
+          currentServerScope()?.identity ?? this._serverIdentity,
         trackToolCalls: this.config.autocapture.toolCalls,
         logger: getLogger(this._amplitude),
       },
@@ -380,12 +409,17 @@ export class AmplitudeMCPAnalytics {
     const boundServer = server as McpServerLike & { [INSTRUMENTED]?: boolean };
     if (boundServer[INSTRUMENTED]) return server;
 
+    // Analytics state owned by THIS binding — never shared across servers,
+    // so per-request `McpServer` hosts can pass per-request opts safely.
+    const scope: ServerScope = {};
+
     if (opts != null && (opts.userId != null || opts.deviceId != null || opts.tenant != null)) {
-      this._serverIdentity = {
+      scope.identity = {
         userId: opts.userId,
         deviceId: opts.deviceId,
         tenant: opts.tenant,
       };
+      this._serverIdentity = scope.identity;
     }
 
     // `isConnected()` is only on the high-level McpServer.
@@ -405,21 +439,28 @@ export class AmplitudeMCPAnalytics {
     const originalConnect = boundServer.connect.bind(boundServer);
 
     boundServer.connect = (transport: Transport): Promise<void> => {
-      this._serverCtx = createServerContext({
+      scope.ctx = createServerContext({
         server: { name: this.serverName, version: this.serverVersion },
         transport: resolveTransport(transport),
         authType: opts?.authType,
+        client: opts?.client,
+        protocolVersion: opts?.protocolVersion,
+        anchor: opts?.sessionId
+          ? { type: 'session-id', value: opts.sessionId }
+          : undefined,
         extra: opts?.extra,
       });
+      // Mirror onto the last-connected fallback (see the field doc).
+      this._serverCtx = scope.ctx;
 
       // Default server connection / capability events (opt-out via config).
-      if (this.config.autocapture.serverEvents) {
+      if (this.config.autocapture.toolsListed) {
         // `tools/list` → `[MCP] Tools Listed`. Wrap now: every handler is
         // registered by connect time, so the live tool set is counted per call.
         installToolsListHook(lowLevelServer, ({ result, error, durationMs }, extra) => {
-          if (this._serverCtx == null) return;
-          const ctx = buildServerContext(this._serverCtx, extra, {
-            serverIdentity: this._serverIdentity,
+          if (scope.ctx == null) return;
+          const ctx = buildServerContext(scope.ctx, extra, {
+            serverIdentity: scope.identity,
             logger: getLogger(this._amplitude),
           });
           const tools = result?.tools ?? [];
@@ -437,16 +478,18 @@ export class AmplitudeMCPAnalytics {
             errorType: toolError?.type,
           });
         });
+      }
 
+      if (this.config.autocapture.sessionLifecycle) {
         // `[MCP] Session Ended` on transport close — only when a session was
         // initialized (gates out stateless HTTP, which never handshakes).
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
-          if (this._sessionStartMs != null && this._serverCtx != null) {
-            emitSessionEnded(this._amplitude, this._serverCtx, {
-              durationMs: performance.now() - this._sessionStartMs,
+          if (scope.sessionStartMs != null && scope.ctx != null) {
+            emitSessionEnded(this._amplitude, scope.ctx, {
+              durationMs: performance.now() - scope.sessionStartMs,
             });
-            this._sessionStartMs = undefined;
+            scope.sessionStartMs = undefined;
           }
           existingOnClose?.();
         };
@@ -457,8 +500,8 @@ export class AmplitudeMCPAnalytics {
       const existingOnInitialized = lowLevelServer.oninitialized;
       lowLevelServer.oninitialized = (): void => {
         const clientInfo = lowLevelServer.getClientVersion();
-        if (clientInfo != null && this._serverCtx != null) {
-          this._serverCtx.client = { ...this._serverCtx.client, name: clientInfo.name, version: clientInfo.version };
+        if (clientInfo != null && scope.ctx != null) {
+          scope.ctx.client = { ...scope.ctx.client, name: clientInfo.name, version: clientInfo.version };
         }
 
         // `[MCP] Session Initialized` — the handshake only fires on the
@@ -468,19 +511,27 @@ export class AmplitudeMCPAnalytics {
         // per-request builds still override these per call. No request `extra` at
         // the handshake; carry the transport session id (legacy HTTP) so the
         // anchor resolves to it, else stdio → process.
-        if (this.config.autocapture.serverEvents && this._serverCtx != null) {
+        if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
           const sessionId = (transport as { sessionId?: string }).sessionId;
-          this._serverCtx = buildServerContext(
-            this._serverCtx,
+          scope.ctx = buildServerContext(
+            scope.ctx,
             { sessionId } as unknown as McpExtra,
-            { serverIdentity: this._serverIdentity, logger: getLogger(this._amplitude) },
+            { serverIdentity: scope.identity, logger: getLogger(this._amplitude) },
           );
-          this._sessionStartMs = performance.now();
-          emitSessionInitialized(this._amplitude, this._serverCtx);
+          this._serverCtx = scope.ctx;
+          scope.sessionStartMs = performance.now();
+          emitSessionInitialized(this._amplitude, scope.ctx);
         }
 
         existingOnInitialized?.();
       };
+
+      // Run every request this server dispatches inside its scope's ALS
+      // frame, so instrumented tools resolve THIS binding even when many
+      // servers are live concurrently. Install last: the tools/list hook
+      // above ends up inside the frame too.
+      installServerScopeDispatch(lowLevelServer, scope);
+
       return originalConnect(transport);
     };
 

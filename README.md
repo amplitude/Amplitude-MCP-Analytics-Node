@@ -107,7 +107,9 @@ context properties (identity, client/server, transport, trace correlation).
 The SDK never guesses it from auth — you provide it, via whichever path fits:
 
 ```ts
-// 1. Static, for stdio / single-user servers — set once when binding.
+// 1. Bound with the server. Scoped to that binding — hosts that build one
+//    McpServer per request can pass per-request values safely; concurrent
+//    bindings never overwrite each other.
 analytics.instrumentServer(server, {
   userId: 'user-123',
   tenant: { groupType: 'org id', groupValue: '456' },
@@ -194,7 +196,12 @@ createMcpAnalytics({
 ```
 
 `autocapture: false` disables all default events; `{ serverEvents, toolCalls }`
-toggles each family. Custom events (below) are unaffected.
+toggles each family. `serverEvents` can be split further with
+`sessionLifecycle` (`[MCP] Session Initialized`/`Ended`) and `toolsListed`
+(`[MCP] Tools Listed`) — e.g. servers built per HTTP request typically want
+`{ sessionLifecycle: false, toolsListed: true }`, since their transports close
+at the end of every request rather than at session end. Custom events (below)
+are unaffected.
 
 ## Context (`ctx`)
 

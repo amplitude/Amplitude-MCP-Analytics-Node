@@ -82,14 +82,20 @@ function parseTraceId(traceparent: string | undefined): string | undefined {
  * Per-request correlation anchor, by transport:
  * - **stdio** → process lifetime.
  * - **streamable-http, legacy** (session id present) → the session id.
- * - **streamable-http, stateless** (no session id) → W3C trace context if
- *   propagated, else an anonymous per-request floor (aggregate-only, no
- *   stitching).
+ * - **streamable-http, host-managed sessions** — a session-id anchor bound
+ *   via `instrumentServer({ sessionId })` when the transport carries none.
+ * - **streamable-http, stateless** (no session id anywhere) → W3C trace
+ *   context if propagated, else an anonymous per-request floor
+ *   (aggregate-only, no stitching).
  *
  * A session id is never assumed — its absence selects the stateless branch.
  * @internal
  */
-function resolveAnchor(transport: McpTransport, extra: McpExtra): McpAnchor {
+function resolveAnchor(
+  transport: McpTransport,
+  extra: McpExtra,
+  boundAnchor?: McpAnchor,
+): McpAnchor {
   if (transport === 'stdio') {
     return { type: 'process', value: String(process.pid) };
   }
@@ -98,6 +104,12 @@ function resolveAnchor(transport: McpTransport, extra: McpExtra): McpAnchor {
   const sessionId = extra.sessionId;
   if (typeof sessionId === 'string' && sessionId.length > 0) {
     return { type: 'session-id', value: sessionId };
+  }
+
+  // Host-managed session bound on the server scope (per-request servers
+  // whose session ids live in the host's own store, not on the transport).
+  if (boundAnchor?.type === 'session-id' && boundAnchor.value.length > 0) {
+    return boundAnchor;
   }
 
   // Stateless: prefer propagated trace context, else an anonymous floor.
@@ -130,7 +142,7 @@ export function buildServerContext(
   extra: McpExtra,
   opts?: BuildContextOpts,
 ): McpServerContext {
-  const resolvedAnchor = resolveAnchor(serverCtx.transport, extra);
+  const resolvedAnchor = resolveAnchor(serverCtx.transport, extra, serverCtx.anchor);
 
   const authInfo = (extra as Record<string, unknown>).authInfo as
     | Record<string, unknown>
