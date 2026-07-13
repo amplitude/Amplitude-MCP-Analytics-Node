@@ -13,9 +13,15 @@
  * has serverless pitfalls. When in doubt, pass `ctx`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { McpServerContext, SetIdentityInput } from './types.js';
+import type { McpServerContext, McpToolContext, SetIdentityInput } from './types.js';
 
 const storage = new AsyncLocalStorage<McpServerContext>();
+
+/**
+ * Upper bound on the stored rationale. Rationale is LLM-generated free text;
+ * the cap keeps a runaway agent from bloating every event on the call.
+ */
+const RATIONALE_MAX_LENGTH = 1000;
 
 /**
  * Run `fn` with `ctx` as the ambient context, including any async work awaited
@@ -62,4 +68,52 @@ export function setIdentity(input: SetIdentityInput): void {
   }
 
   if (input.tenant != null) ctx.tenant = input.tenant;
+}
+
+/**
+ * Set the rationale ("why the agent called this tool") for the current tool
+ * invocation. Must be called inside a {@link runWithContext} scope — in
+ * practice, anywhere inside an instrumented tool handler, at any call depth.
+ * Throws if called outside a context scope (same contract as
+ * {@link setIdentity}).
+ *
+ * The value is emitted as the reserved `[MCP] Rationale` property on the
+ * default `[MCP] Tool Call Response` event and on every tool-scope custom
+ * event of the same invocation. The SDK never reads rationale out of tool
+ * inputs itself — where it lives (a tool argument, `_meta`, a header, a
+ * derived value) is the host's convention, and rationale is content-bearing
+ * free text, so emitting it is an explicit host opt-in.
+ *
+ * Truncated to 1000 characters. Last write wins if called more than once.
+ * Non-string or empty values are ignored.
+ *
+ * @example
+ * ```typescript
+ * server.tool('search', schema, analytics.instrumentTool(
+ *   async (args, extra) => {
+ *     if (typeof args.rationale === 'string') {
+ *       analytics.setRationale(args.rationale);
+ *     }
+ *     return doSearch(args);
+ *   },
+ *   { name: 'search' },
+ * ));
+ * ```
+ */
+export function setRationale(rationale: string): void {
+  const ctx = storage.getStore();
+  if (ctx == null) {
+    throw new Error(
+      'setRationale() called outside an active context scope. ' +
+      'Call it inside an instrumented tool handler or a runWithContext() block.',
+    );
+  }
+
+  if (typeof rationale !== 'string' || rationale.length === 0) return;
+
+  const toolCtx = ctx as McpToolContext;
+  toolCtx.request = {
+    ...toolCtx.request,
+    rationale: rationale.slice(0, RATIONALE_MAX_LENGTH),
+  };
 }

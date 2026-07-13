@@ -1,4 +1,4 @@
-export { getCurrentContext, runWithContext, setIdentity } from './als.js';
+export { getCurrentContext, runWithContext, setIdentity, setRationale } from './als.js';
 export { createServerContext, createToolContext } from './factory.js';
 export type { CreateServerContextInput } from './factory.js';
 export type {

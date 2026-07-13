@@ -128,6 +128,24 @@ export type McpRequestMethod =
 export interface McpRequestInfo {
   method?: McpRequestMethod;
   sizeBytes?: number;
+  /**
+   * Host-supplied rationale for this invocation ("why the agent called this
+   * tool") — set via {@link setRationale}, never sniffed from tool inputs by
+   * the SDK. Emitted as the reserved `[MCP] Rationale` property on every
+   * tool-scope event lowered from this ctx.
+   */
+  rationale?: string;
+  /**
+   * Transport-level HTTP status of the response to this call, emitted as the
+   * reserved `[MCP] Response HTTP Status` property. Host-supplied — intended
+   * for events a host emits itself for calls that failed before dispatch
+   * (where the transport status actually varies). The instrumented-tool
+   * wrapper never sets it: it emits when the handler settles, before the
+   * response is written, and dispatched tool calls answer 200 anyway (tool
+   * failures are in-band `isError` results; their HTTP class belongs on
+   * `[MCP] Error HTTP Status` via {@link McpToolError.httpStatus}).
+   */
+  responseHttpStatus?: number;
 }
 
 /**

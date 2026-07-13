@@ -1,5 +1,9 @@
 import { MCPAnalyticsConfig } from './config.js';
-import { createServerContext, setIdentity as setIdentityOnCtx } from './context/index.js';
+import {
+  createServerContext,
+  setIdentity as setIdentityOnCtx,
+  setRationale as setRationaleOnCtx,
+} from './context/index.js';
 import type { IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
 import { buildServerContext, resolveTransport } from './core/build-context.js';
 import {
@@ -227,6 +231,35 @@ export class AmplitudeMCPAnalytics {
    */
   setIdentity(input: SetIdentityInput): void {
     setIdentityOnCtx(input);
+  }
+
+  /**
+   * Set the rationale ("why the agent called this tool") for the current tool
+   * invocation. Must be called inside an instrumented tool handler (or a
+   * `runWithContext` block), at any call depth. Emitted as the reserved
+   * `[MCP] Rationale` property on the default `[MCP] Tool Call Response`
+   * event and on every tool-scope custom event of the same invocation.
+   *
+   * The SDK never reads rationale out of tool inputs itself — where it lives
+   * (a tool argument, `_meta`, a header, a derived value) is your convention,
+   * and rationale is content-bearing free text, so emitting it is an explicit
+   * opt-in. Truncated to 1000 characters; last write wins.
+   *
+   * @example
+   * ```typescript
+   * server.tool('search', schema, analytics.instrumentTool(
+   *   async (args, extra) => {
+   *     if (typeof args.rationale === 'string') {
+   *       analytics.setRationale(args.rationale);
+   *     }
+   *     return doSearch(args);
+   *   },
+   *   { name: 'search' },
+   * ));
+   * ```
+   */
+  setRationale(rationale: string): void {
+    setRationaleOnCtx(rationale);
   }
 
   /**
