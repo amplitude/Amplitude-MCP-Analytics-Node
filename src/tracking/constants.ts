@@ -43,10 +43,13 @@ export const EVENT_PROPERTY_KEYS = {
   toolOwner: '[MCP] Tool Owner',
   toolTags: '[MCP] Tool Tags',
   toolCategory: '[MCP] Tool Category',
+  rationale: '[MCP] Rationale',
   // tool-call outcome
   isError: '[MCP] Is Error',
   errorMessage: '[MCP] Error Message',
   errorType: '[MCP] Error Type',
+  errorHttpStatus: '[MCP] Error HTTP Status',
+  responseHttpStatus: '[MCP] Response HTTP Status',
   responseDuration: '[MCP] Response Duration',
   responseSize: '[MCP] Response Size',
   requestSize: '[MCP] Request Size',

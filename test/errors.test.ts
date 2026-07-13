@@ -89,6 +89,26 @@ describe('buildToolError', () => {
 
     expect(err.fingerprint).toBe('my-custom-group');
   });
+
+  it('carries an explicit httpStatus through', () => {
+    const err = buildToolError({
+      code: 'upstream_denied',
+      message: 'Access denied by upstream.',
+      httpStatus: 403,
+    });
+
+    expect(err.httpStatus).toBe(403);
+  });
+
+  it('drops an out-of-range explicit httpStatus', () => {
+    const err = buildToolError({
+      code: 'weird',
+      message: 'Bad status.',
+      httpStatus: 12345,
+    });
+
+    expect(err.httpStatus).toBeUndefined();
+  });
 });
 
 describe('toolErrorResult', () => {
@@ -189,6 +209,56 @@ describe('classifyError', () => {
 
     expect(classified.code).toBe('ERR_VALIDATION');
     expect(classified.type).toBe('thrown_exception');
+  });
+
+  it('sniffs httpStatus from err.status', () => {
+    const err = new Error('Forbidden');
+    (err as Error & { status: number }).status = 403;
+
+    const classified = classifyError(err);
+
+    expect(classified.httpStatus).toBe(403);
+    expect(classified.type).toBe('thrown_exception');
+  });
+
+  it('sniffs httpStatus from err.statusCode when err.status is absent', () => {
+    const err = new Error('Server error');
+    (err as Error & { statusCode: number }).statusCode = 502;
+
+    expect(classifyError(err).httpStatus).toBe(502);
+  });
+
+  it('prefers err.status over err.statusCode', () => {
+    const err = new Error('Conflicting shapes');
+    (err as Error & { status: number; statusCode: number }).status = 404;
+    (err as Error & { status: number; statusCode: number }).statusCode = 500;
+
+    expect(classifyError(err).httpStatus).toBe(404);
+  });
+
+  it('ignores non-HTTP-shaped status values', () => {
+    const stringStatus = new Error('stringy');
+    (stringStatus as Error & { status: string }).status = 'oops';
+    const outOfRange = new Error('rangey');
+    (outOfRange as Error & { status: number }).status = 42;
+
+    expect(classifyError(stringStatus).httpStatus).toBeUndefined();
+    expect(classifyError(outOfRange).httpStatus).toBeUndefined();
+  });
+
+  it('omits httpStatus when the error carries none', () => {
+    expect(classifyError(new Error('plain')).httpStatus).toBeUndefined();
+  });
+
+  it('attaches httpStatus on the transport_error branch too', () => {
+    const err = new Error('socket closed mid-response');
+    (err as Error & { code: string; statusCode: number }).code = 'ECONNRESET';
+    (err as Error & { code: string; statusCode: number }).statusCode = 502;
+
+    const classified = classifyError(err);
+
+    expect(classified.type).toBe('transport_error');
+    expect(classified.httpStatus).toBe(502);
   });
 });
 
@@ -427,5 +497,26 @@ describe('instrumentTool error classification', () => {
     await expect(wrapped(extra)).rejects.toThrow('signal aborted');
 
     expect(ctx!.error!.type).toBe('timeout');
+  });
+
+  it('carries the sniffed httpStatus from a thrown HTTP-shaped error onto ctx.error', async () => {
+    const { analytics } = makeAnalytics();
+    bind(analytics);
+
+    let ctx: McpToolContext | undefined;
+    const wrapped = analytics.instrumentTool(
+      async (_extra: McpExtra): Promise<CallToolResult> => {
+        ctx = getCurrentContext() as McpToolContext | undefined;
+        const err = new Error('upstream said no');
+        (err as Error & { status: number }).status = 403;
+        throw err;
+      },
+      { name: 'denied-tool' },
+    );
+
+    await expect(wrapped(extra)).rejects.toThrow('upstream said no');
+
+    expect(ctx!.error!.type).toBe('thrown_exception');
+    expect(ctx!.error!.httpStatus).toBe(403);
   });
 });

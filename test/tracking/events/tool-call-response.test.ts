@@ -67,6 +67,35 @@ describe('emitToolCallResponse', () => {
       '[MCP] Error Message': 'boom',
       '[MCP] Error Type': 'thrown_exception',
     });
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error HTTP Status');
+  });
+
+  it('emits the error HTTP status when the classified error carries one', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.error = buildToolError({
+      code: 'upstream_denied',
+      message: 'Access denied by upstream.',
+      type: 'upstream_error',
+      httpStatus: 403,
+    });
+    emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
+
+    expect(tracked[0]?.event_properties).toMatchObject({
+      '[MCP] Is Error': true,
+      '[MCP] Error HTTP Status': 403,
+    });
+  });
+
+  it('emits [MCP] Rationale when the host set a rationale on the ctx', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.request = { ...ctx.request, rationale: 'checking config before mutation' };
+    emitToolCallResponse(client, ctx, okOutcome);
+
+    expect(tracked[0]?.event_properties?.['[MCP] Rationale']).toBe(
+      'checking config before mutation',
+    );
   });
 
   it('emits a tool\'s `extra` enrichment as event properties', () => {
