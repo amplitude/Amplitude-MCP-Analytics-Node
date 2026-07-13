@@ -83,13 +83,17 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 
 | Event | When | Notable properties |
 | -- | -- | -- |
-| `[MCP] Session Initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `[MCP] Transport`, `[MCP] Protocol Version`, `[MCP] Auth Type` |
+| `[MCP] Session Initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `[MCP] Transport`, `[MCP] Auth Type` |
 | `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
 | `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
 same-named events/properties from other Amplitude SDKs on the same project.
+
+This table is a summary. The full reference — every property and when it's
+present, identity resolution, transport nuances, and the error taxonomy —
+lives in [`docs/events.md`](./docs/events.md).
 
 Session events model a real protocol session, which only exists on stdio and
 legacy (`2025-11-25`) Streamable HTTP. On stateless (`2026-07-28+`) HTTP there is
@@ -125,6 +129,8 @@ Resolution order (first match wins): `setIdentity()` → `resolveIdentity()` →
 `instrumentServer` options → correlation anchor → an anonymous floor. When no
 identity is available the SDK still emits accurate aggregate-only data under a
 synthetic `device_id` (never a polluting placeholder, never a fabricated user).
+The one exception: an event that is fully anonymous **and** has no tenant is
+dropped rather than emitted as noise (see [`docs/events.md`](./docs/events.md)).
 
 ## Rationale
 
@@ -238,17 +244,22 @@ these from two places:
 
 ### Precedence
 
-When the same key appears in more than one place, precedence is fixed:
+When the same key appears in more than one place, the merge order is fixed —
+later sources overwrite earlier ones:
 
 ```
-reserved (SDK-derived)  >  properties (per call)  >  extra (context bag)
+reserved (SDK-derived)  <  extra (context bag)  <  properties (per call)
 ```
 
-- A **reserved** property always wins. A custom key that collides with one is
-  **dropped and a warning is logged** — reserved properties define the event
-  contract and can't be overwritten.
-- A **`properties`** value overrides an **`extra`** value with the same key (the
-  explicit, per-call value is the more intentional one).
+- A **`properties`** value wins over anything with the same key — including a
+  reserved property (the explicit, per-call value is the most intentional one).
+- An **`extra`** value overrides a reserved property but loses to `properties`.
+- On the **default events**, the SDK's outcome values (`[MCP] Is Error`,
+  `[MCP] Response Duration`, …) ride as per-call `properties`, so a colliding
+  `extra` key can't overwrite them.
+
+Reserved names all carry the `[MCP] ` prefix — avoid it in your own keys and
+collisions never arise.
 
 ### Dropping the `extra` bag
 

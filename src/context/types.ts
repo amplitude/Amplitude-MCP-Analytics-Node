@@ -102,7 +102,8 @@ export interface McpToolMeta {
   /**
    * Custom enrichment for this tool — its key/value pairs are carried on the ctx
    * and emitted as event properties on the default `[MCP] Tool Call Response`
-   * event (reserved contract keys win on collision).
+   * event (the event's SDK-computed outcome values win on collision; avoid
+   * `[MCP] `-prefixed keys, which are reserved for SDK-derived properties).
    */
   extra?: Record<string, unknown>;
 
