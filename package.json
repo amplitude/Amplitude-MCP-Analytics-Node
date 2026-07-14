@@ -1,6 +1,6 @@
 {
   "name": "@amplitude/mcp-analytics",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Amplitude MCP Analytics SDK - MCP server usage tracking for Amplitude Analytics",
   "keywords": [
     "amplitude",
