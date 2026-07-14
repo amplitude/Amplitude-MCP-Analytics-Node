@@ -277,4 +277,13 @@ describe('shouldEmit (identity/tenant skip rule)', () => {
     });
     expect(shouldEmit(ctx)).toBe(true);
   });
+
+  it('emits the anonymous, tenant-less floor when emitAnonymousEvent is set', () => {
+    const ctx = createServerContext({
+      server: { name: 'my-server' },
+      transport: 'stdio',
+      emitAnonymousEvent: true,
+    });
+    expect(shouldEmit(ctx)).toBe(true);
+  });
 });

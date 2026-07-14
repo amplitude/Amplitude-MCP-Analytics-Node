@@ -93,14 +93,17 @@ export function reservedFieldsToProperties(
 }
 
 /**
-  * Audit §2 skip rule: drop emission when the subject is anonymous AND no
-  * tenant is set — the event would carry neither identity nor org dimension and
-  * is unusable. Hosts that need to emit pre-resolution (the two exceptions in
-  * audit §2 — `mcp: auth org mismatch` and `mcp: slack identity auth`) build a
-  * ctx with a non-anonymous identity through {@link
- * import('../context/index.js').createServerContext} before calling track*.
+ * Emit gate for the fully anonymous floor. When the subject resolved to the
+ * per-request anonymous floor (`resolvedFrom === 'anonymous'`) and there is no
+ * tenant, the event carries only a synthetic `device_id` that never recurs
+ * (a fresh id per request, no cross-call stitching). Emitting these by default
+ * inflates unique-user/device counts with noise, so they are dropped unless the
+ * consumer opts in via `config.emitAnonymousEvent` (stamped onto the ctx as
+ * {@link McpServerContext.emitAnonymousEvent}). Any non-anonymous subject or any
+ * tenant always emits.
  */
 export function shouldEmit(ctx: McpServerContext): boolean {
+  if (ctx.emitAnonymousEvent) return true;
   if (ctx.identity.resolvedFrom === 'anonymous' && ctx.tenant == null) return false;
   return true;
 }

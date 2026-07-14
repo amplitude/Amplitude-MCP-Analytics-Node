@@ -107,7 +107,9 @@ context properties (identity, client/server, transport, trace correlation).
 The SDK never guesses it from auth — you provide it, via whichever path fits:
 
 ```ts
-// 1. Static, for stdio / single-user servers — set once when binding.
+// 1. Bound with the server. Scoped to that binding — hosts that build one
+//    McpServer per request can pass per-request values safely; concurrent
+//    bindings never overwrite each other.
 analytics.instrumentServer(server, {
   userId: 'user-123',
   tenant: { groupType: 'org id', groupValue: '456' },
@@ -127,10 +129,22 @@ analytics.instrumentTool(handler, { name: 'search' }, {
 
 Resolution order (first match wins): `setIdentity()` → `resolveIdentity()` →
 `instrumentServer` options → correlation anchor → an anonymous floor. When no
-identity is available the SDK still emits accurate aggregate-only data under a
-synthetic `device_id` (never a polluting placeholder, never a fabricated user).
-The one exception: an event that is fully anonymous **and** has no tenant is
-dropped rather than emitted as noise (see [`docs/events.md`](./docs/events.md)).
+explicit identity is supplied but a correlation anchor exists (a stdio process,
+a legacy session id, or a propagated W3C trace context), the SDK emits accurate
+aggregate-only data under a synthetic `device_id` derived from that anchor —
+never a polluting placeholder, never a fabricated user.
+
+If there is no anchor either — the fully stateless case with no identity and no
+tenant — each request would mint a brand-new random `device_id` with no
+cross-call stitching, so those events are **dropped by default** rather than
+inflating your user counts (see [`docs/events.md`](./docs/events.md)). Opt in to
+emit them as anonymous, aggregate-only data with `emitAnonymousEvent: true`:
+
+```ts
+import { MCPAnalyticsConfig } from '@amplitude/mcp-analytics';
+
+new MCPAnalyticsConfig({ emitAnonymousEvent: true });
+```
 
 ## Rationale
 
@@ -194,7 +208,12 @@ createMcpAnalytics({
 ```
 
 `autocapture: false` disables all default events; `{ serverEvents, toolCalls }`
-toggles each family. Custom events (below) are unaffected.
+toggles each family. `serverEvents` can be split further with
+`sessionLifecycle` (`[MCP] Session Initialized`/`Ended`) and `toolsListed`
+(`[MCP] Tools Listed`) — e.g. servers built per HTTP request typically want
+`{ sessionLifecycle: false, toolsListed: true }`, since their transports close
+at the end of every request rather than at session end. Custom events (below)
+are unaffected.
 
 ## Context (`ctx`)
 

@@ -2,13 +2,28 @@
  *  emitted automatically by `instrumentServer` / `instrumentTool` without an
  *  explicit `track*` call. */
 export interface AutocaptureConfig {
-  /** 
-   * Server connection / capability events: `[MCP] Session Initialized`,
-   * `[MCP] Session Ended`, `[MCP] Tools Listed`.
+  /**
+   * Umbrella default for the server connection / capability events:
+   * `[MCP] Session Initialized`, `[MCP] Session Ended`, `[MCP] Tools Listed`.
+   * Overridable per sub-family via {@link sessionLifecycle} /
+   * {@link toolsListed} — e.g. hosts that build one `McpServer` per HTTP
+   * request typically want `{ sessionLifecycle: false, toolsListed: true }`,
+   * because there a transport closes at the end of every request, not at
+   * session end.
    * @default true
   */
   serverEvents?: boolean;
-  /** 
+  /**
+   * `[MCP] Session Initialized` + `[MCP] Session Ended`.
+   * @default the `serverEvents` value
+   */
+  sessionLifecycle?: boolean;
+  /**
+   * `[MCP] Tools Listed`.
+   * @default the `serverEvents` value
+   */
+  toolsListed?: boolean;
+  /**
    * Tool-execution event: `[MCP] Tool Call Response`.
    * @default true
    */
@@ -34,18 +49,45 @@ export interface MCPAnalyticsConfigOptions {
    * @default { serverEvents: true, toolCalls: true }
    */
   autocapture?: boolean | AutocaptureConfig;
+  /**
+   * Whether to emit events for a fully anonymous subject — one with no supplied
+   * or derivable identity AND no tenant, resolved to the per-request anonymous
+   * floor. Each such request mints a fresh synthetic `device_id`, so emitting
+   * them inflates unique-user/device counts with values that never recur (no
+   * cross-call stitching). Left `false` by default so those events are dropped
+   * rather than polluting attribution; set `true` to emit them as honest
+   * aggregate-only data.
+   * @default false
+   */
+  emitAnonymousEvent?: boolean;
 }
 
-const ALL_ON: Required<AutocaptureConfig> = { serverEvents: true, toolCalls: true };
+const ALL_ON: Required<AutocaptureConfig> = {
+  serverEvents: true,
+  sessionLifecycle: true,
+  toolsListed: true,
+  toolCalls: true,
+};
 
 /** Normalize the `autocapture` option into resolved per-family flags. */
 function resolveAutocapture(
   option: boolean | AutocaptureConfig | undefined,
 ): Required<AutocaptureConfig> {
   if (option === undefined || option === true) return { ...ALL_ON };
-  if (option === false) return { serverEvents: false, toolCalls: false };
+  if (option === false) {
+    return {
+      serverEvents: false,
+      sessionLifecycle: false,
+      toolsListed: false,
+      toolCalls: false,
+    };
+  }
+
+  const serverEvents = option.serverEvents ?? true;
   return {
-    serverEvents: option.serverEvents ?? true,
+    serverEvents,
+    sessionLifecycle: option.sessionLifecycle ?? serverEvents,
+    toolsListed: option.toolsListed ?? serverEvents,
     toolCalls: option.toolCalls ?? true,
   };
 }
@@ -74,10 +116,13 @@ export class MCPAnalyticsConfig {
   readonly dryRun: boolean;
   /** Resolved per-family autocapture flags, normalized from the option. */
   readonly autocapture: Required<AutocaptureConfig>;
+  /** Emit events for the fully anonymous, tenant-less floor. @see MCPAnalyticsConfigOptions.emitAnonymousEvent */
+  readonly emitAnonymousEvent: boolean;
 
   constructor(options: MCPAnalyticsConfigOptions = {}) {
     this.debug = options.debug ?? false;
     this.dryRun = options.dryRun ?? false;
     this.autocapture = resolveAutocapture(options.autocapture);
+    this.emitAnonymousEvent = options.emitAnonymousEvent ?? false;
   }
 }

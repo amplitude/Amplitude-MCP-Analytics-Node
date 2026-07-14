@@ -57,7 +57,10 @@ export interface InstrumentToolDependencies {
    */
   getServerCtx: () => McpServerContext | undefined;
   resolveIdentity?: IdentityResolver;
-  serverIdentity?: ServerIdentity;
+  /** Resolved per invocation, like {@link getServerCtx} — the identity comes
+   *  from the dispatching server's binding (or the last-connected fallback),
+   *  not from whatever happened to be bound at wrap time. */
+  getServerIdentity?: () => ServerIdentity | undefined;
   /**
    * Whether to emit the default `[MCP] Tool Call Response` event. When `false`, 
    * the wrapper still builds and runs under `ctx` (so custom events and 
@@ -109,7 +112,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     const extra = (callArgs[callArgs.length - 1] ?? {}) as McpExtra;
     const ctx = buildToolContext(serverCtx, meta, extra, {
       resolveIdentity: deps.resolveIdentity,
-      serverIdentity: deps.serverIdentity,
+      serverIdentity: deps.getServerIdentity?.(),
       logger: deps.logger,
     });
 

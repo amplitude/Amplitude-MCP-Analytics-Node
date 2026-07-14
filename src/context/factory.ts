@@ -1,6 +1,6 @@
 /**
  * Construction of the MCP context. Caller-supplied values win; unset fields
- * fall back to the always-emit floor (anonymous identity/anchor).
+ * fall back to the anonymous floor (anonymous identity/anchor).
  */
 import type { McpToolError } from '../errors.js';
 import type {
@@ -34,6 +34,7 @@ export function createServerContext(input: CreateServerContextInput): McpServerC
     server: input.server,
     authType: input.authType,
     extra: input.extra,
+    emitAnonymousEvent: input.emitAnonymousEvent,
   };
 }
 
