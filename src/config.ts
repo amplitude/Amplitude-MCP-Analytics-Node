@@ -49,6 +49,17 @@ export interface MCPAnalyticsConfigOptions {
    * @default { serverEvents: true, toolCalls: true }
    */
   autocapture?: boolean | AutocaptureConfig;
+  /**
+   * Whether to emit events for a fully anonymous subject — one with no supplied
+   * or derivable identity AND no tenant, resolved to the per-request anonymous
+   * floor. Each such request mints a fresh synthetic `device_id`, so emitting
+   * them inflates unique-user/device counts with values that never recur (no
+   * cross-call stitching). Left `false` by default so those events are dropped
+   * rather than polluting attribution; set `true` to emit them as honest
+   * aggregate-only data.
+   * @default false
+   */
+  emitAnonymousEvent?: boolean;
 }
 
 const ALL_ON: Required<AutocaptureConfig> = {
@@ -105,10 +116,13 @@ export class MCPAnalyticsConfig {
   readonly dryRun: boolean;
   /** Resolved per-family autocapture flags, normalized from the option. */
   readonly autocapture: Required<AutocaptureConfig>;
+  /** Emit events for the fully anonymous, tenant-less floor. @see MCPAnalyticsConfigOptions.emitAnonymousEvent */
+  readonly emitAnonymousEvent: boolean;
 
   constructor(options: MCPAnalyticsConfigOptions = {}) {
     this.debug = options.debug ?? false;
     this.dryRun = options.dryRun ?? false;
     this.autocapture = resolveAutocapture(options.autocapture);
+    this.emitAnonymousEvent = options.emitAnonymousEvent ?? false;
   }
 }

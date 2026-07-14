@@ -29,7 +29,8 @@ export interface McpTenant {
   groupValue: string;
 }
 
-/** Resolved subject identity (always emits; `anonymous` is the floor). */
+/** Resolved subject identity; `anonymous` is the per-request floor (gated at
+ *  emit time by `config.emitAnonymousEvent` — see `shouldEmit`). */
 export interface McpIdentity {
   userId?: string;
   deviceId?: string;
@@ -92,6 +93,14 @@ export interface McpServerContext {
   authType?: string;
   /** Mutable enrichment bag for domain values without a top-level field. @public */
   extra?: Record<string, unknown>;
+  /**
+   * Resolved from `config.emitAnonymousEvent`, stamped at context creation so
+   * the emit gate ({@link import('../tracking/ctx-to-properties.js').shouldEmit})
+   * can honor it without threading config through every emit path. When
+   * truthy, the fully anonymous, tenant-less floor still emits.
+   * @internal
+   */
+  emitAnonymousEvent?: boolean;
 }
 
 /** Tool metadata the caller attaches when instrumenting a tool. */

@@ -456,6 +456,7 @@ export class AmplitudeMCPAnalytics {
           ? { type: 'session-id', value: opts.sessionId }
           : undefined,
         extra: opts?.extra,
+        emitAnonymousEvent: this.config.emitAnonymousEvent,
       });
       // Mirror onto the last-connected fallback (see the field doc).
       this._serverCtx = scope.ctx;

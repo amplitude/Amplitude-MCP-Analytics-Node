@@ -65,3 +65,14 @@ describe('MCPAnalyticsConfig autocapture normalization', () => {
     });
   });
 });
+
+describe('MCPAnalyticsConfig emitAnonymousEvent', () => {
+  it('defaults to false', () => {
+    expect(new MCPAnalyticsConfig().emitAnonymousEvent).toBe(false);
+    expect(new MCPAnalyticsConfig({}).emitAnonymousEvent).toBe(false);
+  });
+
+  it('honors an explicit true', () => {
+    expect(new MCPAnalyticsConfig({ emitAnonymousEvent: true }).emitAnonymousEvent).toBe(true);
+  });
+});

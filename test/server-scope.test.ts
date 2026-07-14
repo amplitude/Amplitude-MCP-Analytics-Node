@@ -351,3 +351,36 @@ describe('per-server scope — widened instrumentServer opts', () => {
     });
   });
 });
+
+describe('per-server scope — emitAnonymousEvent config', () => {
+  // A stateless HTTP request with no session id, no trace context, and no
+  // identity/tenant resolves to the per-request anonymous floor.
+  function dispatchAnonymous(analytics: AmplitudeMCPAnalytics) {
+    const tool = analytics.instrumentTool(async (_extra: McpExtra) => ok(), { name: 'search' });
+    const server = makeServer({ 'tools/call': (_req, extra) => tool(extra) });
+    analytics.instrumentServer(server as never); // no identity opts
+    return server
+      .connect(httpTransport()) // no session id
+      .then(() => server._requestHandlers.get('tools/call')!({} as never, mkExtra()));
+  }
+
+  it('drops the anonymous, tenant-less floor by default', async () => {
+    const { analytics, tracked } = makeAnalytics();
+    await dispatchAnonymous(analytics);
+    expect(toolCallEvents(tracked)).toHaveLength(0);
+  });
+
+  it('emits the anonymous floor when emitAnonymousEvent is true', async () => {
+    const { analytics, tracked } = makeAnalytics(
+      new MCPAnalyticsConfig({ emitAnonymousEvent: true }),
+    );
+    await dispatchAnonymous(analytics);
+
+    const events = toolCallEvents(tracked);
+    expect(events).toHaveLength(1);
+    // Anonymous, aggregate-only: a synthetic device id, no real user.
+    expect(events[0]?.user_id).toMatch(/^anonymous:/);
+    expect(events[0]?.device_id).toBeTruthy();
+    expect(events[0]?.event_properties?.['[MCP] Anchor Type']).toBe('anonymous');
+  });
+});
