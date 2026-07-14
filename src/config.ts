@@ -24,7 +24,9 @@ export interface AutocaptureConfig {
    */
   toolsListed?: boolean;
   /**
-   * Tool-execution event: `[MCP] Tool Call Response`.
+   * Tool-execution events: `[MCP] Tool Call Response` (dispatched calls) and
+   * `[MCP] Tool Call Rejected` (`tools/call` requests that fail before any
+   * tool callback runs).
    * @default true
    */
   toolCalls?: boolean;

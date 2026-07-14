@@ -5,6 +5,19 @@ export const UNKNOWN = 'unknown';
 export const TOOL_CALL_RESPONSE = '[MCP] Tool Call Response';
 
 /**
+ * Default rejected-tool-call event — a `tools/call` request that failed before
+ * any tool callback ran (unknown/disabled tool, input-schema validation).
+ * Server-scope on purpose: the attempted name is unvalidated caller input, so
+ * it never lands on the `[MCP] Tool Name` reserved key.
+ */
+export const TOOL_CALL_REJECTED = '[MCP] Tool Call Rejected';
+
+/** Upper bound on `[MCP] Attempted Tool Name` — rejected requests carry
+ *  unvalidated names (typos, hallucinations, scanner junk), so the value is
+ *  capped to keep property payloads bounded. */
+export const ATTEMPTED_TOOL_NAME_MAX = 200;
+
+/**
  * Default server connection / capability events. Session lifecycle
  * events apply only where a protocol session exists — stdio and legacy
  * (`2025-11-25`) Streamable HTTP; they are never fabricated on `2026-07-28+`
@@ -45,6 +58,8 @@ export const EVENT_PROPERTY_KEYS = {
   toolCategory: '[MCP] Tool Category',
   rationale: '[MCP] Rationale',
   // tool-call outcome
+  /** Rejected-call tool name — unvalidated input, kept off `[MCP] Tool Name`. */
+  attemptedToolName: '[MCP] Attempted Tool Name',
   isError: '[MCP] Is Error',
   errorMessage: '[MCP] Error Message',
   errorType: '[MCP] Error Type',
