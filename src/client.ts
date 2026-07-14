@@ -376,11 +376,18 @@ export class AmplitudeMCPAnalytics {
         amplitude: this._amplitude,
         // Resolve the dispatching server's scope first (set per binding by
         // `instrumentServer` — see `core/server-scope.ts`); fall back to the
-        // last-connected scope for direct invocation outside a dispatch.
-        getServerCtx: () => currentServerScope()?.ctx ?? this._serverCtx,
+        // last-connected scope ONLY for direct invocation outside a dispatch
+        // frame. Inside a frame we trust the frame's own values even when they
+        // are empty (e.g. an identity-less server).
+        getServerCtx: () => {
+          const scope = currentServerScope();
+          return scope != null ? scope.ctx : this._serverCtx;
+        },
         resolveIdentity: opts?.resolveIdentity,
-        getServerIdentity: () =>
-          currentServerScope()?.identity ?? this._serverIdentity,
+        getServerIdentity: () => {
+          const scope = currentServerScope();
+          return scope != null ? scope.identity : this._serverIdentity;
+        },
         trackToolCalls: this.config.autocapture.toolCalls,
         logger: getLogger(this._amplitude),
       },

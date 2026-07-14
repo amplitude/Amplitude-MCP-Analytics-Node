@@ -147,6 +147,40 @@ describe('per-server scope — instrumented tools', () => {
     });
   });
 
+  it('does not bleed a later server identity into an identity-less dispatching server', async () => {
+    const { analytics, tracked } = makeAnalytics();
+
+    // Distinct tool names so each dispatch's event is attributable to its server.
+    const toolA = analytics.instrumentTool(async (_extra: McpExtra) => ok(), { name: 'search-a' });
+    const toolB = analytics.instrumentTool(async (_extra: McpExtra) => ok(), { name: 'search-b' });
+
+    // A binds with NO identity opts at all (so its scope identity is undefined);
+    // B later binds with an explicit identity, moving the singleton mirror to bob.
+    const serverA = makeServer({ 'tools/call': (_req, extra) => toolA(extra) });
+    const serverB = makeServer({ 'tools/call': (_req, extra) => toolB(extra) });
+
+    analytics.instrumentServer(serverA as never); // identity-less
+    analytics.instrumentServer(serverB as never, { userId: 'bob@example.com' });
+
+    await serverA.connect(httpTransport());
+    await serverB.connect(httpTransport()); // singleton identity mirror now points at bob
+
+    // Dispatch through A's own frame, then B's.
+    await serverA._requestHandlers.get('tools/call')!({} as never, mkExtra());
+    await serverB._requestHandlers.get('tools/call')!({} as never, mkExtra());
+
+    const events = toolCallEvents(tracked);
+    // A is anonymous with no tenant, so it degrades to NO event rather than
+    // inheriting bob from the singleton mirror. Before the fix, A picked up
+    // bob's identity — flipping it to non-anonymous — and emitted a second,
+    // bob-attributed `search-a` event.
+    expect(events.map((e) => e.event_properties?.['[MCP] Tool Name'])).toEqual(['search-b']);
+    expect(events[0]?.user_id).toBe('bob@example.com');
+    expect(
+      events.some((e) => e.event_properties?.['[MCP] Tool Name'] === 'search-a'),
+    ).toBe(false);
+  });
+
   it('falls back to the last-connected scope for direct (non-dispatch) invocation', async () => {
     const { analytics, tracked } = makeAnalytics();
 
