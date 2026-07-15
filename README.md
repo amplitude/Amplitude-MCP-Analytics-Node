@@ -87,6 +87,7 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
 | `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
+| `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
 same-named events/properties from other Amplitude SDKs on the same project.
@@ -184,10 +185,10 @@ error: `analytics.toolError(ctx, { code, message, httpStatus: 502 })`.
 Related but distinct: `[MCP] Response HTTP Status` is the transport-level
 status of the HTTP response itself. The instrumented-tool wrapper never emits
 it (dispatched tool calls answer 200; the wrapper emits before the response is
-written). It exists for events you emit yourself — e.g. a hand-built
-`[MCP] Tool Call Response` for a call that was rejected before reaching a tool
-handler — by setting `responseHttpStatus` on the context's `request` info
-before calling `trackToolEvent`.
+written). The default `[MCP] Tool Call Rejected` event carries it on
+Streamable HTTP (protocol-level rejections answer 200 with the error in the
+JSON-RPC body). For events you emit yourself, set `responseHttpStatus` on the
+context's `request` info before calling `trackToolEvent`.
 
 ## Choosing what's captured
 
@@ -208,7 +209,8 @@ createMcpAnalytics({
 ```
 
 `autocapture: false` disables all default events; `{ serverEvents, toolCalls }`
-toggles each family. `serverEvents` can be split further with
+toggles each family. `toolCalls` covers both `[MCP] Tool Call Response` and
+`[MCP] Tool Call Rejected`. `serverEvents` can be split further with
 `sessionLifecycle` (`[MCP] Session Initialized`/`Ended`) and `toolsListed`
 (`[MCP] Tools Listed`) — e.g. servers built per HTTP request typically want
 `{ sessionLifecycle: false, toolsListed: true }`, since their transports close

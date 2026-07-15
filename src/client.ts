@@ -28,12 +28,14 @@ import {
   installServerScopeDispatch,
   type ServerScope,
 } from './core/server-scope.js';
+import { installToolCallHook, wasToolCallDispatched } from './core/tool-call-hook.js';
 import { installToolsListHook } from './core/tools-list-hook.js';
 import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
 import {
   emitSessionEnded,
   emitSessionInitialized,
+  emitToolCallRejected,
   emitToolsListed,
 } from './tracking/events/index.js';
 import { trackServerEvent } from './tracking/track-server-event.js';
@@ -399,7 +401,9 @@ export class AmplitudeMCPAnalytics {
   /**
    * Bind a server so its instrumented tools inherit a server-scope context and
    * the SDK emits the default connection events (`[MCP] Session Initialized` /
-   * `[MCP] Session Ended` / `[MCP] Tools Listed`). Wraps `connect` to auto-detect
+   * `[MCP] Session Ended` / `[MCP] Tools Listed`) plus `[MCP] Tool Call
+   * Rejected` for `tools/call` requests that fail before any tool callback
+   * runs. Wraps `connect` to auto-detect
    * the transport (fixed per connection), captures the handshake `clientInfo`,
    * and emits the lifecycle events at the points it controls. Call **before**
    * `connect` — the transport only exists then. Returns the same server for
@@ -484,6 +488,45 @@ export class AmplitudeMCPAnalytics {
             responseSizeBytes: result != null ? byteSize(result) : undefined,
             errorMessage: toolError?.message,
             errorType: toolError?.type,
+          });
+        });
+      }
+
+      if (this.config.autocapture.toolCalls) {
+        // `tools/call` → `[MCP] Tool Call Rejected`, for requests that fail
+        // before any tool callback runs (unknown/disabled tool, input-schema
+        // validation): the MCP SDK throws, the client receives a JSON-RPC
+        // error envelope, and no `instrumentTool` wrapper ever sees the call.
+        // Dispatched calls never double-emit — the wrapper marks each dispatch
+        // and reports those on `[MCP] Tool Call Response` instead.
+        installToolCallHook(lowLevelServer, ({ toolName, error, durationMs }, extra) => {
+          if (scope.ctx == null || error == null || wasToolCallDispatched(extra)) return;
+          const ctx = buildServerContext(scope.ctx, extra, {
+            serverIdentity: scope.identity,
+            logger: getLogger(this._amplitude),
+          });
+          const rejection = classifyError(error);
+          // The JSON-RPC error envelope the protocol layer sends for this
+          // throw, reconstructed for an honest response-size measure.
+          const code = (error as { code?: unknown } | null)?.code;
+          const envelope = {
+            jsonrpc: '2.0',
+            id: extra.requestId,
+            error: {
+              code: typeof code === 'number' && Number.isSafeInteger(code) ? code : -32603,
+              message: rejection.message,
+            },
+          };
+          emitToolCallRejected(this._amplitude, ctx, {
+            attemptedToolName: toolName,
+            errorMessage: rejection.message,
+            errorType: rejection.type,
+            durationMs,
+            responseSizeBytes: byteSize(envelope),
+            // Protocol-level rejections still answer HTTP 200 over Streamable
+            // HTTP — the error travels in the JSON-RPC body. stdio has no
+            // HTTP status, so none is fabricated there.
+            responseHttpStatus: ctx.transport === 'streamable-http' ? 200 : undefined,
           });
         });
       }

@@ -18,15 +18,16 @@ Amplitude SDKs on the same project.
 | [`[MCP] Session Ended`](#mcp-session-ended) | The transport closes, after an initialized session | stdio, legacy Streamable HTTP | `autocapture.serverEvents` |
 | [`[MCP] Tools Listed`](#mcp-tools-listed) | A `tools/list` request is served | all | `autocapture.serverEvents` |
 | [`[MCP] Tool Call Response`](#mcp-tool-call-response) | An instrumented tool call settles | all | `autocapture.toolCalls` |
+| [`[MCP] Tool Call Rejected`](#mcp-tool-call-rejected) | A `tools/call` request fails before any tool callback runs | all | `autocapture.toolCalls` |
 
 "Legacy Streamable HTTP" is the `2025-11-25` protocol revision, where the
 server mints a session id at the `initialize` handshake. On stateless
 (`2026-07-28+`) Streamable HTTP there is no handshake, so no protocol session
 exists — the session lifecycle events are **not emitted** rather than
-fabricated. `[MCP] Tools Listed` and `[MCP] Tool Call Response` fire on every
-transport.
+fabricated. `[MCP] Tools Listed`, `[MCP] Tool Call Response`, and
+`[MCP] Tool Call Rejected` fire on every transport.
 
-All four events require `instrumentServer(server)` to have been called before
+All five events require `instrumentServer(server)` to have been called before
 `server.connect()`. `instrumentTool` without a bound server is a no-op
 passthrough: the handler runs untouched and nothing is emitted (a one-time
 warning is logged).
@@ -249,10 +250,53 @@ handler may enrich `ctx.tool.extra` mid-call and the values land on this event.
 }
 ```
 
+## `[MCP] Tool Call Rejected`
+
+Reports each `tools/call` request that fails **before any tool callback
+runs**: the requested tool doesn't exist (or is disabled), or the arguments
+fail input-schema validation. The MCP SDK answers these with a JSON-RPC error
+envelope and no handler executes, so they would otherwise be invisible —
+`[MCP] Tool Call Response` only fires for dispatched calls.
+
+This is a separate event on purpose. `[MCP] Tool Call Response`'s dimensions
+are execution-scoped (tool metadata, handler duration, request size); a
+rejected request has none of them. And the attempted name is unvalidated
+caller input — hallucinated, mistyped, or since-removed tool names — so it
+rides on `[MCP] Attempted Tool Name` and never lands on the `[MCP] Tool Name`
+reserved key that per-tool dashboards slice on.
+
+- **Fires when:** the server's `tools/call` request handler throws instead of
+  returning a result, and no `instrumentTool`-wrapped callback ran for that
+  request. The throw passes through untouched. A call that reached a tool
+  callback never emits this event — even when the protocol layer throws after
+  dispatch (e.g. output-schema validation) — it is reported on
+  `[MCP] Tool Call Response` instead, so one request never lands on both.
+- **Not covered:** failures the MCP server itself never sees — e.g. a
+  transport- or host-level `4xx` for an invalid session id, written before the
+  request reaches the protocol layer. Emit those from your host if you need
+  them.
+- **Transports:** all. On stateless HTTP the [skip rule](#emission-guarantees)
+  applies per request.
+- **Toggle:** `autocapture.toolCalls`.
+- **Identity:** resolved per request through the full fallback chain (minus
+  `setIdentity`, which needs a tool handler in flight).
+
+**Event-specific properties:**
+
+| Property | Type | Present | Value |
+| -- | -- | -- | -- |
+| `[MCP] Attempted Tool Name` | string | always | `params.name` as sent by the client — unvalidated input, capped at **200** characters |
+| `[MCP] Is Error` | boolean | always | Always `true` — every rejection is a failure |
+| `[MCP] Error Message` | string | always | Message of the classified error — what the JSON-RPC error envelope carries (e.g. `Tool foo not found`) |
+| `[MCP] Error Type` | string | always | Error category — see [Error classification](#error-classification) |
+| `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
+| `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the JSON-RPC error envelope sent to the client |
+| `[MCP] Response HTTP Status` | number | Streamable HTTP only | `200` — protocol-level rejections answer HTTP 200 with the error in the JSON-RPC body. Absent over stdio, which has no HTTP status |
+
 ## Error classification
 
-`[MCP] Error Type` (on `[MCP] Tool Call Response` and `[MCP] Tools Listed`)
-carries one of:
+`[MCP] Error Type` (on `[MCP] Tool Call Response`, `[MCP] Tools Listed`, and
+`[MCP] Tool Call Rejected`) carries one of:
 
 | Value | Meaning |
 | -- | -- |
@@ -322,7 +366,7 @@ rendered, and keep sensitive values out.
 
 ## Property index
 
-Every property the SDK can emit, and where it appears. *All* = the four
+Every property the SDK can emit, and where it appears. *All* = the five
 default events plus custom events emitted through `trackServerEvent` /
 `trackToolEvent`; *tool-scope* = `[MCP] Tool Call Response` and
 `trackToolEvent` events.
@@ -330,16 +374,18 @@ default events plus custom events emitted through `trackServerEvent` /
 | Property | Type | Appears on |
 | -- | -- | -- |
 | `[MCP] Anchor Type` | string | All |
+| `[MCP] Attempted Tool Name` | string | `Tool Call Rejected` |
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |
-| `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures) |
-| `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures) |
-| `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response` |
+| `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
+| `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
+| `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Protocol Version` | string | All (when carried on the request) |
 | `[MCP] Request Size` | number | `Tool Call Response` |
-| `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response` |
-| `[MCP] Response Size` | number | `Tools Listed`, `Tool Call Response` |
+| `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
+| `[MCP] Response HTTP Status` | number | `Tool Call Rejected` (Streamable HTTP); tool-scope when host-supplied via `ctx.request.responseHttpStatus` |
+| `[MCP] Response Size` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Server Name` | string | All |
 | `[MCP] Server Type` | string | All (when set on the context) |
 | `[MCP] Server Version` | string | All |

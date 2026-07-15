@@ -30,6 +30,7 @@ import { buildToolContext } from '../core/build-context.js';
 import type { ServerIdentity } from '../core/identity.js';
 import { byteSize } from '../core/serialize.js';
 import type { McpExtra, ToolHandler, ToolResult } from '../core/mcp.js';
+import { markToolCallDispatched } from '../core/tool-call-hook.js';
 import { buildToolError, classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { isPromise } from '../utils/common.js';
@@ -93,6 +94,12 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
   const trackToolCalls = deps.trackToolCalls !== false;
 
   return (...callArgs: Args): R => {
+    const extra = (callArgs[callArgs.length - 1] ?? {}) as McpExtra;
+    // This request reached a tool callback, so the `tools/call` rejection hook
+    // must never emit for it — `[MCP] Tool Call Response` (below) owns
+    // dispatched calls. Marked unconditionally, before any early return.
+    markToolCallDispatched(extra);
+
     const serverCtx = deps.getServerCtx();
 
     // No instrumentServer() binding → analytics is off: run the original handler
@@ -109,7 +116,6 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     }
 
     const startMs = performance.now();
-    const extra = (callArgs[callArgs.length - 1] ?? {}) as McpExtra;
     const ctx = buildToolContext(serverCtx, meta, extra, {
       resolveIdentity: deps.resolveIdentity,
       serverIdentity: deps.getServerIdentity?.(),
