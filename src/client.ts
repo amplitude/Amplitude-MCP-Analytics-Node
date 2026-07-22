@@ -294,6 +294,11 @@ export class AmplitudeMCPAnalytics {
    * telemetry. Returns a valid `CallToolResult` with `isError: true` and a
    * client-facing message that includes the correction guidance.
    *
+   * When `ctx` is missing (e.g. called outside an instrumented handler, or
+   * `getCurrentContext()` returned `undefined`), still returns the MCP error
+   * result for the client, but skips telemetry attachment and warns — never
+   * throws.
+   *
    * @example
    * ```typescript
    * return analytics.toolError(ctx, {
@@ -301,12 +306,17 @@ export class AmplitudeMCPAnalytics {
    *   message: 'No chart ID was provided.',
    *   correctionMessage: 'Search for a chart first, then retry with the chart ID.',
    *   recoverable: true,
-   *   source: 'mcp_server',
    * });
    * ```
    */
-  toolError(ctx: McpToolContext, input: ToolErrorInput): CallToolResult {
+  toolError(ctx: McpToolContext | undefined, input: ToolErrorInput): CallToolResult {
     const error = buildToolError(input);
+    if (!ctx) {
+      getLogger(this._amplitude).warn(
+        `toolError('${input.code}') called without a tool context; returning the MCP error result but skipping telemetry. Call it inside an instrumented tool handler (or pass the wrapper's ctx).`,
+      );
+      return toolErrorResult(error);
+    }
     ctx.error = error;
     return toolErrorResult(error);
   }
@@ -487,6 +497,7 @@ export class AmplitudeMCPAnalytics {
             durationMs,
             responseSizeBytes: result != null ? byteSize(result) : undefined,
             errorMessage: toolError?.message,
+            errorCode: toolError?.code,
             errorType: toolError?.type,
           });
         });
@@ -509,18 +520,22 @@ export class AmplitudeMCPAnalytics {
           // The JSON-RPC error envelope the protocol layer sends for this
           // throw, reconstructed for an honest response-size measure.
           const code = (error as { code?: unknown } | null)?.code;
+          const jsonRpcCode = typeof code === 'number' && Number.isSafeInteger(code) ? code : -32603;
           const envelope = {
             jsonrpc: '2.0',
             id: extra.requestId,
             error: {
-              code: typeof code === 'number' && Number.isSafeInteger(code) ? code : -32603,
+              code: jsonRpcCode,
               message: rejection.message,
             },
           };
           emitToolCallRejected(this._amplitude, ctx, {
             attemptedToolName: toolName,
             errorMessage: rejection.message,
-            errorType: rejection.type,
+            // Pre-dispatch `tools/call` failures are JSON-RPC protocol errors,
+            // the JSON-RPC code rides `[MCP] Error Code`.
+            errorCode: String(jsonRpcCode),
+            errorType: 'protocol_error',
             durationMs,
             responseSizeBytes: byteSize(envelope),
             // Protocol-level rejections still answer HTTP 200 over Streamable

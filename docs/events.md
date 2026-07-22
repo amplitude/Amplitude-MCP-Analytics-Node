@@ -181,6 +181,7 @@ call time (tools added or removed after `connect()` are reflected).
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/list` handler |
 | `[MCP] Response Size` | number (bytes) | on success, when serializable | Serialized byte size of the full `tools/list` result |
 | `[MCP] Error Message` | string | on failure | Message of the classified error |
+| `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — see [Error classification](#error-classification) |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
 
 ## `[MCP] Tool Call Response`
@@ -214,6 +215,7 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Request Size` | number (bytes) | schema-taking handlers, when serializable | Serialized byte size of the tool's arguments (the handler's first parameter). Absent for handlers registered without an input schema |
 | `[MCP] Response Size` | number (bytes) | when the handler returned, when serializable | Serialized byte size of the returned `CallToolResult`. Absent when the handler threw |
 | `[MCP] Error Message` | string | on failure | Message of the classified error |
+| `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — the host's `code` from `analytics.toolError()`, or a thrown error's own `err.code`. Absent for a bare thrown exception with no code |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
 
 The tool-scope `extra` bag (from the tool metadata) and the server-scope bag
@@ -288,37 +290,43 @@ reserved key that per-tool dashboards slice on.
 | `[MCP] Attempted Tool Name` | string | always | `params.name` as sent by the client — unvalidated input, capped at **200** characters |
 | `[MCP] Is Error` | boolean | always | Always `true` — every rejection is a failure |
 | `[MCP] Error Message` | string | always | Message of the classified error — what the JSON-RPC error envelope carries (e.g. `Tool foo not found`) |
-| `[MCP] Error Type` | string | always | Error category — see [Error classification](#error-classification) |
+| `[MCP] Error Code` | string | always | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found) |
+| `[MCP] Error Type` | string | always | Always `protocol_error` — see [Error classification](#error-classification) |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
 | `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the JSON-RPC error envelope sent to the client |
 | `[MCP] Response HTTP Status` | number | Streamable HTTP only | `200` — protocol-level rejections answer HTTP 200 with the error in the JSON-RPC body. Absent over stdio, which has no HTTP status |
 
 ## Error classification
 
-`[MCP] Error Type` (on `[MCP] Tool Call Response`, `[MCP] Tools Listed`, and
-`[MCP] Tool Call Rejected`) carries one of:
+`[MCP] Error Type` is a **closed, SDK-owned** set — the SDK assigns it; hosts
+never pick it. It appears on `[MCP] Tool Call Response`, `[MCP] Tools Listed`,
+and `[MCP] Tool Call Rejected`, and carries one of:
 
 | Value | Meaning |
 | -- | -- |
-| `returned_error` | The tool returned an in-band error result (`isError: true`) — the default when no richer type was recorded |
+| `returned_error` | The tool returned an in-band error result (`isError: true`), including everything built with `analytics.toolError()` |
 | `thrown_exception` | The handler threw a JavaScript `Error` not matching a more specific rule |
 | `timeout` | The thrown error was an `AbortError` |
 | `transport_error` | The thrown error carried a Node network error code (`ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `EPIPE`, `EAI_AGAIN`) |
-| `validation_error` | Only via `analytics.toolError()` — bad or missing input |
-| `auth_error` | Only via `analytics.toolError()` — authentication/authorization failure |
-| `upstream_error` | Only via `analytics.toolError()` — a dependency/upstream API failed |
+| `protocol_error` | A `tools/call` failed before dispatch (unknown tool, input-schema validation) — always the type on `[MCP] Tool Call Rejected` |
 | `unknown` | A non-`Error` value was thrown |
 
 Thrown values are classified automatically. For in-band error results, the
 default is `returned_error` with `[MCP] Error Message` taken from the result's
-text content; to control the type, code, and message, build the result with
-`analytics.toolError(ctx, { code, message, type, ... })` — the structured
-error is stored on `ctx.error` and the event reports your values instead.
+text content; to attach a machine-readable code and control the message, build
+the result with `analytics.toolError(ctx, { code, message, ... })` — the
+structured error is stored on `ctx.error` and the event reports your values.
+Host-built errors are always `returned_error`; describe the specific failure
+through the free-form **`code`** (emitted as `[MCP] Error Code`), not the type.
 
-Only the **message** and **type** are emitted on the default events. The rest
-of the structured error (`code`, `source`, `recoverable`, `fingerprint`,
-privacy-safe `stackHash`, …) stays on `ctx.error`, where a custom event can
-pick it up.
+`[MCP] Error Message` and `[MCP] Error Type` are always emitted on a failure.
+`[MCP] Error Code` is the finer-grained companion to the type and is emitted
+**only when a specific identifier is known** — a host `code`, a Node/syscall
+`err.code`, or a JSON-RPC code.
+It is omitted for a bare thrown exception rather than echoing the type, so its
+presence means "there is a specific known reason." The rest of the structured
+error (`recoverable`, `fingerprint`, privacy-safe `stackHash`, …) stays on
+`ctx.error`, where a custom event can pick it up.
 
 ## Custom events
 

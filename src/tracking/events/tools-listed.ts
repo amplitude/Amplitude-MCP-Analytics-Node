@@ -16,8 +16,9 @@ interface ToolsListedOutcome {
   durationMs?: number;
   /** Serialized byte size of the result, when computable. */
   responseSizeBytes?: number;
-  /** Classified error message / type, when the handler threw. */
+  /** Classified error message / code / type, when the handler threw. */
   errorMessage?: string;
+  errorCode?: string;
   errorType?: string;
 }
 
@@ -47,6 +48,7 @@ export function emitToolsListed(
   if (outcome.durationMs != null) properties[K.responseDuration] = Math.round(outcome.durationMs);
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
   if (outcome.errorMessage != null) properties[K.errorMessage] = outcome.errorMessage;
+  if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;
 
   trackServerEvent(amplitude, ctx, TOOLS_LISTED, properties);
