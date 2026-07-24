@@ -1,7 +1,6 @@
 # @amplitude/mcp-analytics
 
-Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking
-for Amplitude Analytics.
+Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking for Amplitude Analytics.
 
 > **Status:** Preview. Server and tool instrumentation, the default event set,
 > identity resolution, and custom events are available now. Transport and
@@ -9,6 +8,17 @@ for Amplitude Analytics.
 > handled for you under the hood.
 
 ## Install
+
+There are two ways to set up: let a coding agent do it, or follow this README manually.
+
+**Option 1 — agent-assisted** Install the
+[`instrument-mcp-server` skill](https://github.com/amplitude/builder-skills/tree/main/engineering-skills/skills/instrument-mcp-server)
+(part of the [builder-skills](https://github.com/amplitude/builder-skills)
+`engineering-skills` plugin) and ask your agent to instrument your MCP server —
+it walks through this README for you, plus the recommended rationale and UTM
+steps.
+
+**Option 2 — manual**
 
 ```bash
 pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk
