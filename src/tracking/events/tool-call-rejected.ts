@@ -12,8 +12,9 @@ import { trackServerEvent } from '../track-server-event.js';
 interface ToolCallRejectedOutcome {
   /** The attempted tool name from the request params — unvalidated caller input. */
   attemptedToolName?: string;
-  /** Classified message / type of the rejection error. */
+  /** Message / code / type of the rejection error. */
   errorMessage?: string;
+  errorCode?: string;
   errorType?: string;
   /** Wall-clock `tools/call` handler duration, in milliseconds. */
   durationMs?: number;
@@ -45,6 +46,7 @@ export function emitToolCallRejected(
     properties[K.attemptedToolName] = outcome.attemptedToolName.slice(0, ATTEMPTED_TOOL_NAME_MAX);
   }
   if (outcome.errorMessage != null) properties[K.errorMessage] = outcome.errorMessage;
+  if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;
   if (outcome.durationMs != null) properties[K.responseDuration] = Math.round(outcome.durationMs);
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;

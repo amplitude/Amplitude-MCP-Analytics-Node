@@ -1,22 +1,26 @@
 import { createHash } from 'node:crypto';
 import type { CallToolResult } from './core/mcp.js';
 
+/**
+ * High-level error category the SDK classifies a failure into. This is a
+ * **closed, SDK-owned** set: hosts describe their own failures through
+ * `code` (free-form), not by picking a type. Every value here is one the SDK
+ * itself assigns:
+ *
+ * - `returned_error` — a tool returned an in-band error result (`isError: true`).
+ * - `thrown_exception` — a handler threw a JS `Error` with no more specific rule.
+ * - `timeout` — the thrown error was an `AbortError`.
+ * - `transport_error` — the thrown error carried a Node network code.
+ * - `protocol_error` — a `tools/call` failed before dispatch (unknown tool,
+ *   input-schema validation) — see `[MCP] Tool Call Rejected`.
+ * - `unknown` — a non-`Error` value was thrown.
+ */
 export type McpToolErrorType =
   | 'returned_error'
   | 'thrown_exception'
-  | 'validation_error'
-  | 'auth_error'
-  | 'upstream_error'
   | 'transport_error'
   | 'timeout'
-  | 'unknown';
-
-export type McpErrorSource =
-  | 'mcp_server'
-  | 'upstream_api'
-  | 'auth'
-  | 'client'
-  | 'sdk_wrapper'
+  | 'protocol_error'
   | 'unknown';
 
 /**
@@ -25,14 +29,18 @@ export type McpErrorSource =
  * emitted by the SDK.
  */
 export interface McpToolError {
-  /** Machine-readable error identifier (e.g. `'missing_chart_id'`). */
-  code: string;
+  /**
+   * Machine-readable error identifier, finer-grained than {@link type}. Set when
+   * a specific reason is known — a host `code` from `analytics.toolError()`, a
+   * Node/syscall `err.code`, or a JSON-RPC code — and left **undefined** when
+   * the only thing known is the coarse `type` (a bare thrown exception), so it
+   * never just echoes `type`. Emitted as `[MCP] Error Code` when present.
+   */
+  code?: string;
   /** Human-readable error description. */
   message: string;
-  /** High-level error category for analytics grouping. */
+  /** High-level, SDK-assigned error category for analytics grouping. */
   type: McpToolErrorType;
-  /** Where the error originated. */
-  source: McpErrorSource;
   /** Guidance for the LLM client to self-correct and retry. */
   correctionMessage?: string;
   /** Whether the caller can reasonably retry the same request. */
@@ -54,43 +62,25 @@ export interface McpToolError {
 }
 
 /**
- * User-facing input for {@link buildToolError}. Only `code` and `message` are
- * required; everything else has sensible defaults (`type: 'returned_error'`,
- * `source: 'mcp_server'`).
+ * User-facing input for {@link buildToolError} (what `analytics.toolError()`
+ * takes) — the host-settable subset of {@link McpToolError}. Describe the 
+ * specific failure through the required `code`.
  */
-export interface ToolErrorInput {
-  /** Machine-readable error identifier (e.g. `'missing_chart_id'`). */
+export type ToolErrorInput = Pick<
+  McpToolError,
+  'message' | 'correctionMessage' | 'recoverable' | 'retrySuggested' | 'httpStatus' | 'fingerprint'
+> & {
+  /** Machine-readable error identifier (e.g. `'missing_chart_id'`). Emitted as `[MCP] Error Code`. */
   code: string;
-  /** Human-readable error description shown to the LLM client. */
-  message: string;
-  /** @defaultValue `'returned_error'` */
-  type?: McpToolErrorType;
-  /** @defaultValue `'mcp_server'` */
-  source?: McpErrorSource;
-  /** Guidance for the LLM client to self-correct and retry. */
-  correctionMessage?: string;
-  /** Whether the caller can reasonably retry the same request. */
-  recoverable?: boolean;
-  /** SDK hint that a retry is worth attempting. */
-  retrySuggested?: boolean;
-  /**
-   * HTTP status attached to the failure (upstream response / HTTP-shaped
-   * error). The explicit escape hatch for error shapes {@link classifyError}
-   * cannot sniff.
-   */
-  httpStatus?: number;
-  /** Custom grouping key. When omitted, auto-derived from `type + normalizedMessage`. */
-  fingerprint?: string;
-}
+};
 
 export function buildToolError(input: ToolErrorInput): McpToolError {
-  const type = input.type ?? 'returned_error';
+  const type: McpToolErrorType = 'returned_error';
 
   const error: McpToolError = {
     code: input.code,
     message: input.message,
     type,
-    source: input.source ?? 'mcp_server',
     fingerprint: input.fingerprint ?? computeFingerprint(type, input.message),
   };
 
@@ -189,15 +179,13 @@ export function classifyError(err: unknown): McpToolError {
     const type = 'unknown';
 
     return {
-      code: 'unknown_error',
       message,
       type,
-      source: 'unknown',
       fingerprint: computeFingerprint(type, message),
     };
   }
 
-  const errWithCode = err as Error & { code?: string };
+  const errWithCode = err as Error & { code?: string | number };
   const stack = hashStack(err.stack);
   const httpStatus = httpStatusFrom(err);
 
@@ -205,24 +193,21 @@ export function classifyError(err: unknown): McpToolError {
     const type = 'timeout';
 
     return {
-      code: 'timeout',
       message: err.message,
       type,
-      source: 'sdk_wrapper',
       stackHash: stack,
       ...(httpStatus != null ? { httpStatus } : {}),
       fingerprint: computeFingerprint(type, err.message),
     };
   }
 
-  if (errWithCode.code && NETWORK_CODES.has(errWithCode.code)) {
+  if (typeof errWithCode.code === 'string' && NETWORK_CODES.has(errWithCode.code)) {
     const type = 'transport_error';
 
     return {
       code: errWithCode.code.toLowerCase(),
       message: err.message,
       type,
-      source: 'unknown',
       stackHash: stack,
       ...(httpStatus != null ? { httpStatus } : {}),
       fingerprint: computeFingerprint(type, err.message),
@@ -231,11 +216,12 @@ export function classifyError(err: unknown): McpToolError {
 
   const type = 'thrown_exception';
 
+  // Carry the error's own `code` (Node/syscall string, or a host-thrown
+  // McpError's numeric code) when present; otherwise omit it
   return {
-    code: errWithCode.code ?? 'thrown_exception',
     message: err.message,
     type,
-    source: 'unknown',
+    ...(errWithCode.code != null ? { code: String(errWithCode.code) } : {}),
     stackHash: stack,
     ...(httpStatus != null ? { httpStatus } : {}),
     fingerprint: computeFingerprint(type, err.message),

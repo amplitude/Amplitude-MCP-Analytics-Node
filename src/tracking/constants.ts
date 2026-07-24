@@ -62,6 +62,7 @@ export const EVENT_PROPERTY_KEYS = {
   attemptedToolName: '[MCP] Attempted Tool Name',
   isError: '[MCP] Is Error',
   errorMessage: '[MCP] Error Message',
+  errorCode: '[MCP] Error Code',
   errorType: '[MCP] Error Type',
   errorHttpStatus: '[MCP] Error HTTP Status',
   responseHttpStatus: '[MCP] Response HTTP Status',

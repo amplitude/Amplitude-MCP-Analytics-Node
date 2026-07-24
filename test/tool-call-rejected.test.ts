@@ -102,8 +102,10 @@ describe('instrumentServer — [MCP] Tool Call Rejected', () => {
     expect(rejected?.event_properties).toMatchObject({
       '[MCP] Attempted Tool Name': 'made_up_tool',
       '[MCP] Error Message': 'Tool made_up_tool not found',
+      '[MCP] Error Type': 'protocol_error',
       '[MCP] Is Error': true,
     });
+    expect(rejected?.event_properties?.['[MCP] Error Code']).toBeTypeOf('string');
     expect(rejected?.event_properties?.['[MCP] Response Duration']).toBeTypeOf('number');
     expect(rejected?.event_properties?.['[MCP] Response Size']).toBeTypeOf('number');
     expect(eventsOf(tracked, '[MCP] Tool Call Response')).toHaveLength(0);

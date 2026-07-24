@@ -147,7 +147,7 @@ describe('createToolContext', () => {
   });
 
   it('attaches a structured error when provided', () => {
-    const error: McpToolError = { code: 'internal', message: 'boom', type: 'thrown_exception', source: 'mcp_server' };
+    const error: McpToolError = { code: 'internal', message: 'boom', type: 'thrown_exception' };
 
     const ctx = createToolContext(
       { server: { name: 'my-server' }, transport: 'stdio' },

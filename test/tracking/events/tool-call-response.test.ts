@@ -56,27 +56,53 @@ describe('emitToolCallResponse', () => {
     });
   });
 
-  it('emits error message + classified type from ctx.error on failure', () => {
+  it('emits error message + code + type from ctx.error on failure', () => {
     const { client, tracked } = makeAmplitude();
     const ctx = toolCtx();
-    ctx.error = buildToolError({ code: 'x', message: 'boom', type: 'thrown_exception' });
+    ctx.error = { code: 'thrown_exception', message: 'boom', type: 'thrown_exception' };
     emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
 
     expect(tracked[0]?.event_properties).toMatchObject({
       '[MCP] Is Error': true,
       '[MCP] Error Message': 'boom',
+      '[MCP] Error Code': 'thrown_exception',
       '[MCP] Error Type': 'thrown_exception',
     });
     expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error HTTP Status');
   });
 
-  it('emits the error HTTP status when the classified error carries one', () => {
+  it('omits [MCP] Error Code when the classified error carries no code', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.error = { message: 'boom', type: 'thrown_exception' };
+    emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
+
+    expect(tracked[0]?.event_properties).toMatchObject({
+      '[MCP] Error Message': 'boom',
+      '[MCP] Error Type': 'thrown_exception',
+    });
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error Code');
+  });
+
+  it('emits the host-supplied code from analytics.toolError as [MCP] Error Code', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.error = buildToolError({ code: 'missing_chart_id', message: 'No chart ID.' });
+    emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
+
+    expect(tracked[0]?.event_properties).toMatchObject({
+      '[MCP] Error Code': 'missing_chart_id',
+      // host-built errors are always in-band returned errors
+      '[MCP] Error Type': 'returned_error',
+    });
+  });
+
+  it('emits the error HTTP status when the error carries one', () => {
     const { client, tracked } = makeAmplitude();
     const ctx = toolCtx();
     ctx.error = buildToolError({
       code: 'upstream_denied',
       message: 'Access denied by upstream.',
-      type: 'upstream_error',
       httpStatus: 403,
     });
     emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });

@@ -48,11 +48,10 @@ const extra = mkExtra({
 });
 
 describe('buildToolError', () => {
-  it('applies defaults for type and source', () => {
+  it('always builds a returned_error — hosts do not pick a type', () => {
     const err = buildToolError({ code: 'missing_id', message: 'No ID provided.' });
 
     expect(err.type).toBe('returned_error');
-    expect(err.source).toBe('mcp_server');
     expect(err.code).toBe('missing_id');
     expect(err.message).toBe('No ID provided.');
   });
@@ -61,8 +60,6 @@ describe('buildToolError', () => {
     const err = buildToolError({
       code: 'upstream_timeout',
       message: 'API timed out.',
-      type: 'upstream_error',
-      source: 'upstream_api',
       correctionMessage: 'Try again in a moment.',
       recoverable: true,
       retrySuggested: true,
@@ -71,8 +68,7 @@ describe('buildToolError', () => {
     expect(err).toMatchObject({
       code: 'upstream_timeout',
       message: 'API timed out.',
-      type: 'upstream_error',
-      source: 'upstream_api',
+      type: 'returned_error',
       correctionMessage: 'Try again in a moment.',
       recoverable: true,
       retrySuggested: true,
@@ -117,7 +113,6 @@ describe('toolErrorResult', () => {
       code: 'missing_chart_id',
       message: 'No chart ID was provided.',
       type: 'returned_error',
-      source: 'mcp_server',
       correctionMessage: 'Search for a chart first, then retry with the chart ID.',
     };
 
@@ -136,7 +131,6 @@ describe('toolErrorResult', () => {
       code: 'fail',
       message: 'Something went wrong.',
       type: 'thrown_exception',
-      source: 'unknown',
     };
 
     const result = toolErrorResult(err);
@@ -155,7 +149,8 @@ describe('classifyError', () => {
 
     expect(classified.type).toBe('thrown_exception');
     expect(classified.message).toBe('kaboom');
-    expect(classified.code).toBe('thrown_exception');
+    // No `code`: a bare throw with no `err.code` carries only the coarse type.
+    expect(classified.code).toBeUndefined();
     expect(classified.stackHash).toBeDefined();
   });
 
@@ -164,7 +159,7 @@ describe('classifyError', () => {
     const classified = classifyError(err);
 
     expect(classified.type).toBe('timeout');
-    expect(classified.source).toBe('sdk_wrapper');
+    expect(classified.code).toBeUndefined();
   });
 
   it('classifies network errors as transport_error', () => {
@@ -190,8 +185,8 @@ describe('classifyError', () => {
     const classified = classifyError('just a string');
 
     expect(classified.type).toBe('unknown');
-    expect(classified.source).toBe('unknown');
     expect(classified.message).toBe('just a string');
+    expect(classified.code).toBeUndefined();
     expect(classified.stackHash).toBeUndefined();
   });
 
@@ -419,6 +414,32 @@ describe('AmplitudeMCPAnalytics.toolError', () => {
       expect(ctx!.error!.type).toBe('returned_error');
       expect(ctx!.error!.recoverable).toBe(true);
     });
+  });
+
+  it('returns the MCP error result and warns when ctx is missing — never throws', () => {
+    const { analytics } = makeAnalytics();
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (msg: string) => {
+      warnings.push(String(msg));
+    };
+
+    let result: CallToolResult;
+    try {
+      result = analytics.toolError(undefined, {
+        code: 'missing_chart_id',
+        message: 'No chart ID was provided.',
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toEqual({
+      type: 'text',
+      text: 'No chart ID was provided.',
+    });
+    expect(warnings.some((w) => w.includes("toolError('missing_chart_id')"))).toBe(true);
   });
 });
 
