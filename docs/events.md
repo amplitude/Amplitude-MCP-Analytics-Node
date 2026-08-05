@@ -482,7 +482,6 @@ default events plus custom events emitted through `trackServerEvent` /
 | -- | -- | -- |
 | `[MCP] Anchor Type` | string | All |
 | `[MCP] Attempted Tool Name` | string | `Tool Call Rejected` |
-| `[MCP] Rejection Reason` | string | `Tool Call Rejected` |
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |
@@ -490,6 +489,7 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Protocol Version` | string | All (when carried on the request) |
+| `[MCP] Rejection Reason` | string | `Tool Call Rejected` |
 | `[MCP] Request Size` | number | `Tool Call Response` |
 | `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Response HTTP Status` | number | `Tool Call Rejected` (Streamable HTTP); tool-scope when host-supplied via `ctx.request.responseHttpStatus` |
