@@ -25,7 +25,10 @@ pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotoco
 ```
 
 `@amplitude/analytics-node` and `@modelcontextprotocol/sdk` are peer
-dependencies — your MCP server already depends on the latter.
+dependencies — your MCP server already depends on the latter. Any
+`@modelcontextprotocol/sdk` from `1.14.0` up is supported, including versions
+`1.21.0`+, which changed how `McpServer` reports a failed `tools/call`; the
+default events mean the same thing across that whole range.
 
 ## Quick start
 
@@ -226,6 +229,30 @@ toggles each family. `toolCalls` covers both `[MCP] Tool Call Response` and
 `{ sessionLifecycle: false, toolsListed: true }`, since their transports close
 at the end of every request rather than at session end. Custom events (below)
 are unaffected.
+
+### Redacting error messages
+
+`[MCP] Error Message` carries free text the SDK didn't compose — a failing tool's
+own message, or the MCP SDK's input-validation text, which quotes the rejected
+argument value. Either may contain end-user data. `sanitizeErrorMessage` rewrites
+or drops it before emission, on every event that carries it:
+
+```ts
+createMcpAnalytics({
+  apiKey: process.env.AMPLITUDE_API_KEY!,
+  serverName: 'my-mcp-server',
+  serverVersion: '1.0.0',
+  config: new MCPAnalyticsConfig({
+    sanitizeErrorMessage: (message) =>
+      message.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '<email>'),
+  }),
+});
+```
+
+Return `null` to omit the property entirely. `[MCP] Error Code` and
+`[MCP] Error Type` are unaffected, so failures stay segmentable. The text sent to
+the client never changes. See
+[Redacting `[MCP] Error Message`](docs/events.md#redacting-mcp-error-message).
 
 ## Context (`ctx`)
 

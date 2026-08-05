@@ -32,8 +32,26 @@ export interface AutocaptureConfig {
   toolCalls?: boolean;
 }
 
+/**
+ * Rewrites the `[MCP] Error Message` property before it is emitted.
+ *
+ * Receives the message the SDK would otherwise send — for an in-band `isError`
+ * tool result that is the result's own text, which is caller- or end-user-derived
+ * and may carry personal data the server author never chose to send. Return a
+ * replacement string, or `null` to omit the property entirely (`[MCP] Error Code`
+ * and `[MCP] Error Type` are unaffected either way).
+ *
+ * Applied to every event that carries the property: `[MCP] Tools Listed`,
+ * `[MCP] Tool Call Response`, and `[MCP] Tool Call Rejected`.
+ *
+ * A sanitizer that throws is treated as `null`. It fails **closed** — the raw
+ * message is never used as a fallback, since a sanitizer exists precisely to
+ * keep that value out of the event stream.
+ */
+export type ErrorMessageSanitizer = (message: string) => string | null;
+
 export interface MCPAnalyticsConfigOptions {
-  /** 
+  /**
    * Emit verbose internal logging to the console.
    * @default false
    */
@@ -62,6 +80,12 @@ export interface MCPAnalyticsConfigOptions {
    * @default false
    */
   emitAnonymousEvent?: boolean;
+  /**
+   * Rewrite or drop `[MCP] Error Message` before it is emitted. Left undefined,
+   * the message is sent as-is (the v0 default).
+   * @see ErrorMessageSanitizer
+   */
+  sanitizeErrorMessage?: ErrorMessageSanitizer;
 }
 
 const ALL_ON: Required<AutocaptureConfig> = {
@@ -120,11 +144,16 @@ export class MCPAnalyticsConfig {
   readonly autocapture: Required<AutocaptureConfig>;
   /** Emit events for the fully anonymous, tenant-less floor. @see MCPAnalyticsConfigOptions.emitAnonymousEvent */
   readonly emitAnonymousEvent: boolean;
+  /** Rewrites/drops `[MCP] Error Message`, when supplied. @see ErrorMessageSanitizer */
+  readonly sanitizeErrorMessage?: ErrorMessageSanitizer;
 
   constructor(options: MCPAnalyticsConfigOptions = {}) {
     this.debug = options.debug ?? false;
     this.dryRun = options.dryRun ?? false;
     this.autocapture = resolveAutocapture(options.autocapture);
     this.emitAnonymousEvent = options.emitAnonymousEvent ?? false;
+    if (typeof options.sanitizeErrorMessage === 'function') {
+      this.sanitizeErrorMessage = options.sanitizeErrorMessage;
+    }
   }
 }

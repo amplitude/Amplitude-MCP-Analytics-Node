@@ -24,6 +24,7 @@
  * MCP SDK still surfaces them to the client; the best-effort guarantee applies 
  * only to event emission, not to the handler's return value.
  */
+import type { ErrorMessageSanitizer } from '../config.js';
 import { runWithContext } from '../context/als.js';
 import type { IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
@@ -69,6 +70,8 @@ export interface InstrumentToolDependencies {
    * @default true
    */
   trackToolCalls: boolean;
+  /** Rewrites/drops `[MCP] Error Message`, from `config.sanitizeErrorMessage`. */
+  sanitizeErrorMessage?: ErrorMessageSanitizer;
   logger?: Logger;
 }
 
@@ -135,6 +138,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
         durationMs: performance.now() - startMs,
         callArgs,
         track: trackToolCalls,
+        sanitize: deps.sanitizeErrorMessage,
       });
       throw err;
     }
@@ -151,6 +155,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             durationMs: performance.now() - startMs,
             callArgs,
             track: trackToolCalls,
+            sanitize: deps.sanitizeErrorMessage,
           });
           return value;
         },
@@ -162,6 +167,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             durationMs: performance.now() - startMs,
             callArgs,
             track: trackToolCalls,
+            sanitize: deps.sanitizeErrorMessage,
           });
           throw err;
         },
@@ -201,6 +207,8 @@ function recordToolCall<Args extends unknown[]>(params: {
   returned?: unknown;
   /** Emit the default `[MCP] Tool Call Response` event. */
   track: boolean;
+  /** Rewrites/drops `[MCP] Error Message` on the emitted event. */
+  sanitize?: ErrorMessageSanitizer;
 }): void {
   const { ctx, amplitude, durationMs, callArgs } = params;
   let isToolError = false;
@@ -222,10 +230,15 @@ function recordToolCall<Args extends unknown[]>(params: {
   if (!params.track) return;
 
   // Custom fields ride on `ctx.tool.extra` and are resolved downstream.
-  emitToolCallResponse(amplitude, ctx, {
-    isToolError,
-    durationMs,
-    requestSizeBytes: byteSize(callArgs.length > 1 ? callArgs[0] : undefined),
-    responseSizeBytes: 'returned' in params ? byteSize(params.returned) : undefined,
-  });
+  emitToolCallResponse(
+    amplitude,
+    ctx,
+    {
+      isToolError,
+      durationMs,
+      requestSizeBytes: byteSize(callArgs.length > 1 ? callArgs[0] : undefined),
+      responseSizeBytes: 'returned' in params ? byteSize(params.returned) : undefined,
+    },
+    params.sanitize,
+  );
 }
