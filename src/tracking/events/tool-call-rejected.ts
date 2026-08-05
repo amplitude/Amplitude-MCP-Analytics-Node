@@ -1,5 +1,6 @@
 /** The default rejected-tool-call event — `[MCP] Tool Call Rejected`. */
 import type { ErrorMessageSanitizer } from '../../config.js';
+import type { RejectionReason } from '../../core/tool-call-rejection.js';
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import {
@@ -14,6 +15,8 @@ import { trackServerEvent } from '../track-server-event.js';
 interface ToolCallRejectedOutcome {
   /** The attempted tool name from the request params — unvalidated caller input. */
   attemptedToolName?: string;
+  /** Structured cause, segmentable without the message text. */
+  rejectionReason?: RejectionReason;
   /** Message / code / type of the rejection error. */
   errorMessage?: string;
   errorCode?: string;
@@ -48,6 +51,7 @@ export function emitToolCallRejected(
   if (outcome.attemptedToolName != null) {
     properties[K.attemptedToolName] = outcome.attemptedToolName.slice(0, ATTEMPTED_TOOL_NAME_MAX);
   }
+  if (outcome.rejectionReason != null) properties[K.rejectionReason] = outcome.rejectionReason;
   if (outcome.errorMessage != null) {
     const message = sanitizeErrorMessage(outcome.errorMessage, sanitize);
     if (message != null) properties[K.errorMessage] = message;

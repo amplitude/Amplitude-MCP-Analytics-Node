@@ -39,12 +39,62 @@ const MCP_ERROR_PREFIX = /^MCP error (-?\d+):/;
 /** JSON-RPC internal-error code, the fallback when no code is recoverable. */
 const JSON_RPC_INTERNAL_ERROR = -32603;
 
+/**
+ * Why a `tools/call` was rejected, as a closed set the SDK assigns.
+ *
+ * The MCP SDK raises `InvalidParams` (`-32602`) for *every* pre-dispatch failure,
+ * so `[MCP] Error Code` cannot tell them apart and the distinction survives only
+ * in the message text — which `sanitizeErrorMessage` may rewrite or drop. This
+ * carries it structurally instead, free of caller data either way.
+ *
+ * - `unknown_tool` — the requested name is not registered (hallucinated,
+ *   mistyped, or since removed)
+ * - `disabled_tool` — registered but turned off via `tool.disable()`
+ * - `schema_validation` — the name resolved but the payload failed the tool's
+ *   schema
+ * - `unrecognized` — a pre-dispatch failure we cannot attribute further, e.g. on
+ *   a low-level `Server` with no tool registry to consult
+ */
+export type RejectionReason =
+  | 'unknown_tool'
+  | 'disabled_tool'
+  | 'schema_validation'
+  | 'unrecognized';
+
 /** A `tools/call` request rejected before any tool callback ran. */
 export interface PreDispatchRejection {
   /** Message as the client saw it, prefix included (stable across SDK versions). */
   message: string;
   /** JSON-RPC code, when the SDK still carried it or the prefix yielded it. */
   jsonRpcCode?: number;
+  /** Structured cause — see {@link RejectionReason}. */
+  reason: RejectionReason;
+}
+
+/**
+ * Attribute a rejection from the registry, falling back to the SDK's own wording
+ * when there is no registry to read (a low-level `Server`).
+ *
+ * The wording check is a fallback only, never the primary signal — it tracks
+ * `McpServer`'s current phrasing and would silently degrade to `unrecognized` if
+ * upstream reworded, which is the safe direction.
+ */
+function attribute(
+  registryState: RegisteredToolState | undefined,
+  message: string | undefined,
+): RejectionReason {
+  if (registryState === 'missing') return 'unknown_tool';
+  if (registryState === 'disabled') return 'disabled_tool';
+  if (registryState === 'enabled') return 'schema_validation';
+
+  if (message != null) {
+    if (/\bnot found\b/i.test(message)) return 'unknown_tool';
+    if (/\bdisabled\b/i.test(message)) return 'disabled_tool';
+    if (/validation|invalid arguments|invalid structured content/i.test(message)) {
+      return 'schema_validation';
+    }
+  }
+  return 'unrecognized';
 }
 
 /** The `MCP error <code>:` code, when the text carries one. */
@@ -80,6 +130,7 @@ export function classifyPreDispatchRejection(input: {
         typeof code === 'number' && Number.isSafeInteger(code)
           ? code
           : readMcpErrorCode(classified.message),
+      reason: attribute(input.registryState, classified.message),
     };
   }
 
@@ -94,6 +145,7 @@ export function classifyPreDispatchRejection(input: {
     return {
       message: text ?? 'Tool call rejected before dispatch',
       jsonRpcCode: readMcpErrorCode(text) ?? JSON_RPC_INTERNAL_ERROR,
+      reason: attribute(input.registryState, text),
     };
   }
 
@@ -104,5 +156,5 @@ export function classifyPreDispatchRejection(input: {
   const jsonRpcCode = readMcpErrorCode(text);
   if (jsonRpcCode == null || text == null) return undefined;
 
-  return { message: text, jsonRpcCode };
+  return { message: text, jsonRpcCode, reason: attribute(input.registryState, text) };
 }

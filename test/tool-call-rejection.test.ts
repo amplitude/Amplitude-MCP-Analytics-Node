@@ -35,6 +35,7 @@ describe('classifyPreDispatchRejection — thrown (SDK <= 1.20)', () => {
     expect(out).toEqual({
       message: 'MCP error -32602: Tool nope not found',
       jsonRpcCode: -32602,
+      reason: 'unknown_tool',
     });
   });
 
@@ -52,7 +53,11 @@ describe('classifyPreDispatchRejection — thrown (SDK <= 1.20)', () => {
 
   it('reports no code rather than inventing one for a bare throw', () => {
     const out = classifyPreDispatchRejection({ error: new Error('something broke') });
-    expect(out).toEqual({ message: 'something broke', jsonRpcCode: undefined });
+    expect(out).toEqual({
+      message: 'something broke',
+      jsonRpcCode: undefined,
+      reason: 'unrecognized',
+    });
   });
 
   it('ignores a non-integer code on the error', () => {
@@ -73,6 +78,7 @@ describe('classifyPreDispatchRejection — in-band isError (SDK >= 1.21)', () =>
     expect(out).toEqual({
       message: 'MCP error -32602: Tool nope not found',
       jsonRpcCode: -32602,
+      reason: 'unknown_tool',
     });
   });
 
@@ -130,11 +136,58 @@ describe('classifyPreDispatchRejection — in-band isError (SDK >= 1.21)', () =>
     expect(out?.jsonRpcCode).toBe(-32603);
   });
 
+  it('attributes a disabled tool distinctly from an unknown one', () => {
+    const disabled = classifyPreDispatchRejection({
+      result: errorResult('MCP error -32602: Tool off disabled'),
+      registryState: 'disabled',
+    });
+    const unknown = classifyPreDispatchRejection({
+      result: errorResult('MCP error -32602: Tool nope not found'),
+      registryState: 'missing',
+    });
+
+    // Both are -32602, so the reason is the only thing that separates them.
+    expect(disabled?.jsonRpcCode).toBe(unknown?.jsonRpcCode);
+    expect(disabled?.reason).toBe('disabled_tool');
+    expect(unknown?.reason).toBe('unknown_tool');
+  });
+
   it('substitutes a message when a missing tool’s result has no text', () => {
     const out = classifyPreDispatchRejection({
       result: { content: [], isError: true } as unknown as ServerResult,
       registryState: 'missing',
     });
     expect(out?.message).toBe('Tool call rejected before dispatch');
+  });
+});
+
+describe('classifyPreDispatchRejection — attribution without a registry', () => {
+  // A low-level `Server` has no tool registry, so wording is the only fallback.
+  it.each([
+    ['MCP error -32602: Tool nope not found', 'unknown_tool'],
+    ['MCP error -32602: Tool off disabled', 'disabled_tool'],
+    ['MCP error -32602: Invalid arguments for tool echo: ...', 'schema_validation'],
+    ['MCP error -32602: Input validation error: ...', 'schema_validation'],
+  ] as const)('reads %j as %s', (message, reason) => {
+    expect(classifyPreDispatchRejection({ result: errorResult(message) })?.reason).toBe(reason);
+  });
+
+  it('falls back to unrecognized rather than guessing on unfamiliar wording', () => {
+    // Degrades safely if the SDK rewords: better an honest `unrecognized` bucket
+    // than a confidently wrong attribution.
+    const out = classifyPreDispatchRejection({
+      error: mcpError(-32602, 'something the SDK has never said before'),
+    });
+    expect(out?.reason).toBe('unrecognized');
+  });
+
+  it('prefers registry evidence over wording when both are available', () => {
+    // A tool whose own message happens to say "not found" must not be reported
+    // as unknown_tool when the registry says it is live.
+    const out = classifyPreDispatchRejection({
+      result: errorResult('MCP error -32602: Invalid arguments: record not found'),
+      registryState: 'enabled',
+    });
+    expect(out?.reason).toBe('schema_validation');
   });
 });

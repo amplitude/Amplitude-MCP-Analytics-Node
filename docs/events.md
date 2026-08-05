@@ -301,6 +301,7 @@ reserved key that per-tool dashboards slice on.
 | Property | Type | Present | Value |
 | -- | -- | -- | -- |
 | `[MCP] Attempted Tool Name` | string | always | `params.name` as sent by the client — unvalidated input, capped at **200** characters |
+| `[MCP] Rejection Reason` | string | always | Why the call was rejected: `unknown_tool`, `disabled_tool`, `schema_validation`, or `unrecognized` — see [Telling rejections apart](#telling-rejections-apart) |
 | `[MCP] Is Error` | boolean | always | Always `true` — every rejection is a failure |
 | `[MCP] Error Message` | string | unless dropped by [`sanitizeErrorMessage`](#redacting-mcp-error-message) | Message of the classified error, as the client saw it (e.g. `MCP error -32602: Tool foo not found`) |
 | `[MCP] Error Code` | string | when recoverable | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found). SDKs >= 1.21 discard the numeric code and keep it only in the message text, so it is parsed back out from there; absent when neither source yields one |
@@ -308,6 +309,29 @@ reserved key that per-tool dashboards slice on.
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
 | `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the response the client received — the `isError` result on SDKs >= 1.21, the JSON-RPC error envelope on earlier ones |
 | `[MCP] Response HTTP Status` | number | Streamable HTTP only | `200` — protocol-level rejections answer HTTP 200 with the error in the JSON-RPC body. Absent over stdio, which has no HTTP status |
+
+### Telling rejections apart
+
+The MCP SDK raises `InvalidParams` for every pre-dispatch failure, so all three
+causes arrive with the **same** `[MCP] Error Code` (`-32602`) and the same
+`[MCP] Error Type` (`protocol_error`). Neither one distinguishes them, and the
+difference otherwise survives only in the message text — which
+[`sanitizeErrorMessage`](#redacting-mcp-error-message) may rewrite or drop.
+
+`[MCP] Rejection Reason` carries the cause structurally instead. It contains no
+caller data, so it is unaffected by sanitization:
+
+| Value | Meaning |
+| -- | -- |
+| `unknown_tool` | The requested name is not registered — hallucinated, mistyped, or since removed. Pair with `[MCP] Attempted Tool Name` to see which names clients expect |
+| `disabled_tool` | Registered but turned off via `tool.disable()` |
+| `schema_validation` | The name resolved, but the payload failed the tool's schema |
+| `unrecognized` | A pre-dispatch failure that could not be attributed further |
+
+The reason is read from the server's own tool registry, so it does not depend on
+message wording. `unrecognized` appears when there is no registry to consult —
+a low-level `Server` rather than the high-level `McpServer` — and the SDK's
+wording is also unfamiliar; it degrades to that rather than guessing.
 
 ## Error classification
 
@@ -438,6 +462,7 @@ default events plus custom events emitted through `trackServerEvent` /
 | -- | -- | -- |
 | `[MCP] Anchor Type` | string | All |
 | `[MCP] Attempted Tool Name` | string | `Tool Call Rejected` |
+| `[MCP] Rejection Reason` | string | `Tool Call Rejected` |
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |

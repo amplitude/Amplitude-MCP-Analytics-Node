@@ -556,6 +556,10 @@ export class AmplitudeMCPAnalytics {
             ctx,
             {
               attemptedToolName: toolName,
+              // Structured cause: the SDK codes every pre-dispatch failure
+              // -32602, so this is the only thing that separates them once
+              // `sanitizeErrorMessage` has had a say over the message.
+              rejectionReason: rejection.reason,
               errorMessage: rejection.message,
               // Pre-dispatch `tools/call` failures are JSON-RPC protocol errors,
               // so the JSON-RPC code rides `[MCP] Error Code` — omitted rather

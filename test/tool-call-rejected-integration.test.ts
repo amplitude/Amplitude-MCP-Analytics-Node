@@ -137,6 +137,39 @@ describe('[MCP] Tool Call Rejected — real McpServer', () => {
     expect(h.events(REJECTED)[0]?.event_properties?.['[MCP] Error Code']).toBe('-32602');
   });
 
+  it('separates the three rejection causes, which Error Code cannot', async () => {
+    await call(h, 'made_up_tool');
+    const unknown = h.events(REJECTED)[0]?.event_properties;
+    h.reset();
+    await call(h, 'off');
+    const disabled = h.events(REJECTED)[0]?.event_properties;
+    h.reset();
+    await call(h, 'echo', { text: 123 });
+    const invalid = h.events(REJECTED)[0]?.event_properties;
+
+    // The SDK codes all three -32602, so Error Code is not a discriminator...
+    expect(unknown?.['[MCP] Error Code']).toBe('-32602');
+    expect(disabled?.['[MCP] Error Code']).toBe('-32602');
+    expect(invalid?.['[MCP] Error Code']).toBe('-32602');
+    // ...and Error Type is `protocol_error` for every one of them.
+    expect(unknown?.['[MCP] Error Type']).toBe('protocol_error');
+
+    // Rejection Reason is what actually separates them.
+    expect(unknown?.['[MCP] Rejection Reason']).toBe('unknown_tool');
+    expect(disabled?.['[MCP] Rejection Reason']).toBe('disabled_tool');
+    expect(invalid?.['[MCP] Rejection Reason']).toBe('schema_validation');
+  });
+
+  it('keeps Rejection Reason when sanitizeErrorMessage drops the message', async () => {
+    // The whole point: dropping the message must not cost the distinction.
+    const dropped = await harness(new MCPAnalyticsConfig({ sanitizeErrorMessage: () => null }));
+    await call(dropped, 'off');
+
+    const props = dropped.events(REJECTED)[0]?.event_properties;
+    expect(props).not.toHaveProperty('[MCP] Error Message');
+    expect(props?.['[MCP] Rejection Reason']).toBe('disabled_tool');
+  });
+
   it('carries duration and response size', async () => {
     await call(h, 'made_up_tool');
 
