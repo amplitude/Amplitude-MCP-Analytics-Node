@@ -182,6 +182,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       durationMs: performance.now() - startMs,
       callArgs,
       track: trackToolCalls,
+      sanitize: deps.sanitizeErrorMessage,
     });
     return result;
   };
@@ -207,8 +208,16 @@ function recordToolCall<Args extends unknown[]>(params: {
   returned?: unknown;
   /** Emit the default `[MCP] Tool Call Response` event. */
   track: boolean;
-  /** Rewrites/drops `[MCP] Error Message` on the emitted event. */
-  sanitize?: ErrorMessageSanitizer;
+  /**
+   * Rewrites/drops `[MCP] Error Message` on the emitted event.
+   *
+   * Required rather than optional — `undefined` must be passed explicitly. There
+   * are four call sites (sync throw, sync return, async resolve, async reject)
+   * and one of them originally forgot this, letting a sync handler's `isError`
+   * text bypass `sanitizeErrorMessage` entirely. Making it required means the
+   * compiler catches that omission instead of a reviewer.
+   */
+  sanitize: ErrorMessageSanitizer | undefined;
 }): void {
   const { ctx, amplitude, durationMs, callArgs } = params;
   let isToolError = false;

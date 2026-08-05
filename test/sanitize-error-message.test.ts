@@ -59,13 +59,28 @@ function makeAnalytics(config?: MCPAnalyticsConfig) {
   return { analytics, tracked };
 }
 
-/** Minimal server double — enough for `instrumentServer` to bind a scope. */
-function fakeServer() {
-  const requestHandlers = new Map<string, unknown>();
+type RequestHandler = (request: unknown, extra: unknown) => unknown;
+
+/**
+ * Minimal server double — enough for `instrumentServer` to bind a scope, plus a
+ * `tools/list` handler so the Tools Listed path can be driven for real rather
+ * than by hand-building a context.
+ */
+function fakeServer(opts: { toolsListThrows?: unknown } = {}) {
+  const requestHandlers = new Map<string, RequestHandler>();
+  requestHandlers.set('tools/list', () => {
+    if (opts.toolsListThrows != null) throw opts.toolsListThrows;
+    return { tools: [{ name: 'search' }] };
+  });
   return {
-    server: { getClientVersion: () => undefined, _requestHandlers: requestHandlers },
+    server: {
+      getClientVersion: () => ({ name: 'cursor', version: '0.40' }),
+      _requestHandlers: requestHandlers,
+    },
     connect: (_t: unknown): Promise<void> => Promise.resolve(),
     isConnected: () => false,
+    listTools: (extra: unknown = { requestId: 1 }) =>
+      requestHandlers.get('tools/list')?.({}, extra),
   };
 }
 
@@ -152,6 +167,88 @@ describe('sanitizeErrorMessage — [MCP] Tool Call Response', () => {
     expect(spy).not.toHaveBeenCalled();
     const event = tracked.find((e) => e.event_type === '[MCP] Tool Call Response');
     expect(event?.event_properties).not.toHaveProperty('[MCP] Error Message');
+  });
+});
+
+describe('sanitizeErrorMessage — every emitting path', () => {
+  // Regression guard: `recordToolCall` has four call sites (sync throw, sync
+  // return, async resolve, async reject) and the sync-return one originally
+  // omitted the sanitizer, so a sync handler leaked the raw message.
+  it('applies on a SYNCHRONOUS handler returning isError', async () => {
+    const { analytics, tracked } = makeAnalytics(
+      new MCPAnalyticsConfig({ sanitizeErrorMessage: () => '<redacted>' }),
+    );
+    const server = fakeServer();
+    analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
+    await server.connect(stdioTransport);
+
+    // Not async — returns the result directly rather than a promise.
+    const tool = analytics.instrumentTool(
+      (_args: Record<string, unknown>, _extra: unknown) => ({
+        content: [{ type: 'text' as const, text: PII }],
+        isError: true,
+      }),
+      { name: 'sync-lookup' },
+    );
+    tool({}, { requestId: 1 });
+
+    const event = tracked.find((e) => e.event_type === '[MCP] Tool Call Response');
+    expect(event?.event_properties?.['[MCP] Error Message']).toBe('<redacted>');
+  });
+
+  it('applies on a SYNCHRONOUS handler that throws', async () => {
+    const { analytics, tracked } = makeAnalytics(
+      new MCPAnalyticsConfig({ sanitizeErrorMessage: () => '<redacted>' }),
+    );
+    const server = fakeServer();
+    analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
+    await server.connect(stdioTransport);
+
+    const tool = analytics.instrumentTool(
+      (_args: Record<string, unknown>, _extra: unknown): { content: [] } => {
+        throw new Error(PII);
+      },
+      { name: 'sync-throw' },
+    );
+    expect(() => tool({}, { requestId: 1 })).toThrow(PII);
+
+    const event = tracked.find((e) => e.event_type === '[MCP] Tool Call Response');
+    expect(event?.event_properties?.['[MCP] Error Message']).toBe('<redacted>');
+  });
+
+  // Wired in `emitToolsListed` and documented as covered, but previously
+  // asserted nowhere — only Response and Rejected were tested. Driven through
+  // the real hook so the config → emitter plumbing is exercised too.
+  it('applies to [MCP] Tools Listed', async () => {
+    const { analytics, tracked } = makeAnalytics(
+      new MCPAnalyticsConfig({ sanitizeErrorMessage: () => '<redacted>' }),
+    );
+    const server = fakeServer({ toolsListThrows: new Error(PII) });
+    analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
+    await server.connect(stdioTransport);
+
+    expect(() => server.listTools()).toThrow(PII);
+
+    const event = tracked.find((e) => e.event_type === '[MCP] Tools Listed');
+    expect(event?.event_properties?.['[MCP] Error Message']).toBe('<redacted>');
+    // Classification is untouched by sanitization.
+    expect(event?.event_properties?.['[MCP] Error Type']).toBe('thrown_exception');
+  });
+
+  it('omits the message on [MCP] Tools Listed when the sanitizer returns null', async () => {
+    const { analytics, tracked } = makeAnalytics(
+      new MCPAnalyticsConfig({ sanitizeErrorMessage: () => null }),
+    );
+    const server = fakeServer({ toolsListThrows: new Error(PII) });
+    analytics.instrumentServer(server as unknown as McpServer, { userId: 'user-1' });
+    await server.connect(stdioTransport);
+
+    expect(() => server.listTools()).toThrow(PII);
+
+    const event = tracked.find((e) => e.event_type === '[MCP] Tools Listed');
+    expect(event).toBeDefined();
+    expect(event?.event_properties).not.toHaveProperty('[MCP] Error Message');
+    expect(event?.event_properties?.['[MCP] Error Type']).toBe('thrown_exception');
   });
 });
 

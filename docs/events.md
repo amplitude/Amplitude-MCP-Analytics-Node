@@ -286,6 +286,11 @@ reserved key that per-tool dashboards slice on.
   name being absent or disabled in the tool registry, or the SDK's own
   `MCP error <code>:` message prefix — before reporting one. An uninstrumented
   tool's failure is left unreported rather than misfiled as `protocol_error`.
+- **Not emitted for output-schema failures**, which happen *after* the callback
+  returns. An instrumented tool is covered by the dispatch marker, but an
+  uninstrumented one's callback runs unobserved, so output-validation wording is
+  what keeps it out of this event — it already executed, and reporting it here
+  would contradict the event's meaning.
 - **Not covered:** failures the MCP server itself never sees — e.g. a
   transport- or host-level `4xx` for an invalid session id, written before the
   request reaches the protocol layer. Emit those from your host if you need

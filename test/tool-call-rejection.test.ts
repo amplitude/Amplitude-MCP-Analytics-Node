@@ -161,6 +161,46 @@ describe('classifyPreDispatchRejection — in-band isError (SDK >= 1.21)', () =>
   });
 });
 
+describe('classifyPreDispatchRejection — post-dispatch failures are not rejections', () => {
+  // The SDK's output-schema check runs on the callback's RETURN value, so the
+  // tool already executed. Instrumented tools are excluded by the dispatch
+  // marker; an uninstrumented tool's callback runs unseen, so the wording is the
+  // only thing keeping it out of `[MCP] Tool Call Rejected`.
+  const OUTPUT_MSGS = [
+    'MCP error -32602: Output validation error: Invalid structured content for tool x: ...',
+    'MCP error -32602: Invalid structured content for tool x: expected number',
+  ];
+
+  it.each(OUTPUT_MSGS)('declines the in-band shape (SDK >= 1.21): %j', (message) => {
+    expect(
+      classifyPreDispatchRejection({ result: errorResult(message), registryState: 'enabled' }),
+    ).toBeUndefined();
+  });
+
+  it.each(OUTPUT_MSGS)('declines the thrown shape (SDK <= 1.20): %j', (message) => {
+    expect(
+      classifyPreDispatchRejection({
+        error: Object.assign(new Error(message), { code: -32602 }),
+        registryState: 'enabled',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('still claims INPUT validation, which is genuinely pre-dispatch', () => {
+    const input = classifyPreDispatchRejection({
+      result: errorResult('MCP error -32602: Input validation error: Invalid arguments for tool x'),
+      registryState: 'enabled',
+    });
+    expect(input?.reason).toBe('schema_validation');
+  });
+
+  it('declines output validation even when the registry is unreadable', () => {
+    expect(
+      classifyPreDispatchRejection({ result: errorResult(OUTPUT_MSGS[0] as string) }),
+    ).toBeUndefined();
+  });
+});
+
 describe('classifyPreDispatchRejection — attribution without a registry', () => {
   // A low-level `Server` has no tool registry, so wording is the only fallback.
   it.each([

@@ -203,6 +203,43 @@ describe('[MCP] Tool Call Rejected — real McpServer', () => {
     expect(h.events(RESPONSE)).toHaveLength(0);
   });
 
+  it('does not report an uninstrumented tool’s output-schema failure as a rejection', async () => {
+    // The callback RUNS and returns malformed structured content; the SDK rejects
+    // afterwards. On >= 1.21 that arrives as an `isError` result carrying the same
+    // `MCP error -32602:` prefix as a real pre-dispatch rejection, and on <= 1.20
+    // as a post-dispatch throw — so without the output-validation exclusion this
+    // emits `Tool Call Rejected` for a tool that already executed, contradicting
+    // the event's documented "before any tool callback runs".
+    const tracked: AmplitudeEvent[] = [];
+    const analytics = new AmplitudeMCPAnalytics({
+      amplitude: { track: (e: AmplitudeEvent) => tracked.push(e), flush: () => undefined },
+      serverName: 'test-mcp',
+      serverVersion: '9.9.9',
+    });
+    const server = new McpServer({ name: 'test-mcp', version: '9.9.9' });
+    let ran = false;
+    (server as unknown as { registerTool: (...a: unknown[]) => unknown }).registerTool(
+      'bad_output',
+      { inputSchema: { q: z.string() }, outputSchema: { n: z.number() } },
+      async () => {
+        ran = true;
+        return {
+          content: [{ type: 'text', text: 'ran' }],
+          structuredContent: { n: 'not-a-number' },
+        };
+      },
+    );
+    analytics.instrumentServer(server);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+
+    await client.callTool({ name: 'bad_output', arguments: { q: 'x' } }).catch(() => undefined);
+
+    expect(ran).toBe(true); // the tool really did execute
+    expect(tracked.filter((e) => e.event_type === REJECTED)).toHaveLength(0);
+  });
+
   it('respects autocapture.toolCalls: false', async () => {
     const off = await harness(new MCPAnalyticsConfig({ autocapture: { toolCalls: false } }));
     await call(off, 'made_up_tool');

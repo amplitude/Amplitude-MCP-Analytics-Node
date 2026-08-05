@@ -86,7 +86,22 @@ export interface PreDispatchRejection {
  * degrades to `unrecognized` rather than becoming wrong — see the docs note
  * under "Telling rejections apart". Revisit only with that tradeoff in mind.
  */
-const VALIDATION_WORDING = /validation|invalid arguments|invalid structured content/i;
+const VALIDATION_WORDING = /input validation|invalid arguments/i;
+
+/**
+ * Wording that places a failure **after** the tool callback already ran, so it is
+ * not a pre-dispatch rejection no matter how it surfaced. Currently the SDK's
+ * output-schema check, which runs on the callback's return value.
+ *
+ * Instrumented tools are already excluded by the dispatch marker, and this covers
+ * the case it cannot see: a tool registered without `instrumentTool`, whose
+ * callback runs unobserved. Without this, such a tool returning malformed
+ * structured content would be reported as `[MCP] Tool Call Rejected` even though
+ * it executed — contradicting the event's documented meaning. Applies to both SDK
+ * ranges: <= 1.20 throws here, >= 1.21 converts to an `isError` result, and both
+ * carry this wording.
+ */
+const POST_DISPATCH_WORDING = /output validation|invalid structured content/i;
 
 /**
  * Attribute a rejection, preferring the tool registry and using the SDK's own
@@ -147,6 +162,9 @@ export function classifyPreDispatchRejection(input: {
   // McpError re-thrown by design). Undispatched + threw is unambiguous.
   if (input.error != null) {
     const classified = classifyError(input.error);
+    // Post-dispatch failure surfacing as a throw (SDK <= 1.20's output-schema
+    // check, or an uninstrumented tool on any version). Not a rejection.
+    if (POST_DISPATCH_WORDING.test(classified.message)) return undefined;
     const code = (input.error as { code?: unknown }).code;
     return {
       message: classified.message,
@@ -163,6 +181,9 @@ export function classifyPreDispatchRejection(input: {
   if (!isErrorResult(input.result)) return undefined;
 
   const text = errorMessageFromResult(input.result);
+
+  // Same post-dispatch exclusion, for the >= 1.21 in-band shape.
+  if (text != null && POST_DISPATCH_WORDING.test(text)) return undefined;
 
   // The tool is not there to have run — no message parsing needed.
   if (input.registryState === 'missing' || input.registryState === 'disabled') {

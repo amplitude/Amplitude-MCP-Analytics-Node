@@ -100,7 +100,7 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
 | `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
-| `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
+| `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
 same-named events/properties from other Amplitude SDKs on the same project.
