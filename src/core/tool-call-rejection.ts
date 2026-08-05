@@ -76,6 +76,15 @@ export interface PreDispatchRejection {
  * rather than one phrase: upstream has already reworded this once (1.14's
  * `Invalid arguments for tool x` became `Input validation error: ...` by 1.21),
  * so matching several forms is what keeps the fallback working across releases.
+ *
+ * This is the sole route to `schema_validation` — a deliberate call, not an
+ * oversight. The structural alternative (re-running the tool's stored
+ * `inputSchema` against `params.arguments`, which would *prove* a validation
+ * failure) was considered and rejected: it trades prose coupling for a deeper
+ * read into `McpServer`'s private registry, whose shape is itself not frozen
+ * (`callback` became `handler` in 1.30). If this wording drifts, the value
+ * degrades to `unrecognized` rather than becoming wrong — see the docs note
+ * under "Telling rejections apart". Revisit only with that tradeoff in mind.
  */
 const VALIDATION_WORDING = /validation|invalid arguments|invalid structured content/i;
 

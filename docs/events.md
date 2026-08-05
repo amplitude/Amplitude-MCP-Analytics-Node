@@ -328,12 +328,23 @@ caller data, so it is unaffected by sanitization:
 | `schema_validation` | The name resolved, but the payload failed the tool's schema |
 | `unrecognized` | A pre-dispatch failure that could not be attributed further |
 
-`unknown_tool` and `disabled_tool` come from the server's own tool registry, so
-they do not depend on message wording. `schema_validation` needs the SDK's
-wording to confirm it, because the registry can only prove the name resolved —
-not why the call failed. A registered, live tool that fails pre-dispatch for some
-other reason is reported as `unrecognized` rather than being labelled a schema
-problem it may not be.
+The values are not all equally robust, and it is worth knowing which is which
+before building on them:
+
+- `unknown_tool` and `disabled_tool` are read from the server's own tool
+  registry. They do not depend on message wording at all (wording is consulted
+  only for a low-level `Server`, which has no registry).
+- **`schema_validation` is matched from the SDK's error text.** The registry can
+  prove the name resolved but not why the call failed, so this one value is
+  derived from prose. It is the least durable of the four: the MCP SDK has
+  reworded this message before (1.14's `Invalid arguments for tool x` became
+  `Input validation error: ...` by 1.21), and a future reword would surface as
+  `unrecognized` rather than `schema_validation`. Treat a sudden shift between
+  those two buckets after an SDK upgrade as a wording change, not a behavior
+  change.
+
+A registered, live tool that fails pre-dispatch for some other reason is reported
+as `unrecognized` rather than being labelled a schema problem it may not be.
 
 `unrecognized` is the deliberate catch-all whenever the cause cannot be
 established: a low-level `Server` (which has no registry) whose message wording
