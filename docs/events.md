@@ -328,10 +328,19 @@ caller data, so it is unaffected by sanitization:
 | `schema_validation` | The name resolved, but the payload failed the tool's schema |
 | `unrecognized` | A pre-dispatch failure that could not be attributed further |
 
-The reason is read from the server's own tool registry, so it does not depend on
-message wording. `unrecognized` appears when there is no registry to consult —
-a low-level `Server` rather than the high-level `McpServer` — and the SDK's
-wording is also unfamiliar; it degrades to that rather than guessing.
+`unknown_tool` and `disabled_tool` come from the server's own tool registry, so
+they do not depend on message wording. `schema_validation` needs the SDK's
+wording to confirm it, because the registry can only prove the name resolved —
+not why the call failed. A registered, live tool that fails pre-dispatch for some
+other reason is reported as `unrecognized` rather than being labelled a schema
+problem it may not be.
+
+`unrecognized` is the deliberate catch-all whenever the cause cannot be
+established: a low-level `Server` (which has no registry) whose message wording
+is also unfamiliar, or a pre-dispatch failure mode a future SDK introduces. The
+rejection is still recorded with its code and duration — only the attribution is
+withheld. If you see `unrecognized` climbing after an SDK upgrade, that is the
+signal to look at what upstream added.
 
 ## Error classification
 

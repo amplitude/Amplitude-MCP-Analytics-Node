@@ -72,12 +72,27 @@ export interface PreDispatchRejection {
 }
 
 /**
- * Attribute a rejection from the registry, falling back to the SDK's own wording
- * when there is no registry to read (a low-level `Server`).
+ * Wording the SDK uses for a schema rejection. Deliberately an alternation
+ * rather than one phrase: upstream has already reworded this once (1.14's
+ * `Invalid arguments for tool x` became `Input validation error: ...` by 1.21),
+ * so matching several forms is what keeps the fallback working across releases.
+ */
+const VALIDATION_WORDING = /validation|invalid arguments|invalid structured content/i;
+
+/**
+ * Attribute a rejection, preferring the tool registry and using the SDK's own
+ * wording only where the registry cannot answer.
  *
- * The wording check is a fallback only, never the primary signal — it tracks
- * `McpServer`'s current phrasing and would silently degrade to `unrecognized` if
- * upstream reworded, which is the safe direction.
+ * `enabled` deliberately does **not** imply `schema_validation`. The registry
+ * proves the name resolved, not *why* the call failed, and `McpServer`'s handler
+ * has other pre-dispatch throw paths for a live tool (task-support
+ * misconfiguration, output-schema checks) with more likely to be added. Assuming
+ * validation there would relabel any future cause as a schema problem — a
+ * confidently wrong value, which is worse than an honest `unrecognized`.
+ *
+ * For the same reason wording is never allowed to overrule the registry: a tool
+ * whose own message says "not found" must not become `unknown_tool` when the
+ * registry says it is live.
  */
 function attribute(
   registryState: RegisteredToolState | undefined,
@@ -85,13 +100,13 @@ function attribute(
 ): RejectionReason {
   if (registryState === 'missing') return 'unknown_tool';
   if (registryState === 'disabled') return 'disabled_tool';
-  if (registryState === 'enabled') return 'schema_validation';
 
   if (message != null) {
-    if (/\bnot found\b/i.test(message)) return 'unknown_tool';
-    if (/\bdisabled\b/i.test(message)) return 'disabled_tool';
-    if (/validation|invalid arguments|invalid structured content/i.test(message)) {
-      return 'schema_validation';
+    if (VALIDATION_WORDING.test(message)) return 'schema_validation';
+    // Only with no registry to consult are these the best available evidence.
+    if (registryState == null) {
+      if (/\bnot found\b/i.test(message)) return 'unknown_tool';
+      if (/\bdisabled\b/i.test(message)) return 'disabled_tool';
     }
   }
   return 'unrecognized';

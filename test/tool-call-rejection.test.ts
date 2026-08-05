@@ -181,6 +181,19 @@ describe('classifyPreDispatchRejection — attribution without a registry', () =
     expect(out?.reason).toBe('unrecognized');
   });
 
+  it('does not assume schema_validation just because the tool is live', () => {
+    // `McpServer` has other pre-dispatch throw paths for a registered, enabled
+    // tool, and more may be added. An unfamiliar one must land in `unrecognized`
+    // rather than being relabelled a schema problem.
+    const out = classifyPreDispatchRejection({
+      result: errorResult('MCP error -32603: Tool tasky has taskSupport but was not registered'),
+      registryState: 'enabled',
+    });
+    expect(out?.reason).toBe('unrecognized');
+    // Still reported as a rejection — only the attribution is withheld.
+    expect(out?.jsonRpcCode).toBe(-32603);
+  });
+
   it('prefers registry evidence over wording when both are available', () => {
     // A tool whose own message happens to say "not found" must not be reported
     // as unknown_tool when the registry says it is live.
