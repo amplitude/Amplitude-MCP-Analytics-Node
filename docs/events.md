@@ -485,10 +485,13 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |
+| `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
+| `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Protocol Version` | string | All (when carried on the request) |
+| `[MCP] Rationale` | string | Tool-scope (opt-in, via `setRationale`) |
 | `[MCP] Rejection Reason` | string | `Tool Call Rejected` |
 | `[MCP] Request Size` | number | `Tool Call Response` |
 | `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
