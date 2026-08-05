@@ -1,0 +1,49 @@
+name: PR Risk Review Bot
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    # `ready_for_review` ensures the bot runs when a draft PR is marked ready;
+    # the bot itself also skips drafts.
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write # OIDC handshake for configure-aws-credentials
+
+jobs:
+  risk-review:
+    name: Assess PR risk
+    # Short-circuit drafts at the workflow level so we don't spin up a runner or
+    # assume AWS credentials for a PR the bot would skip anyway.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AMPLITUDE_REVIEW_BOT_APP_ID: ${{ secrets.AMPLITUDE_REVIEW_APP_ID }}
+      AMPLITUDE_REVIEW_BOT_PRIVATE_KEY: ${{ secrets.AMPLITUDE_REVIEW_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Reviewer selection blames/logs the changed files, so it needs history.
+          fetch-depth: 0
+
+      # Bedrock access comes from OIDC role assumption — no static AWS keys. The
+      # role is provisioned in platform-infra at
+      # aws/ops/us-west-2/gha_iam/actions/Amplitude-MCP-Analytics-Node/pr-risk-review.yaml
+      # and its name must match this ARN exactly (repo name is mixed-case).
+      #
+      # Uses aws-actions/* directly rather than the usual
+      # amplitude/actions/configure-aws-credentials wrapper: this repo is public,
+      # and public repos cannot consume actions from internal repositories.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@d0834ad3a60a024346910e522a81b0002bd37fea # v4.3.0
+        with:
+          role-to-assume: arn:aws:iam::758360878707:role/gha-Amplitude-MCP-Analytics-Node-pr-risk-review-pr
+          aws-region: us-east-1
+
+      - uses: amplitude/pr-review-bot@v1
