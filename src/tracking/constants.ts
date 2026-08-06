@@ -60,6 +60,9 @@ export const EVENT_PROPERTY_KEYS = {
   // tool-call outcome
   /** Rejected-call tool name — unvalidated input, kept off `[MCP] Tool Name`. */
   attemptedToolName: '[MCP] Attempted Tool Name',
+  /** Why a `tools/call` was rejected pre-dispatch — the structured, PII-free
+   *  companion to `[MCP] Error Message`, which the SDK cannot separate by code. */
+  rejectionReason: '[MCP] Rejection Reason',
   isError: '[MCP] Is Error',
   errorMessage: '[MCP] Error Message',
   errorCode: '[MCP] Error Code',

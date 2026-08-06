@@ -1,7 +1,9 @@
 /** The default tool-execution event — `[MCP] Tool Call Response`. */
+import type { ErrorMessageSanitizer } from '../../config.js';
 import type { McpToolContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOL_CALL_RESPONSE } from '../constants.js';
+import { sanitizeErrorMessage } from '../sanitize-error-message.js';
 import { trackToolEvent } from '../track-tool-event.js';
 
 /** What a single tool call produced, as observed by the instrumentation wrapper. @internal */
@@ -27,6 +29,7 @@ export function emitToolCallResponse(
   amplitude: AmplitudeClientLike,
   ctx: McpToolContext,
   outcome: ToolCallOutcome,
+  sanitize?: ErrorMessageSanitizer,
 ): void {
   const properties: Record<string, unknown> = {
     [K.isError]: outcome.isToolError,
@@ -37,7 +40,8 @@ export function emitToolCallResponse(
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
 
   if (ctx.error != null) {
-    properties[K.errorMessage] = ctx.error.message;
+    const message = sanitizeErrorMessage(ctx.error.message, sanitize);
+    if (message != null) properties[K.errorMessage] = message;
     if (ctx.error.code != null) properties[K.errorCode] = ctx.error.code;
     properties[K.errorType] = ctx.error.type;
     // HTTP status attached to the tool's failure (upstream response /

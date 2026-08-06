@@ -1,7 +1,9 @@
 /** The default server-capability event — `[MCP] Tools Listed`. */
+import type { ErrorMessageSanitizer } from '../../config.js';
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOLS_LISTED, TOOL_NAMES_MAX } from '../constants.js';
+import { sanitizeErrorMessage } from '../sanitize-error-message.js';
 import { trackServerEvent } from '../track-server-event.js';
 
 /** What a `tools/list` request produced, as observed by the wrapper. @internal */
@@ -32,6 +34,7 @@ export function emitToolsListed(
   amplitude: AmplitudeClientLike,
   ctx: McpServerContext,
   outcome: ToolsListedOutcome,
+  sanitize?: ErrorMessageSanitizer,
 ): void {
   const properties: Record<string, unknown> = {
     [K.isError]: outcome.isError,
@@ -47,7 +50,10 @@ export function emitToolsListed(
   }
   if (outcome.durationMs != null) properties[K.responseDuration] = Math.round(outcome.durationMs);
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
-  if (outcome.errorMessage != null) properties[K.errorMessage] = outcome.errorMessage;
+  if (outcome.errorMessage != null) {
+    const message = sanitizeErrorMessage(outcome.errorMessage, sanitize);
+    if (message != null) properties[K.errorMessage] = message;
+  }
   if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;
 

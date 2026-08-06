@@ -13,14 +13,15 @@ import {
   registerExitHook,
   settleUnflushedCount,
 } from './core/delivery/index.js';
-import type {
-  CallToolResult,
-  McpExtra,
-  McpServerLike,
-  Server,
-  ToolHandler,
-  ToolResult,
-  Transport,
+import {
+  type CallToolResult,
+  lookupRegisteredTool,
+  type McpExtra,
+  type McpServerLike,
+  type Server,
+  type ToolHandler,
+  type ToolResult,
+  type Transport,
 } from './core/mcp.js';
 import { byteSize } from './core/serialize.js';
 import {
@@ -29,6 +30,7 @@ import {
   type ServerScope,
 } from './core/server-scope.js';
 import { installToolCallHook, wasToolCallDispatched } from './core/tool-call-hook.js';
+import { classifyPreDispatchRejection } from './core/tool-call-rejection.js';
 import { installToolsListHook } from './core/tools-list-hook.js';
 import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
@@ -401,6 +403,7 @@ export class AmplitudeMCPAnalytics {
           return scope != null ? scope.identity : this._serverIdentity;
         },
         trackToolCalls: this.config.autocapture.toolCalls,
+        sanitizeErrorMessage: this.config.sanitizeErrorMessage,
         logger: getLogger(this._amplitude),
       },
       handler,
@@ -490,16 +493,21 @@ export class AmplitudeMCPAnalytics {
             .map((t) => t.name)
             .filter((n): n is string => typeof n === 'string');
           const toolError = error != null ? classifyError(error) : undefined;
-          emitToolsListed(this._amplitude, ctx, {
-            isError: error != null,
-            toolCount: tools.length,
-            toolNames: names.length > 0 ? names : undefined,
-            durationMs,
-            responseSizeBytes: result != null ? byteSize(result) : undefined,
-            errorMessage: toolError?.message,
-            errorCode: toolError?.code,
-            errorType: toolError?.type,
-          });
+          emitToolsListed(
+            this._amplitude,
+            ctx,
+            {
+              isError: error != null,
+              toolCount: tools.length,
+              toolNames: names.length > 0 ? names : undefined,
+              durationMs,
+              responseSizeBytes: result != null ? byteSize(result) : undefined,
+              errorMessage: toolError?.message,
+              errorCode: toolError?.code,
+              errorType: toolError?.type,
+            },
+            this.config.sanitizeErrorMessage,
+          );
         });
       }
 
@@ -510,39 +518,64 @@ export class AmplitudeMCPAnalytics {
         // error envelope, and no `instrumentTool` wrapper ever sees the call.
         // Dispatched calls never double-emit — the wrapper marks each dispatch
         // and reports those on `[MCP] Tool Call Response` instead.
-        installToolCallHook(lowLevelServer, ({ toolName, error, durationMs }, extra) => {
-          if (scope.ctx == null || error == null || wasToolCallDispatched(extra)) return;
+        installToolCallHook(lowLevelServer, ({ toolName, result, error, durationMs }, extra) => {
+          if (scope.ctx == null) return;
+          // Dispatched calls are owned by `[MCP] Tool Call Response`. Checked
+          // first: on SDKs >= 1.21 a real tool failure and a pre-dispatch
+          // rejection reach us as the same shape, and this is what parts them.
+          if (wasToolCallDispatched(extra)) return;
+
+          const rejection = classifyPreDispatchRejection({
+            error,
+            result,
+            registryState: lookupRegisteredTool(boundServer, toolName),
+          });
+          if (rejection == null) return;
+
           const ctx = buildServerContext(scope.ctx, extra, {
             serverIdentity: scope.identity,
             logger: getLogger(this._amplitude),
           });
-          const rejection = classifyError(error);
-          // The JSON-RPC error envelope the protocol layer sends for this
-          // throw, reconstructed for an honest response-size measure.
-          const code = (error as { code?: unknown } | null)?.code;
-          const jsonRpcCode = typeof code === 'number' && Number.isSafeInteger(code) ? code : -32603;
-          const envelope = {
-            jsonrpc: '2.0',
-            id: extra.requestId,
-            error: {
-              code: jsonRpcCode,
-              message: rejection.message,
+          // Response size as the client actually received it: SDKs >= 1.21
+          // answer with an in-band `isError` result, earlier ones with a
+          // JSON-RPC error envelope, reconstructed here from the throw.
+          const responseSizeBytes =
+            result != null
+              ? byteSize(result)
+              : byteSize({
+                  jsonrpc: '2.0',
+                  id: extra.requestId,
+                  error: {
+                    code: rejection.jsonRpcCode ?? -32603,
+                    message: rejection.message,
+                  },
+                });
+
+          emitToolCallRejected(
+            this._amplitude,
+            ctx,
+            {
+              attemptedToolName: toolName,
+              // Structured cause: the SDK codes every pre-dispatch failure
+              // -32602, so this is the only thing that separates them once
+              // `sanitizeErrorMessage` has had a say over the message.
+              rejectionReason: rejection.reason,
+              errorMessage: rejection.message,
+              // Pre-dispatch `tools/call` failures are JSON-RPC protocol errors,
+              // so the JSON-RPC code rides `[MCP] Error Code` — omitted rather
+              // than guessed when the SDK kept no recoverable code, leaving
+              // `[MCP] Error Type` as the segmentation key.
+              errorCode: rejection.jsonRpcCode != null ? String(rejection.jsonRpcCode) : undefined,
+              errorType: 'protocol_error',
+              durationMs,
+              responseSizeBytes,
+              // Protocol-level rejections still answer HTTP 200 over Streamable
+              // HTTP — the error travels in the response body. stdio has no
+              // HTTP status, so none is fabricated there.
+              responseHttpStatus: ctx.transport === 'streamable-http' ? 200 : undefined,
             },
-          };
-          emitToolCallRejected(this._amplitude, ctx, {
-            attemptedToolName: toolName,
-            errorMessage: rejection.message,
-            // Pre-dispatch `tools/call` failures are JSON-RPC protocol errors,
-            // the JSON-RPC code rides `[MCP] Error Code`.
-            errorCode: String(jsonRpcCode),
-            errorType: 'protocol_error',
-            durationMs,
-            responseSizeBytes: byteSize(envelope),
-            // Protocol-level rejections still answer HTTP 200 over Streamable
-            // HTTP — the error travels in the JSON-RPC body. stdio has no
-            // HTTP status, so none is fabricated there.
-            responseHttpStatus: ctx.transport === 'streamable-http' ? 200 : undefined,
-          });
+            this.config.sanitizeErrorMessage,
+          );
         });
       }
 

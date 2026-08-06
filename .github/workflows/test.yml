@@ -35,6 +35,58 @@ jobs:
       - name: Run tests
         run: pnpm run test:coverage
 
+  # `peerDependencies` accepts @modelcontextprotocol/sdk >=1.14.0, and 1.21.0
+  # changed how `McpServer` reports a failed `tools/call`: through 1.20 it threw
+  # an McpError, from 1.21 it returns an in-band `isError` result. Testing only
+  # the pinned devDependency leaves whichever side it is not on uncovered — which
+  # is how `[MCP] Tool Call Rejected` silently stopped firing. Pin one version
+  # per side and run the suite against both.
+  sdk-compat:
+    name: SDK compat (@modelcontextprotocol/sdk ${{ matrix.sdk-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk-version: ['1.14.0', '1.20.0', '1.21.0']
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Overrides the pinned devDependency for this job's checkout only. It edits
+      # package.json and the lockfile in the runner's working copy, which is
+      # discarded afterwards, so the committed pin is untouched.
+      - name: Override MCP SDK to ${{ matrix.sdk-version }}
+        run: pnpm add -D "@modelcontextprotocol/sdk@${{ matrix.sdk-version }}"
+
+      # Fails the job if the override did not take, rather than passing the suite
+      # against the wrong version and reporting false coverage of this matrix arm.
+      # Read off disk: the SDK's `exports` map does not expose ./package.json.
+      - name: Verify resolved version
+        run: |
+          resolved=$(node -e "console.log(JSON.parse(require('fs').readFileSync('node_modules/@modelcontextprotocol/sdk/package.json','utf8')).version)")
+          echo "resolved @modelcontextprotocol/sdk@$resolved"
+          test "$resolved" = "${{ matrix.sdk-version }}"
+
+      - name: Build
+        run: pnpm run build
+
+      # The SDK's own types come from the peer dependency, so an older SDK can
+      # fail to compile even when the runtime behavior is fine.
+      - name: Type check
+        run: pnpm run test:typescript
+
+      - name: Run tests
+        run: pnpm run test -- --run
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
