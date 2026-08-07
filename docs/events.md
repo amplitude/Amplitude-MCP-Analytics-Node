@@ -256,9 +256,15 @@ handler may enrich `ctx.tool.extra` mid-call and the values land on this event.
 
 Reports each `tools/call` request that fails **before any tool callback
 runs**: the requested tool doesn't exist (or is disabled), or the arguments
-fail input-schema validation. The MCP SDK answers these with a JSON-RPC error
-envelope and no handler executes, so they would otherwise be invisible —
-`[MCP] Tool Call Response` only fires for dispatched calls.
+fail input-schema validation. No handler executes, so these would otherwise be
+invisible — `[MCP] Tool Call Response` only fires for dispatched calls.
+
+How the MCP SDK reports such a failure to the client depends on its version, and
+this event covers both. Through `@modelcontextprotocol/sdk` 1.20 the `tools/call`
+handler threw and the client received a JSON-RPC error envelope; from 1.21 the
+handler catches internally and returns an in-band `isError` result instead. The
+event fires either way, so `[MCP] Tool Call Rejected` means the same thing across
+the SDK range the package supports (`>=1.14.0`).
 
 This is a separate event on purpose. `[MCP] Tool Call Response`'s dimensions
 are execution-scoped (tool metadata, handler duration, request size); a
@@ -267,12 +273,24 @@ caller input — hallucinated, mistyped, or since-removed tool names — so it
 rides on `[MCP] Attempted Tool Name` and never lands on the `[MCP] Tool Name`
 reserved key that per-tool dashboards slice on.
 
-- **Fires when:** the server's `tools/call` request handler throws instead of
-  returning a result, and no `instrumentTool`-wrapped callback ran for that
-  request. The throw passes through untouched. A call that reached a tool
-  callback never emits this event — even when the protocol layer throws after
-  dispatch (e.g. output-schema validation) — it is reported on
-  `[MCP] Tool Call Response` instead, so one request never lands on both.
+- **Fires when:** the server's `tools/call` request handler fails — by throwing,
+  or by returning an `isError` result on SDKs >= 1.21 — and no
+  `instrumentTool`-wrapped callback ran for that request. The handler's own
+  behavior passes through untouched. A call that reached a tool callback never
+  emits this event — even when the protocol layer fails after dispatch (e.g.
+  output-schema validation) — it is reported on `[MCP] Tool Call Response`
+  instead, so one request never lands on both.
+- **Not emitted for** a tool that is registered but not wrapped with
+  `instrumentTool` and returns its own `isError` result. On SDKs >= 1.21 that is
+  shaped identically to a rejection, so the SDK requires positive evidence — the
+  name being absent or disabled in the tool registry, or the SDK's own
+  `MCP error <code>:` message prefix — before reporting one. An uninstrumented
+  tool's failure is left unreported rather than misfiled as `protocol_error`.
+- **Not emitted for output-schema failures**, which happen *after* the callback
+  returns. An instrumented tool is covered by the dispatch marker, but an
+  uninstrumented one's callback runs unobserved, so output-validation wording is
+  what keeps it out of this event — it already executed, and reporting it here
+  would contradict the event's meaning.
 - **Not covered:** failures the MCP server itself never sees — e.g. a
   transport- or host-level `4xx` for an invalid session id, written before the
   request reaches the protocol layer. Emit those from your host if you need
@@ -288,13 +306,57 @@ reserved key that per-tool dashboards slice on.
 | Property | Type | Present | Value |
 | -- | -- | -- | -- |
 | `[MCP] Attempted Tool Name` | string | always | `params.name` as sent by the client — unvalidated input, capped at **200** characters |
+| `[MCP] Rejection Reason` | string | always | Why the call was rejected: `unknown_tool`, `disabled_tool`, `schema_validation`, or `unrecognized` — see [Telling rejections apart](#telling-rejections-apart) |
 | `[MCP] Is Error` | boolean | always | Always `true` — every rejection is a failure |
-| `[MCP] Error Message` | string | always | Message of the classified error — what the JSON-RPC error envelope carries (e.g. `Tool foo not found`) |
-| `[MCP] Error Code` | string | always | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found) |
+| `[MCP] Error Message` | string | unless dropped by [`sanitizeErrorMessage`](#redacting-mcp-error-message) | Message of the classified error, as the client saw it (e.g. `MCP error -32602: Tool foo not found`) |
+| `[MCP] Error Code` | string | when recoverable | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found). SDKs >= 1.21 discard the numeric code and keep it only in the message text, so it is parsed back out from there; absent when neither source yields one |
 | `[MCP] Error Type` | string | always | Always `protocol_error` — see [Error classification](#error-classification) |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
-| `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the JSON-RPC error envelope sent to the client |
+| `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the response the client received — the `isError` result on SDKs >= 1.21, the JSON-RPC error envelope on earlier ones |
 | `[MCP] Response HTTP Status` | number | Streamable HTTP only | `200` — protocol-level rejections answer HTTP 200 with the error in the JSON-RPC body. Absent over stdio, which has no HTTP status |
+
+### Telling rejections apart
+
+The MCP SDK raises `InvalidParams` for every pre-dispatch failure, so all three
+causes arrive with the **same** `[MCP] Error Code` (`-32602`) and the same
+`[MCP] Error Type` (`protocol_error`). Neither one distinguishes them, and the
+difference otherwise survives only in the message text — which
+[`sanitizeErrorMessage`](#redacting-mcp-error-message) may rewrite or drop.
+
+`[MCP] Rejection Reason` carries the cause structurally instead. It contains no
+caller data, so it is unaffected by sanitization:
+
+| Value | Meaning |
+| -- | -- |
+| `unknown_tool` | The requested name is not registered — hallucinated, mistyped, or since removed. Pair with `[MCP] Attempted Tool Name` to see which names clients expect |
+| `disabled_tool` | Registered but turned off via `tool.disable()` |
+| `schema_validation` | The name resolved, but the payload failed the tool's schema |
+| `unrecognized` | A pre-dispatch failure that could not be attributed further |
+
+The values are not all equally robust, and it is worth knowing which is which
+before building on them:
+
+- `unknown_tool` and `disabled_tool` are read from the server's own tool
+  registry. They do not depend on message wording at all (wording is consulted
+  only for a low-level `Server`, which has no registry).
+- **`schema_validation` is matched from the SDK's error text.** The registry can
+  prove the name resolved but not why the call failed, so this one value is
+  derived from prose. It is the least durable of the four: the MCP SDK has
+  reworded this message before (1.14's `Invalid arguments for tool x` became
+  `Input validation error: ...` by 1.21), and a future reword would surface as
+  `unrecognized` rather than `schema_validation`. Treat a sudden shift between
+  those two buckets after an SDK upgrade as a wording change, not a behavior
+  change.
+
+A registered, live tool that fails pre-dispatch for some other reason is reported
+as `unrecognized` rather than being labelled a schema problem it may not be.
+
+`unrecognized` is the deliberate catch-all whenever the cause cannot be
+established: a low-level `Server` (which has no registry) whose message wording
+is also unfamiliar, or a pre-dispatch failure mode a future SDK introduces. The
+rejection is still recorded with its code and duration — only the attribution is
+withheld. If you see `unrecognized` climbing after an SDK upgrade, that is the
+signal to look at what upstream added.
 
 ## Error classification
 
@@ -319,7 +381,8 @@ structured error is stored on `ctx.error` and the event reports your values.
 Host-built errors are always `returned_error`; describe the specific failure
 through the free-form **`code`** (emitted as `[MCP] Error Code`), not the type.
 
-`[MCP] Error Message` and `[MCP] Error Type` are always emitted on a failure.
+`[MCP] Error Message` and `[MCP] Error Type` are emitted on a failure (the
+message unless [`sanitizeErrorMessage`](#redacting-mcp-error-message) drops it).
 `[MCP] Error Code` is the finer-grained companion to the type and is emitted
 **only when a specific identifier is known** — a host `code`, a Node/syscall
 `err.code`, or a JSON-RPC code.
@@ -327,6 +390,47 @@ It is omitted for a bare thrown exception rather than echoing the type, so its
 presence means "there is a specific known reason." The rest of the structured
 error (`recoverable`, `fingerprint`, privacy-safe `stackHash`, …) stays on
 `ctx.error`, where a custom event can pick it up.
+
+### Redacting `[MCP] Error Message`
+
+`[MCP] Error Message` is the one error property carrying free text the SDK did
+not compose. For an in-band `isError` result it is the result's own message; for
+a rejection on SDKs >= 1.21 it is the MCP SDK's validation text, which quotes the
+offending argument value. Either can contain end-user data that no server code
+deliberately sent — `No subscriber found for "jane@example.com"`.
+
+`sanitizeErrorMessage` rewrites or drops the property before it is emitted.
+Return a replacement string, or `null` to omit it entirely:
+
+```ts
+import { MCPAnalyticsConfig } from '@amplitude/mcp-analytics';
+
+new MCPAnalyticsConfig({
+  // Redact, keeping the shape of the message for debugging:
+  sanitizeErrorMessage: (message) =>
+    message.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '<email>'),
+});
+
+new MCPAnalyticsConfig({
+  // Or drop the property outright:
+  sanitizeErrorMessage: () => null,
+});
+```
+
+It applies to every event that carries the property — `[MCP] Tools Listed`,
+`[MCP] Tool Call Response`, and `[MCP] Tool Call Rejected` — so no code path can
+bypass it. `[MCP] Error Code` and `[MCP] Error Type` are untouched, which keeps
+failures segmentable with no message text in the event stream.
+
+Two deliberate behaviors: the sanitizer never sees a successful call, and it
+**fails closed**. A sanitizer that throws (or returns anything other than a
+string) omits the property rather than falling back to the raw message — the
+value it exists to suppress is never emitted because the function was buggy. The
+rest of the event is unaffected, and the tool response never breaks.
+
+The message reaching the client is never modified; this affects telemetry only.
+To control the client-facing text as well, build the result with
+`analytics.toolError(ctx, { code, message })`.
 
 ## Custom events
 
@@ -386,10 +490,14 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |
+| `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
+| `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Protocol Version` | string | All (when carried on the request) |
+| `[MCP] Rationale` | string | Tool-scope (opt-in, via `setRationale`) |
+| `[MCP] Rejection Reason` | string | `Tool Call Rejected` |
 | `[MCP] Request Size` | number | `Tool Call Response` |
 | `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Response HTTP Status` | number | `Tool Call Rejected` (Streamable HTTP); tool-scope when host-supplied via `ctx.request.responseHttpStatus` |

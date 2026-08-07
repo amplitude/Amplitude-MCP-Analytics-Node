@@ -20,11 +20,18 @@ type RequestHandler = (request: unknown, extra: unknown) => unknown;
 type ToolCallback = (args: Record<string, unknown>, extra: unknown) => unknown;
 
 /**
- * Fake server modeling the MCP SDK's `tools/call` dispatch semantics: an
- * unknown tool name throws (→ JSON-RPC error envelope, no callback runs),
- * while a callback that throws is converted into an in-band `isError` result.
- * The same `extra` object flows from the request handler into the callback,
- * exactly as `Protocol._onrequest` → `McpServer`'s CallTool handler does.
+ * Fake server modeling the MCP SDK's `tools/call` dispatch semantics **as of
+ * SDK <= 1.20**: an unknown tool name throws (→ JSON-RPC error envelope, no
+ * callback runs), while a callback that throws is converted into an in-band
+ * `isError` result. The same `extra` object flows from the request handler into
+ * the callback, exactly as `Protocol._onrequest` → `McpServer`'s CallTool
+ * handler does.
+ *
+ * SDK 1.21 changed the first half: pre-dispatch failures became `isError`
+ * results too. This fake deliberately keeps the older contract so that arm stays
+ * covered no matter which SDK is installed — `tool-call-rejection.test.ts` unit
+ * tests the 1.21 shape, and `tool-call-rejected-integration.test.ts` drives the
+ * real `McpServer`.
  */
 function makeFakeServer(opts: { throwAfterDispatch?: boolean } = {}) {
   const requestHandlers = new Map<string, RequestHandler>();

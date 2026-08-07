@@ -59,6 +59,42 @@ export function getRequestHandlers(
 }
 
 /**
+ * An attempted tool name's state in the high-level server's registry.
+ * `undefined` from {@link lookupRegisteredTool} means "could not tell".
+ */
+export type RegisteredToolState = 'missing' | 'disabled' | 'enabled';
+
+/**
+ * Look up an attempted `tools/call` name in the high-level {@link McpServer}'s
+ * tool registry, to tell a call the server rejected apart from one that ran.
+ *
+ * Like {@link getRequestHandlers} this reads a private SDK field, and is kept
+ * here in the adapter for that reason. Returns `undefined` when the registry
+ * cannot be read at all — a low-level {@link Server} (which has none) or an SDK
+ * shape change — so callers fall back to weaker evidence rather than treating
+ * "unreadable" as "missing".
+ *
+ * @internal
+ */
+export function lookupRegisteredTool(
+  server: McpServerLike,
+  name: string | undefined,
+): RegisteredToolState | undefined {
+  if (name == null) return undefined;
+
+  // `_registeredTools` is private on `McpServer`; absent on the low-level Server.
+  const registry = (
+    server as unknown as { _registeredTools?: Record<string, { enabled?: boolean } | undefined> }
+  )._registeredTools;
+  if (registry == null || typeof registry !== 'object') return undefined;
+
+  if (!Object.prototype.hasOwnProperty.call(registry, name)) return 'missing';
+  // `enabled` has been present since the SDK gained `tool.disable()`; treat an
+  // absent flag as live rather than inventing a disabled state.
+  return registry[name]?.enabled === false ? 'disabled' : 'enabled';
+}
+
+/**
  * A server we can instrument: the high-level {@link McpServer} (owns a
  * {@link Server} as `.server`) or a low-level {@link Server}. `isConnected()` is
  * only on the former; the handshake hooks (`oninitialized` / `getClientVersion`)
