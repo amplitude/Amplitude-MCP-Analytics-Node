@@ -13,6 +13,7 @@ import type { CallToolResult } from './core/mcp.js';
  * - `transport_error` — the thrown error carried a Node network code.
  * - `protocol_error` — a `tools/call` failed before dispatch (unknown tool,
  *   input-schema validation) — see `[MCP] Tool Call Rejected`.
+ * - `rate_limited` — the thrown error carried HTTP status 429.
  * - `unknown` — a non-`Error` value was thrown.
  */
 export type McpToolErrorType =
@@ -21,6 +22,7 @@ export type McpToolErrorType =
   | 'transport_error'
   | 'timeout'
   | 'protocol_error'
+  | 'rate_limited'
   | 'unknown';
 
 /**
@@ -211,6 +213,20 @@ export function classifyError(err: unknown): McpToolError {
       stackHash: stack,
       ...(httpStatus != null ? { httpStatus } : {}),
       fingerprint: computeFingerprint(type, err.message),
+    };
+  }
+
+  if (httpStatus === 429) {
+    const type = 'rate_limited';
+
+    return {
+      message: err.message,
+      type,
+      ...(errWithCode.code != null ? { code: String(errWithCode.code) } : {}),
+      stackHash: stack,
+      httpStatus,
+      fingerprint: computeFingerprint(type, err.message),
+      retrySuggested: true,
     };
   }
 
