@@ -216,6 +216,17 @@ describe('classifyError', () => {
     expect(classified.type).toBe('thrown_exception');
   });
 
+  it('classifies HTTP 429 as rate_limited', () => {
+    const err = new Error('Too Many Requests');
+    (err as Error & { status: number }).status = 429;
+
+    const classified = classifyError(err);
+
+    expect(classified.type).toBe('rate_limited');
+    expect(classified.httpStatus).toBe(429);
+    expect(classified.retrySuggested).toBe(true);
+  });
+
   it('sniffs httpStatus from err.statusCode when err.status is absent', () => {
     const err = new Error('Server error');
     (err as Error & { statusCode: number }).statusCode = 502;
