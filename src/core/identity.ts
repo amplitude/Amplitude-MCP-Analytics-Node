@@ -25,6 +25,15 @@ import type { Logger } from '../utils/logger.js';
 
 const MIN_ID_LENGTH = 5;
 
+/**
+ * Namespace for anchor-derived device ids. The value is a **cross-SDK
+ * contract**, not an arbitrary constant: this SDK and the Python
+ * `amplitude-mcp-analytics` SDK derive `device_id` from the same anchor key
+ * through the same UUIDv5 math, so a subject reaching a server through either
+ * one is a single device in Amplitude rather than two. Changing it re-buckets
+ * every anchor-derived device, and diverging from the Python SDK silently
+ * splits them.
+ */
 const AMP_MCP_NAMESPACE = '6ba7b812-9dad-11d1-80b4-00c04fd430c8';
 
 /**
