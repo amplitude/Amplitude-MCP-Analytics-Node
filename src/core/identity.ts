@@ -26,13 +26,21 @@ import type { Logger } from '../utils/logger.js';
 const MIN_ID_LENGTH = 5;
 
 /**
- * Namespace for anchor-derived device ids. The value is a **cross-SDK
- * contract**, not an arbitrary constant: this SDK and the Python
- * `amplitude-mcp-analytics` SDK derive `device_id` from the same anchor key
- * through the same UUIDv5 math, so a subject reaching a server through either
- * one is a single device in Amplitude rather than two. Changing it re-buckets
- * every anchor-derived device, and diverging from the Python SDK silently
- * splits them.
+ * Namespace for anchor-derived device ids: `device_id` is
+ * `uuidv5(AMP_MCP_NAMESPACE, "<anchorType>:<anchorValue>")`.
+ *
+ * The value is a stability contract, not an arbitrary constant. Changing it
+ * re-derives every anchor-derived `device_id`, so a server's existing devices
+ * all become new ones and continuity with everything already reported breaks.
+ * (`user_id` is the raw anchor key, so only `device_id` is at stake here.)
+ *
+ * The Python `amplitude-mcp-analytics` SDK uses the same namespace and the
+ * same derivation. That is not about one subject reaching both SDKs — anchors
+ * are server-side (a process id, a session id this server minted), so two
+ * servers do not normally share one. It matters when a *server* moves between
+ * the SDKs: the same session id or propagated trace id keeps mapping to the
+ * same device across the cutover, instead of resetting that server's whole
+ * device population. Keep the two in sync for that reason.
  */
 const AMP_MCP_NAMESPACE = '6ba7b812-9dad-11d1-80b4-00c04fd430c8';
 
