@@ -91,13 +91,36 @@ function parseTraceId(traceparent: string | undefined): string | undefined {
  * A session id is never assumed — its absence selects the stateless branch.
  * @internal
  */
+let processAnchor: { pid: number; value: string } | undefined;
+
+/**
+ * The stdio anchor value for this process: the pid plus a per-process random
+ * token, minted once and reused for the process lifetime.
+ *
+ * The pid **alone** is not a safe anchor value. It is a small integer recycled
+ * per machine, so two unrelated servers on two different hosts that happened to
+ * draw the same pid produced the same anchor key — and the anchor key is used
+ * verbatim as `user_id` (`process:<pid>`) as well as hashed into `device_id`.
+ * Distinct installations silently merged into one Amplitude user. The random
+ * suffix makes the value globally unique while keeping the pid readable in
+ * logs; process-lifetime correlation is unchanged.
+ * @internal
+ */
+function processAnchorValue(): string {
+  if (processAnchor?.pid !== process.pid) {
+    processAnchor = { pid: process.pid, value: `${process.pid}-${randomUUID().replace(/-/g, '')}` };
+  }
+
+  return processAnchor.value;
+}
+
 function resolveAnchor(
   transport: McpTransport,
   extra: McpExtra,
   boundAnchor?: McpAnchor,
 ): McpAnchor {
   if (transport === 'stdio') {
-    return { type: 'process', value: String(process.pid) };
+    return { type: 'process', value: processAnchorValue() };
   }
 
   // Streamable HTTP — legacy if a session id was minted, else stateless.

@@ -61,12 +61,21 @@ match wins):
 | 5 | Anonymous per-request floor | `anonymous` |
 
 - **`user_id`** — the resolved user id. At level 4 it is the synthetic key
-  `<anchor type>:<anchor value>` (e.g. `process:12345`,
+  `<anchor type>:<anchor value>` (e.g. `process:12345-1f0c…`,
   `session-id:8f4c…`); at level 5 it is `anonymous:<device id>`.
 - **`device_id`** — the resolved device id. When you supply a `userId` without
   a `deviceId`, the SDK derives a stable device id from the anchor (a UUIDv5 of
-  the anchor key) so calls in the same session/process/trace correlate. At
-  level 5 it is a random UUID per request.
+  the anchor key, under this SDK's private namespace) so calls in the same
+  session/process/trace correlate. At level 5 it is a random UUID per request.
+
+  > The `process` anchor value is `<pid>-<random hex>`, not a bare pid. Pids are
+  > small integers recycled per machine, so a bare pid made two unrelated
+  > servers on different hosts resolve to the same `user_id` and `device_id`.
+  > The random component is minted once per process and is stable for that
+  > process's lifetime, which is the correlation scope this anchor promises.
+  > Changed after v0.4.1, together with the derivation namespace: both are
+  > breaking changes for anchor-derived identities, and neither affects an
+  > identity you supplied explicitly.
 - **`groups`** — set to `{ [tenant.groupType]: tenant.groupValue }` when a
   tenant was provided (via `setIdentity`, `resolveIdentity`, or
   `instrumentServer` options). The tenant is carried on Amplitude `groups`,

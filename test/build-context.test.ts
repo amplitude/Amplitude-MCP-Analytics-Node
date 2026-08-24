@@ -46,7 +46,13 @@ describe('resolveTransport', () => {
 
 describe('buildToolContext — anchor', () => {
   it('stdio → process anchor (process lifetime, stable)', () => {
-    expect(toolCtx('stdio', mkExtra()).anchor).toEqual({ type: 'process', value: String(process.pid) });
+    const anchor = toolCtx('stdio', mkExtra()).anchor;
+    expect(anchor.type).toBe('process');
+    expect(toolCtx('stdio', mkExtra()).anchor).toEqual(anchor);
+    // The pid stays readable, but it is NOT the whole value: pids are recycled
+    // per machine, so a bare pid collided across hosts (see processAnchorValue).
+    expect(anchor.value).toMatch(new RegExp(`^${process.pid}-[0-9a-f]{32}$`));
+    expect(anchor.value).not.toBe(String(process.pid));
   });
 
   it('legacy HTTP → session-id anchor when a session id is present', () => {

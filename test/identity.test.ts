@@ -19,6 +19,26 @@ const sessionAnchor: McpAnchor = { type: 'session-id', value: 'sess-abc' };
 const traceAnchor: McpAnchor = { type: 'trace', value: '4bf92f3577b34da6a3ce929d0e0e4736' };
 const anonAnchor: McpAnchor = { type: 'anonymous', value: 'aaa-bbb-ccc' };
 
+describe('anchor-derived device id namespace', () => {
+  // Golden values for the anchor key `session-id:sess-abc`. The Python SDK
+  // asserts the same derivation, so these pin the cross-SDK wire contract.
+  const EXPECTED = '5fce1aa7-c7c0-53ad-a89b-7a43e0e8dea5';
+  // What the same key derived to through v0.4.1, when the namespace constant
+  // was NameSpace_OID (6ba7b812-…) — one of the four RFC 9562 Appendix A
+  // reserved namespaces, and therefore not private to this SDK at all.
+  const RFC_RESERVED_OID_DERIVED = '1ab62820-d031-5f96-ab16-083102f13787';
+
+  it('derives device ids under the private namespace', () => {
+    const result = resolveIdentityFromChain({ anchor: sessionAnchor });
+    expect(result.identity.deviceId).toBe(EXPECTED);
+  });
+
+  it('no longer derives under the RFC-reserved OID namespace', () => {
+    const result = resolveIdentityFromChain({ anchor: sessionAnchor });
+    expect(result.identity.deviceId).not.toBe(RFC_RESERVED_OID_DERIVED);
+  });
+});
+
 describe('resolveIdentityFromChain', () => {
   describe('resolveIdentity callback', () => {
     it('uses userId from resolveIdentity when present', () => {
