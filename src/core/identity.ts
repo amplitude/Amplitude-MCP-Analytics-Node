@@ -25,13 +25,57 @@ import type { Logger } from '../utils/logger.js';
 
 const MIN_ID_LENGTH = 5;
 
-const AMP_MCP_NAMESPACE = '6ba7b812-9dad-11d1-80b4-00c04fd430c8';
+/**
+ * Private namespace for anchor-derived device ids: `device_id` is
+ * `uuidv5(AMP_MCP_NAMESPACE, "<anchorType>:<anchorValue>")`, per RFC 9562 §5.5.
+ *
+ * This is a randomly minted v4 UUID owned by this SDK, and it has to stay that
+ * way. Through v0.4.1 the value was `6ba7b812-9dad-11d1-80b4-00c04fd430c8`,
+ * which is not a private namespace at all — it is `NameSpace_OID`, one of the
+ * four namespaces reserved by RFC 9562 Appendix A. Hashing under a globally
+ * published constant forfeits the only thing the namespace argument buys you:
+ * any other system that hashes a colliding name under the same reserved value
+ * derives a byte-identical id, and every `device_id` becomes reproducible — and
+ * so reversible, wherever the anchor space is small — by anyone who reads the
+ * spec.
+ *
+ * Changing it re-derives every anchor-derived `device_id`, so a server's
+ * existing devices all become new ones and continuity with everything already
+ * reported breaks. That cost was worth paying once, to get off a public
+ * constant; it is not worth paying again. (`user_id` is the raw anchor key, so
+ * only `device_id` is derived through here.)
+ *
+ * The Python `amplitude-mcp-analytics` SDK uses the same namespace and the same
+ * derivation, and the two must change together. That parity is not about one
+ * subject reaching both SDKs — anchors are server-side (a process id, a session
+ * id this server minted), so two servers do not normally share one. It matters
+ * when a *server* moves between the SDKs: the same session id or propagated
+ * trace id keeps mapping to the same device across the cutover, instead of
+ * resetting that server's whole device population.
+ */
+const AMP_MCP_NAMESPACE = 'f08626eb-3a5c-4f3a-bec2-227ab3178022';
 
 /**
  * Generate a UUID v5 (SHA-1 name-based) from a namespace UUID and a name string.
  * Follows RFC 9562 §5.5.
+ *
+ * Hand-rolled because this package carries no runtime dependencies. That is
+ * worth a word, since name-based UUIDs are easy to get subtly wrong: the
+ * classic trap is byte order, and it does not apply here. It bites .NET, where
+ * `System.Guid` stores its first three fields in native-endian order and has to
+ * be swapped to reach the RFC's network byte order. A UUID's hex text is
+ * already network byte order, so parsing it with `Buffer.from(hex)` needs no
+ * swap — and none is performed.
+ *
+ * `test/identity.test.ts` pins this against published RFC v5 vectors so the
+ * claim is checked rather than asserted.
+ *
+ * Note the argument order: **name first, namespace second** — the reverse of
+ * the RFC's own phrasing and of most libraries.
+ *
+ * @internal — not re-exported from `src/index.ts`; exported only for tests.
  */
-function uuidv5(name: string, namespace: string): string {
+export function uuidv5(name: string, namespace: string): string {
   const nsBytes = Buffer.from(namespace.replace(/-/g, ''), 'hex');
   const hash = createHash('sha1').update(nsBytes).update(name).digest();
   const b6 = hash[6] ?? 0;
