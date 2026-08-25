@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { resolveIdentityFromChain } from '../src/core/identity.js';
+import { resolveIdentityFromChain, uuidv5 } from '../src/core/identity.js';
 import type { McpAnchor, IdentityResolver, McpTenant } from '../src/context/types.js';
 import type { Logger } from '../src/utils/logger.js';
 
@@ -18,6 +19,47 @@ const processAnchor: McpAnchor = { type: 'process', value: '12345' };
 const sessionAnchor: McpAnchor = { type: 'session-id', value: 'sess-abc' };
 const traceAnchor: McpAnchor = { type: 'trace', value: '4bf92f3577b34da6a3ce929d0e0e4736' };
 const anonAnchor: McpAnchor = { type: 'anonymous', value: 'aaa-bbb-ccc' };
+
+describe('uuidv5 — RFC 9562 §5.5 conformance', () => {
+  // This package hand-rolls uuidv5 to stay dependency-free, so it needs to be
+  // tied to an external standard, not just to itself. The suite's other
+  // assertions pin our own derivations, which proves the two SDKs agree — but
+  // agreement is not conformance: a mirrored mistake would satisfy both.
+  //
+  // These are published RFC v5 vectors, each cross-checked against Python's
+  // `uuid.uuid5` (an independent reference implementation).
+  //
+  // Argument order is (name, namespace) — see the note on uuidv5.
+  const DNS = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+  const URL = '6ba7b811-9dad-11d1-80b4-00c04fd430c8';
+
+  it.each([
+    ['DNS', 'python.org', DNS, '886313e1-3b8a-5372-9b90-0c9aee199e5d'],
+    ['DNS', 'www.example.com', DNS, '2ed6657d-e927-568b-95e1-2665a8aea6a2'],
+    ['URL', 'http://python.org/', URL, '4c565f0d-3f5a-5890-b41b-20cf47701c5e'],
+  ])('matches the published vector for %s / "%s"', (_label, name, namespace, expected) => {
+    expect(uuidv5(name, namespace)).toBe(expected);
+  });
+
+  it('sets the version nibble to 5 and the RFC 4122 variant bits', () => {
+    // Guards the two bit-twiddles independently of any single vector: byte 6's
+    // high nibble must be 5, and byte 8's top two bits must be 10xx.
+    const id = uuidv5('any name', DNS);
+    expect(id[14]).toBe('5');
+    expect(['8', '9', 'a', 'b']).toContain(id[19]);
+  });
+
+  it('hashes the namespace as bytes, not as its hex text', () => {
+    // The most likely way to get this wrong: feeding the namespace string
+    // straight into the hash instead of its 16 decoded bytes. That would still
+    // be deterministic and still look like a valid v5 UUID, so only a vector
+    // catches it — this asserts the two are not the same value.
+    const wrong = createHash('sha1').update(DNS).update('python.org').digest();
+    expect(uuidv5('python.org', DNS).replace(/-/g, '')).not.toBe(
+      wrong.subarray(0, 16).toString('hex'),
+    );
+  });
+});
 
 describe('anchor-derived device id namespace', () => {
   // Golden values for the anchor key `session-id:sess-abc`. The Python SDK
