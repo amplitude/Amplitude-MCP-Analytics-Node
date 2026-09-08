@@ -39,14 +39,28 @@ carries its own protocol version and client identity in `_meta`
 (`io.modelcontextprotocol/protocolVersion`,
 `io.modelcontextprotocol/clientInfo`).
 
-No MCP SDK negotiates this revision yet. Both `@modelcontextprotocol/sdk`
-1.30.0 and the v2 package set (`@modelcontextprotocol/core` 2.0.0) still report
-`LATEST_PROTOCOL_VERSION = '2025-11-25'`, and neither lists `2026-07-28` in
-`SUPPORTED_PROTOCOL_VERSIONS`. What v2 does ship is the reserved key
-vocabulary: it declares the two keys above as `CLIENT_INFO_META_KEY` and
-`PROTOCOL_VERSION_META_KEY`, which is where the exact spellings this SDK reads
-come from. So the `_meta` source below is wired and correct, but reads as
-absent until an SDK starts negotiating the revision.
+`2026-07-28` is the **current** protocol revision, and SDK support splits by
+package line:
+
+- **`@modelcontextprotocol/sdk` 1.x** (the monolithic v1 package, this SDK's
+  peer dependency) tops out at `2025-11-25` and does not implement the
+  revision. On v1 the per-request `_meta` source below therefore reads as
+  absent.
+- **The v2 package set** (`@modelcontextprotocol/{core,server,client,…}` 2.0.0)
+  **does** implement it: `server/discover`, the per-request `_meta` envelope,
+  `subscriptions/listen`, `UnsupportedProtocolVersionError` and the rest. Its
+  server reads client identity as `meta[CLIENT_INFO_META_KEY]`, the same key
+  this SDK reads.
+
+Note that `@modelcontextprotocol/core` 2.0.0 still exports
+`LATEST_PROTOCOL_VERSION = '2025-11-25'`. That is the handshake-era constant
+kept for backward compatibility with `2025-11-25`-and-earlier clients, not
+v2's ceiling — on `2026-07-28` there is no handshake and each request declares
+its own version in `_meta`.
+
+One caveat on the `_meta` source: per-request `clientInfo` is a SHOULD, not a
+MUST, so a conforming client may omit it. `resolveClientInfo` remains the way
+to guarantee a client name.
 
 What that means per event:
 
@@ -155,7 +169,7 @@ first:
 | Source | Available on | Notes |
 | -- | -- | -- |
 | `instrumentServer({ resolveClientInfo })` | every request | Host callback, given the request's `authInfo` and headers. The only source that can name the client on a per-request server |
-| `_meta` per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. No SDK negotiates it yet, so it reads as absent today, but the key matches the constant `@modelcontextprotocol/core` 2.0.0 declares. The unnamespaced `clientInfo` is accepted as a secondary spelling |
+| `_meta` per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. Populated by the v2 SDK package set; absent on `@modelcontextprotocol/sdk` 1.x, which does not implement the revision. Only a SHOULD, so a client may omit it. The unnamespaced `clientInfo` is accepted as a secondary spelling |
 | The `initialize` handshake | the whole connection, when one server instance serves it | Captured off the `initialize` request and cached on the server scope. Unreachable when each request gets a fresh server |
 | `instrumentServer({ client })` | this binding | Fixed for the binding's lifetime |
 | `User-Agent` header | Streamable HTTP | Fills `[MCP] User Agent` only, never the name |

@@ -65,13 +65,16 @@ export function resolveTransport(transport: Transport): McpTransport {
  * `io.modelcontextprotocol/clientInfo` — so on that revision this is the only
  * source the wire provides, and the handshake source below cannot exist.
  *
- * No SDK negotiates that revision yet, so it reads as absent for now: both
- * `@modelcontextprotocol/sdk` 1.30.0 and the v2 package set
- * (`@modelcontextprotocol/core` 2.0.0) still report
- * `LATEST_PROTOCOL_VERSION = '2025-11-25'`, where `clientInfo` appears only in
- * `InitializeRequest.params`. What v2 does ship is the reserved key
- * vocabulary — it declares these exact strings as `CLIENT_INFO_META_KEY` and
- * `PROTOCOL_VERSION_META_KEY` — which is where the spellings below come from.
+ * Support splits by SDK package line. `@modelcontextprotocol/sdk` 1.x — this
+ * SDK's peer dependency — tops out at `2025-11-25` and does not implement the
+ * revision, so on v1 this source reads as absent. The v2 package set
+ * (`@modelcontextprotocol/{core,server,client}` 2.0.0) does implement it, and
+ * its server reads client identity as `meta[CLIENT_INFO_META_KEY]` — the same
+ * key read below. (Do not be misled by `core` 2.0.0 still exporting
+ * `LATEST_PROTOCOL_VERSION = '2025-11-25'`: that is the handshake-era constant
+ * kept for backward compatibility, not v2's ceiling.) Per-request `clientInfo`
+ * is a SHOULD rather than a MUST, so it can be absent even there.
+ *
  * The unnamespaced `clientInfo` is accepted as a secondary spelling for hosts
  * that adopted it as a local convention before the key was standardized.
  * @internal
