@@ -14,18 +14,30 @@ Amplitude SDKs on the same project.
 
 | Event | Fires when | Transports | Toggle |
 | -- | -- | -- | -- |
-| [`[MCP] Session Initialized`](#mcp-session-initialized) | The `initialize` handshake completes | stdio, legacy Streamable HTTP | `autocapture.serverEvents` |
-| [`[MCP] Session Ended`](#mcp-session-ended) | The transport closes, after an initialized session | stdio, legacy Streamable HTTP | `autocapture.serverEvents` |
+| [`[MCP] Session Initialized`](#mcp-session-initialized) | The `initialize` handshake completes | all | `autocapture.serverEvents` |
+| [`[MCP] Session Ended`](#mcp-session-ended) | A persistent connection closes, after an initialized session | stdio, legacy Streamable HTTP | `autocapture.serverEvents` |
 | [`[MCP] Tools Listed`](#mcp-tools-listed) | A `tools/list` request is served | all | `autocapture.serverEvents` |
 | [`[MCP] Tool Call Response`](#mcp-tool-call-response) | An instrumented tool call settles | all | `autocapture.toolCalls` |
 | [`[MCP] Tool Call Rejected`](#mcp-tool-call-rejected) | A `tools/call` request fails before any tool callback runs | all | `autocapture.toolCalls` |
 
 "Legacy Streamable HTTP" is the `2025-11-25` protocol revision, where the
-server mints a session id at the `initialize` handshake. On stateless
-(`2026-07-28+`) Streamable HTTP there is no handshake, so no protocol session
-exists — the session lifecycle events are **not emitted** rather than
-fabricated. `[MCP] Tools Listed`, `[MCP] Tool Call Response`, and
-`[MCP] Tool Call Rejected` fire on every transport.
+server mints a session id at the `initialize` handshake. Stateless
+(`2026-07-28+`) Streamable HTTP still performs that handshake — it just does
+not mint a session id, and the MCP SDK requires a fresh transport (and so
+typically a fresh `McpServer`) per request. Two consequences:
+
+- `[MCP] Session Initialized` **does** fire on stateless HTTP. It marks "a
+  client completed the handshake", which is meaningful on every transport, and
+  it is the one event that can carry a real `[MCP] Client Name` there — see
+  [Client identity](#client-identity).
+- `[MCP] Session Ended` does **not**, because the connection begins and ends
+  inside a single HTTP request; a `[MCP] Session Duration` measured across it
+  would be sub-millisecond noise. The SDK reports it only for a connection that
+  outlived the request (a `session-id` or `process` anchor).
+
+No protocol session is fabricated either way: `[MCP] Session ID` stays
+`no-session` on stateless HTTP. `[MCP] Tools Listed`, `[MCP] Tool Call
+Response`, and `[MCP] Tool Call Rejected` fire on every transport.
 
 All five events require `instrumentServer(server)` to have been called before
 `server.connect()`. `instrumentTool` without a bound server is a no-op
@@ -107,6 +119,51 @@ identity floor:
 A session id is never assumed or fabricated — its absence is what selects the
 stateless branch.
 
+### Client identity
+
+The MCP protocol carries the client's `clientInfo` (its self-declared name and
+version) **only on the `initialize` request**. There is no per-request copy, so
+on a transport where each request is served by a fresh `McpServer` — stateless
+Streamable HTTP, or any serverless host — nothing on a `tools/call` says which
+client sent it.
+
+The SDK resolves `[MCP] Client Name` from these sources, highest precedence
+first:
+
+| Source | Available on | Notes |
+| -- | -- | -- |
+| `instrumentServer({ resolveClientInfo })` | every request | Host callback, given the request's `authInfo` and headers. The only source that can name the client on a per-request server |
+| `_meta.clientInfo` | nothing today | Read for forward compatibility. **Not** part of the MCP spec and no shipped client writes it: as of `@modelcontextprotocol/sdk` 1.30.0 `clientInfo` exists only in `InitializeRequest.params`. Do not rely on it |
+| The `initialize` handshake | the whole connection, when one server instance serves it | Captured off the `initialize` request and cached on the server scope. Unreachable when each request gets a fresh server |
+| `instrumentServer({ client })` | this binding | Fixed for the binding's lifetime |
+| `User-Agent` header | Streamable HTTP | Fills `[MCP] User Agent` only, never the name |
+
+`[MCP] OAuth Client ID` is resolved separately, from `extra.authInfo.clientId`.
+It is the one client identifier present on **every** authenticated request with
+no host-side state, which makes it the fallback source dimension for stateless
+servers and the join key for mapping ids to names.
+
+It is deliberately kept **out** of `[MCP] Client Name`. A `client_id` names a
+client *registration*, not a product: under dynamic client registration
+(RFC 7591) the same client gets a different id per authorization server and
+potentially one per install. Mixing opaque ids into the name would make it
+unbounded and non-comparable across servers.
+
+To get a real client name on a stateless server, supply it per request from
+something that travels with the request. An authorization server already learns
+`client_name` at registration, so a token claim is usually the cleanest path:
+
+```ts
+analytics.instrumentServer(server, {
+  resolveClientInfo: ({ authInfo }) => ({ name: authInfo?.client_name as string }),
+});
+```
+
+Mapping `client_id` to a name in a server-side cache also works, but only where
+the process outlives a request — a cold-per-invocation host cannot hold one, and
+a cache shared across users must be keyed on the client id rather than the
+server scope or the user, or concurrent clients overwrite each other.
+
 ## Shared properties
 
 Every event — the four default events *and* custom events emitted through
@@ -115,8 +172,9 @@ Every event — the four default events *and* custom events emitted through
 | Property | Type | Present | Value |
 | -- | -- | -- | -- |
 | `[MCP] Session ID` | string | always | The protocol session id when the anchor is a session id; the literal `no-session` otherwise |
-| `[MCP] Client Name` | string | always | MCP client name from the handshake `clientInfo` (stdio/legacy) or per-request `_meta.clientInfo` (stateless, wins over the handshake); `unknown` when unavailable |
+| `[MCP] Client Name` | string | always | MCP client name — see [Client identity](#client-identity) for the sources and their precedence; `unknown` when unavailable |
 | `[MCP] Client Version` | string | when known | MCP client version, same sources as the name |
+| `[MCP] OAuth Client ID` | string | when authenticated | OAuth `client_id` from `extra.authInfo`. Identifies a client *registration*, not a product — see [Client identity](#client-identity) |
 | `[MCP] User Agent` | string | always | Raw HTTP `User-Agent` header (Streamable HTTP); `unknown` otherwise (always `unknown` on stdio) |
 | `[MCP] Server Name` | string | always | `serverName` from the client options |
 | `[MCP] Server Version` | string | when set | `serverVersion` from the client options (always set when instrumented through `instrumentServer`) |
@@ -135,11 +193,14 @@ tool-scope events. See [Property precedence](#property-precedence).
 
 Marks the start of a protocol session.
 
-- **Fires when:** the MCP `initialize` handshake completes (the SDK hooks the
-  server's `oninitialized`). This is also the moment the SDK captures the
-  client's `clientInfo` for the session.
-- **Transports:** stdio and legacy (`2025-11-25`) Streamable HTTP only — the
-  stateless revision has no handshake, so the event is never fabricated there.
+- **Fires when:** the MCP `initialize` request succeeds (the SDK wraps that
+  request handler). This is also the moment it captures the client's
+  `clientInfo`, which the request carries and nothing else does.
+- **Transports:** all. Stateless Streamable HTTP still handshakes, so the event
+  fires there too — with `[MCP] Session ID: no-session`, since no protocol
+  session exists to report. On that transport it is the one default event that
+  can carry a real `[MCP] Client Name` without a
+  [`resolveClientInfo`](#client-identity) callback.
 - **Toggle:** `autocapture.serverEvents`.
 - **Identity:** resolved at the handshake from the static `instrumentServer`
   identity, else the anchor (the legacy transport's session id, or the process
@@ -155,9 +216,13 @@ Marks the end of a protocol session.
 
 - **Fires when:** the transport closes (the SDK chains the server's `onclose`)
   — but only when `[MCP] Session Initialized` was emitted for that connection
-  first. Stateless HTTP and never-initialized connections never emit it.
-- **Transports / toggle / identity:** as `[MCP] Session Initialized`; the
-  event reuses the session context resolved at the handshake.
+  first **and** the connection outlived the request that opened it (a
+  `session-id` or `process` anchor). Never-initialized connections never emit
+  it, and neither does stateless HTTP, where the connection lives and dies
+  inside one request and `[MCP] Session Duration` would be noise.
+- **Transports:** stdio and legacy (`2025-11-25`) Streamable HTTP.
+- **Toggle / identity:** as `[MCP] Session Initialized`; the event reuses the
+  session context resolved at the handshake.
 
 **Event-specific properties:**
 
@@ -243,6 +308,7 @@ handler may enrich `ctx.tool.extra` mid-call and the values land on this event.
     "[MCP] Session ID": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "[MCP] Client Name": "cursor",
     "[MCP] Client Version": "0.40",
+    "[MCP] OAuth Client ID": "c7f1a0d2-9b3e-4a11-8f6c-2d5e7b9a0c13",
     "[MCP] User Agent": "node",
     "[MCP] Server Name": "my-mcp-server",
     "[MCP] Server Version": "1.0.0",

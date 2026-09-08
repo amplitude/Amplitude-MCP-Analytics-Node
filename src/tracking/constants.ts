@@ -18,10 +18,12 @@ export const TOOL_CALL_REJECTED = '[MCP] Tool Call Rejected';
 export const ATTEMPTED_TOOL_NAME_MAX = 200;
 
 /**
- * Default server connection / capability events. Session lifecycle
- * events apply only where a protocol session exists — stdio and legacy
- * (`2025-11-25`) Streamable HTTP; they are never fabricated on `2026-07-28+`
- * stateless HTTP (no `initialize` handshake fires there).
+ * Default server connection / capability events. `[MCP] Session Initialized`
+ * tracks the `initialize` handshake, which happens on every transport —
+ * stateless (`2026-07-28+`) Streamable HTTP drops the session id, not the
+ * handshake. `[MCP] Session Ended` is reported only where the connection
+ * outlives the request that opened it (stdio and legacy `2025-11-25`
+ * Streamable HTTP), since a per-request "session" has no duration to report.
  */
 export const SESSION_INITIALIZED = '[MCP] Session Initialized';
 export const SESSION_ENDED = '[MCP] Session Ended';

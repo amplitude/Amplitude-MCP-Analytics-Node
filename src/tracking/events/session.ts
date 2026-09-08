@@ -1,9 +1,15 @@
 /**
  * The default server-connection session events — `[MCP] Session Initialized` and
- * `[MCP] Session Ended`. Both apply only where a protocol session exists (stdio +
- * legacy Streamable HTTP); `instrumentServer` only calls them off the
- * `initialize` handshake / transport close, so they are never fabricated on
- * `2026-07-28+` stateless HTTP.
+ * `[MCP] Session Ended`.
+ *
+ * `instrumentServer` calls them off the `initialize` request and the transport
+ * close, and their transports differ. The handshake happens on every transport
+ * (stateless Streamable HTTP included — it drops the session id, not the
+ * handshake), so `[MCP] Session Initialized` fires everywhere. `[MCP] Session
+ * Ended` is reported only for a connection that outlived the request that
+ * opened it, since a per-request "session" has no duration worth reporting.
+ * Neither fabricates a protocol session: `[MCP] Session ID` stays `no-session`
+ * where none exists.
  */
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
