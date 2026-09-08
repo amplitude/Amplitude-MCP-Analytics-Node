@@ -7,6 +7,7 @@ import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
 import { createServerContext, createToolContext } from '../context/factory.js';
 import type {
+  ClientInfoResolver,
   IdentityResolver,
   McpAnchor,
   McpClientInfo,
@@ -33,21 +34,69 @@ export function resolveTransport(transport: Transport): McpTransport {
 }
 
 /**
- * Per-request client info. The stateless path carries `clientInfo` in `_meta` on
- * every request (wins); the legacy path negotiates it once at the handshake,
- * which {@link instrumentServer} caches onto the server scope (the fallback).
+ * Per-request client info, by descending precedence:
+ *
+ * 1. the host's {@link ClientInfoResolver} — the only source that can carry a
+ *    client *name* on a transport that serves each request from a fresh server,
+ *    so it wins;
+ * 2. `_meta.clientInfo`, for a host that adopts that convention (see below);
+ * 3. the `initialize` handshake, captured onto the server scope by
+ *    `instrumentServer` — only reachable when one server instance serves the
+ *    whole connection;
+ * 4. the `User-Agent` header, which fills `userAgent` and never `name`.
+ *
+ * `oauthClientId` is separate: it comes off `authInfo`, so unlike the name it is
+ * present on every authenticated request whatever the transport.
+ *
+ * A note on `_meta.clientInfo`: `_meta` is a real, open extension bag that the
+ * MCP SDK passes through verbatim, but a `clientInfo` key inside it is **not**
+ * defined by the spec and no shipped client writes one — as of
+ * `@modelcontextprotocol/sdk` 1.30.0 `clientInfo` exists only in
+ * `InitializeRequest.params`. It is read here so a host that adopts the
+ * convention is honored, but it is not a source anything can rely on.
  * @internal
  */
-function resolveClientInfo(extra: McpExtra, serverCtx: McpServerContext): McpClientInfo {
+function resolveRequestClientInfo(
+  extra: McpExtra,
+  serverCtx: McpServerContext,
+  authInfo: Record<string, unknown> | undefined,
+  resolveClientInfo: ClientInfoResolver | undefined,
+  logger: Logger | undefined,
+): McpClientInfo {
+  let fromHost: McpClientInfo | undefined;
+  if (resolveClientInfo != null) {
+    try {
+      fromHost =
+        resolveClientInfo({
+          authInfo,
+          headers: extra.requestInfo?.headers as
+            | Record<string, string | string[] | undefined>
+            | undefined,
+        }) ?? undefined;
+    } catch (err) {
+      logger?.warn(
+        `resolveClientInfo callback threw: ${err instanceof Error ? err.message : String(err)} — falling back to the SDK's own client resolution.`,
+      );
+    }
+  }
+
   const info = metaRecord(extra)?.clientInfo;
   const metaClientInfo = info != null && typeof info === 'object'
     ? (info as Implementation)
     : undefined;
   const clientFromHandshake = serverCtx.client;
+  const clientIdFromAuth =
+    typeof authInfo?.clientId === 'string' && authInfo.clientId.length > 0
+      ? authInfo.clientId
+      : undefined;
+
   return {
-    name: metaClientInfo?.name ?? clientFromHandshake?.name,
-    version: metaClientInfo?.version ?? clientFromHandshake?.version,
-    userAgent: readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
+    name: fromHost?.name ?? metaClientInfo?.name ?? clientFromHandshake?.name,
+    version: fromHost?.version ?? metaClientInfo?.version ?? clientFromHandshake?.version,
+    userAgent:
+      fromHost?.userAgent ?? readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
+    oauthClientId:
+      fromHost?.oauthClientId ?? clientIdFromAuth ?? clientFromHandshake?.oauthClientId,
   };
 }
 
@@ -146,9 +195,26 @@ function resolveAnchor(
   return { type: 'anonymous', value: randomUUID() };
 }
 
+/**
+ * Whether this context's connection outlives a single request, which is what
+ * makes a session *duration* meaningful.
+ *
+ * A `session-id` anchor means the transport minted (or the host supplied) a
+ * session id, and a `process` anchor means stdio — both persist across
+ * requests. `trace` and `anonymous` are the stateless floors: the MCP SDK
+ * requires a fresh transport per request in stateless mode, so the "session"
+ * begins and ends inside one HTTP request and has no duration worth reporting.
+ * @internal
+ */
+export function hasPersistentSession(ctx: McpServerContext): boolean {
+  return ctx.anchor.type === 'session-id' || ctx.anchor.type === 'process';
+}
+
 /** Options for identity resolution in {@link buildServerContext} / {@link buildToolContext}. */
 export interface BuildContextOpts {
   resolveIdentity?: IdentityResolver;
+  /** Host callback for per-request client info — see {@link ClientInfoResolver}. */
+  resolveClientInfo?: ClientInfoResolver;
   serverIdentity?: ServerIdentity;
   logger?: Logger;
 }
@@ -185,7 +251,13 @@ export function buildServerContext(
     protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
     identity: resolved.identity,
     tenant: resolved.tenant ?? serverCtx.tenant,
-    client: resolveClientInfo(extra, serverCtx),
+    client: resolveRequestClientInfo(
+      extra,
+      serverCtx,
+      authInfo,
+      opts?.resolveClientInfo,
+      opts?.logger,
+    ),
   });
 }
 

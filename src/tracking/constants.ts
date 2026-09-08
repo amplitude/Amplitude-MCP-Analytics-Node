@@ -43,6 +43,9 @@ export const EVENT_PROPERTY_KEYS = {
   sessionId: '[MCP] Session ID',
   clientName: '[MCP] Client Name',
   clientVersion: '[MCP] Client Version',
+  /** OAuth `client_id` — a client *registration*, deliberately not folded into
+   *  `[MCP] Client Name` (see {@link McpClientInfo.oauthClientId}). */
+  oauthClientId: '[MCP] OAuth Client ID',
   userAgent: '[MCP] User Agent',
   serverName: '[MCP] Server Name',
   serverVersion: '[MCP] Server Version',

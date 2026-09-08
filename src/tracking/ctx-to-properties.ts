@@ -29,6 +29,7 @@ export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields<Def
   };
 
   if (ctx.client?.version != null) eventFields.clientVersion = ctx.client.version;
+  if (ctx.client?.oauthClientId != null) eventFields.oauthClientId = ctx.client.oauthClientId;
   if (ctx.server.version != null) eventFields.serverVersion = ctx.server.version;
   if (ctx.server.type != null) eventFields.serverType = ctx.server.type;
   if (ctx.protocolVersion != null) eventFields.protocolVersion = ctx.protocolVersion;

@@ -26,7 +26,7 @@
  */
 import type { ErrorMessageSanitizer } from '../config.js';
 import { runWithContext } from '../context/als.js';
-import type { IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
+import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
 import type { ServerIdentity } from '../core/identity.js';
 import { byteSize } from '../core/serialize.js';
@@ -63,6 +63,9 @@ export interface InstrumentToolDependencies {
    *  from the dispatching server's binding (or the last-connected fallback),
    *  not from whatever happened to be bound at wrap time. */
   getServerIdentity?: () => ServerIdentity | undefined;
+  /** The dispatching server's `resolveClientInfo` callback, resolved per
+   *  invocation for the same reason as {@link getServerIdentity}. */
+  getClientInfoResolver?: () => ClientInfoResolver | undefined;
   /**
    * Whether to emit the default `[MCP] Tool Call Response` event. When `false`, 
    * the wrapper still builds and runs under `ctx` (so custom events and 
@@ -121,6 +124,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
     const startMs = performance.now();
     const ctx = buildToolContext(serverCtx, meta, extra, {
       resolveIdentity: deps.resolveIdentity,
+      resolveClientInfo: deps.getClientInfoResolver?.(),
       serverIdentity: deps.getServerIdentity?.(),
       logger: deps.logger,
     });

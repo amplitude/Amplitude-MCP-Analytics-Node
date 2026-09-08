@@ -1,0 +1,275 @@
+/**
+ * Handshake resolution against the REAL `@modelcontextprotocol/sdk`, not a fake
+ * server, because the bug these cover was entirely about which SDK callback
+ * fires on which message and which server instance receives it.
+ *
+ * The shape under test is a host that serves each request from a fresh
+ * `McpServer` — mandatory on stateless Streamable HTTP, where the SDK throws if
+ * a transport is reused. There the `initialize` request and the
+ * `notifications/initialized` notification land on two different instances, so
+ * reading `clientInfo` at `oninitialized` (the notification) always missed it.
+ */
+import { describe, expect, it } from 'vitest';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { AmplitudeMCPAnalytics } from '../src/client.js';
+import { MCPAnalyticsConfig } from '../src/config.js';
+import type { ClientInfoResolver } from '../src/context/types.js';
+import type { AmplitudeClientLike, AmplitudeEvent } from '../src/types.js';
+
+const CLIENT_INFO = { name: 'cursor', version: '1.2.3' };
+
+function fakeAmplitude(sink: AmplitudeEvent[]): AmplitudeClientLike {
+  return { track: (e: AmplitudeEvent) => sink.push(e), flush: () => undefined };
+}
+
+/**
+ * A linked transport pair whose server side answers `handleRequest`, so
+ * `resolveTransport` classifies it as `streamable-http`. Pass a `sessionId` for
+ * the session-bearing case; omit it for the stateless one.
+ */
+function httpPair(sessionId?: string) {
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  (serverT as unknown as { handleRequest: () => void }).handleRequest = () => undefined;
+  if (sessionId != null) serverT.sessionId = sessionId;
+  return [clientT, serverT] as const;
+}
+
+function instrumented(
+  events: AmplitudeEvent[],
+  opts: { userId?: string; resolveClientInfo?: ClientInfoResolver; client?: { name?: string } } = {},
+) {
+  const analytics = new AmplitudeMCPAnalytics({
+    amplitude: fakeAmplitude(events),
+    serverName: 'test-mcp',
+    serverVersion: '1.0.0',
+    // sessionLifecycle left at its default (true) throughout.
+    config: new MCPAnalyticsConfig({}),
+  });
+  const server = new McpServer({ name: 'test-mcp', version: '1.0.0' });
+  analytics.instrumentServer(server, {
+    userId: opts.userId ?? 'user-1',
+    authType: 'oauth',
+    resolveClientInfo: opts.resolveClientInfo,
+    client: opts.client,
+  });
+  return { analytics, server };
+}
+
+const initializeReq = {
+  jsonrpc: '2.0' as const,
+  id: 1,
+  method: 'initialize',
+  params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: CLIENT_INFO },
+};
+
+const initializedNote = {
+  jsonrpc: '2.0' as const,
+  method: 'notifications/initialized',
+  params: {},
+};
+
+/** Send a raw JSON-RPC message and let the server settle. */
+async function send(
+  clientT: InMemoryTransport,
+  msg: unknown,
+  options?: { authInfo?: { token: string; clientId: string; scopes: string[] } },
+) {
+  await clientT.send(msg as never, options as never);
+  await new Promise((r) => setTimeout(r, 15));
+}
+
+const typesOf = (events: AmplitudeEvent[]) => events.map((e) => e.event_type);
+const only = (events: AmplitudeEvent[], type: string) =>
+  events.filter((e) => e.event_type === type);
+
+describe('handshake client info (real MCP SDK)', () => {
+  it('resolves the client name from the initialize request on a per-request server', async () => {
+    const events: AmplitudeEvent[] = [];
+
+    // Request 1: the `initialize` POST, served by instance A.
+    const a = instrumented(events);
+    const [clientA, serverA] = httpPair();
+    await a.server.connect(serverA);
+    await send(clientA, initializeReq);
+
+    const inits = only(events, '[MCP] Session Initialized');
+    expect(inits).toHaveLength(1);
+    expect(inits[0]?.event_properties?.['[MCP] Client Name']).toBe('cursor');
+    expect(inits[0]?.event_properties?.['[MCP] Client Version']).toBe('1.2.3');
+
+    // Instance A is discarded, as a per-request host does.
+    await serverA.close();
+
+    // Request 2: `notifications/initialized`, served by a fresh instance B.
+    const b = instrumented(events);
+    const [clientB, serverB] = httpPair();
+    await b.server.connect(serverB);
+    await send(clientB, initializedNote);
+
+    // Exactly one Session Initialized overall — the notification must not
+    // re-emit it, or per-request hosts double-count every handshake with the
+    // duplicate carrying `unknown`.
+    expect(only(events, '[MCP] Session Initialized')).toHaveLength(1);
+  });
+
+  it('emits no Session Ended when the connection did not outlive the request', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events);
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+    await serverT.close();
+
+    expect(typesOf(events)).toContain('[MCP] Session Initialized');
+    // A ~0ms "session" per handshake is noise, not a session.
+    expect(only(events, '[MCP] Session Ended')).toHaveLength(0);
+  });
+
+  it('still resolves the session-id anchor and emits Session Ended when a session exists', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events);
+    const [clientT, serverT] = httpPair('sess-1');
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+
+    const inits = only(events, '[MCP] Session Initialized');
+    expect(inits).toHaveLength(1);
+    // The transport mints its session id before dispatching, so the anchor
+    // resolves to it even though we now emit from the initialize request.
+    expect(inits[0]?.event_properties?.['[MCP] Session ID']).toBe('sess-1');
+    expect(inits[0]?.event_properties?.['[MCP] Anchor Type']).toBe('session-id');
+    expect(inits[0]?.event_properties?.['[MCP] Client Name']).toBe('cursor');
+
+    await serverT.close();
+    const ended = only(events, '[MCP] Session Ended');
+    expect(ended).toHaveLength(1);
+    expect(ended[0]?.event_properties).toHaveProperty('[MCP] Session Duration');
+  });
+
+  it('carries the client name onto later requests when one instance serves the connection', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { analytics, server } = instrumented(events);
+    server.registerTool(
+      'search',
+      { description: 'search' },
+      analytics.instrumentTool(async () => ({ content: [] }), { name: 'search' }),
+    );
+    const [clientT, serverT] = httpPair('sess-1');
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+    await send(clientT, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: { name: 'search', arguments: {} },
+    });
+
+    const calls = only(events, '[MCP] Tool Call Response');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.event_properties?.['[MCP] Client Name']).toBe('cursor');
+  });
+});
+
+describe('oauth client id', () => {
+  it('emits [MCP] OAuth Client ID from authInfo without touching Client Name', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { analytics, server } = instrumented(events);
+    server.registerTool(
+      'search',
+      { description: 'search' },
+      analytics.instrumentTool(async () => ({ content: [] }), { name: 'search' }),
+    );
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+
+    const authInfo = { token: 't', clientId: 'client-abc-123', scopes: ['read'] };
+    await send(clientT, initializeReq, { authInfo });
+    await send(
+      clientT,
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'search', arguments: {} } },
+      { authInfo },
+    );
+
+    const calls = only(events, '[MCP] Tool Call Response');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.event_properties?.['[MCP] OAuth Client ID']).toBe('client-abc-123');
+    // The registration id must never masquerade as the product name.
+    expect(calls[0]?.event_properties?.['[MCP] Client Name']).not.toBe('client-abc-123');
+  });
+
+  it('omits the property when the request is unauthenticated', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events);
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+
+    const inits = only(events, '[MCP] Session Initialized');
+    expect(inits[0]?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
+  });
+});
+
+describe('resolveClientInfo', () => {
+  it('supplies the client name per request and wins over the handshake', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { analytics, server } = instrumented(events, {
+      // The shape a stateless host uses: map a token claim to a client name.
+      resolveClientInfo: ({ authInfo }: { authInfo?: Record<string, unknown> }) => ({
+        name: authInfo?.client_name as string,
+      }),
+    });
+    server.registerTool(
+      'search',
+      { description: 'search' },
+      analytics.instrumentTool(async () => ({ content: [] }), { name: 'search' }),
+    );
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+
+    const authInfo = {
+      token: 't',
+      clientId: 'client-abc-123',
+      scopes: ['read'],
+      client_name: 'claude-desktop',
+    };
+    await send(clientT, initializeReq, { authInfo });
+    await send(
+      clientT,
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'search', arguments: {} } },
+      { authInfo },
+    );
+
+    // Wins over the handshake's `cursor` on both events.
+    expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
+      .toBe('claude-desktop');
+    expect(only(events, '[MCP] Tool Call Response')[0]?.event_properties?.['[MCP] Client Name'])
+      .toBe('claude-desktop');
+  });
+
+  it('falls through to the SDK sources when it returns undefined', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events, { resolveClientInfo: () => undefined });
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+
+    expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
+      .toBe('cursor');
+  });
+
+  it('falls through when it throws, without breaking the handshake', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events, {
+      resolveClientInfo: () => {
+        throw new Error('boom');
+      },
+    });
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+
+    expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
+      .toBe('cursor');
+  });
+});

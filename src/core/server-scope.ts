@@ -19,7 +19,7 @@
  * which keeps direct (non-dispatch) invocation working unchanged.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { McpServerContext } from '../context/types.js';
+import type { ClientInfoResolver, McpServerContext } from '../context/types.js';
 import type { ServerIdentity } from './identity.js';
 import { getRequestHandlers, type Server } from './mcp.js';
 
@@ -33,6 +33,8 @@ export interface ServerScope {
   ctx?: McpServerContext;
   /** Identity from `instrumentServer` opts — per-connection safe. */
   identity?: ServerIdentity;
+  /** Per-request client-info callback from `instrumentServer` opts. */
+  clientInfoResolver?: ClientInfoResolver;
   /** Handshake timestamp (ms) — doubles as the "a session is active" flag
    *  for THIS server's transport. */
   sessionStartMs?: number;
