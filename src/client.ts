@@ -72,7 +72,7 @@ export interface InstrumentServerOptions {
    * it. Prefer {@link resolveClientInfo} on a per-request server, since a value
    * bound here is fixed for the binding's lifetime.
    */
-  client?: { name?: string; version?: string; userAgent?: string; oauthClientId?: string };
+  client?: { name?: string; version?: string; userAgent?: string };
   /**
    * Resolve MCP client info per request, from the request's own OAuth claims or
    * headers. This is the hook for supplying a client **name** on a transport
@@ -669,7 +669,7 @@ export class AmplitudeMCPAnalytics {
           (typeof transportSessionId === 'string' && transportSessionId.length > 0);
 
         if (!this.config.autocapture.sessionLifecycle) return;
-        scope.ctx = buildServerContext(
+        const resolved = buildServerContext(
           scope.ctx,
           { ...extra, sessionId: transportSessionId } as McpExtra,
           {
@@ -678,9 +678,18 @@ export class AmplitudeMCPAnalytics {
             logger: getLogger(this._amplitude),
           },
         );
+        // Persist the CONNECTION-level resolution (anchor, identity, protocol
+        // version) but keep `client` as the handshake value. `resolved.client`
+        // is this one request's answer, including whatever `resolveClientInfo`
+        // returned and the `authInfo` client id; storing it on the server scope
+        // would make it the fallback for later requests, so a request whose
+        // resolver returns nothing (or that carries no `authInfo`) would inherit
+        // the previous request's client name and OAuth client id instead of
+        // falling back to the handshake.
+        scope.ctx = { ...resolved, client: scope.ctx.client };
         this._serverCtx = scope.ctx;
         scope.sessionStartMs = performance.now();
-        emitSessionInitialized(this._amplitude, scope.ctx);
+        emitSessionInitialized(this._amplitude, resolved);
       });
 
       // `oninitialized` fires on the `notifications/initialized` notification,
@@ -704,7 +713,7 @@ export class AmplitudeMCPAnalytics {
           }
 
           if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
-            scope.ctx = buildServerContext(
+            const resolved = buildServerContext(
               scope.ctx,
               { sessionId } as unknown as McpExtra,
               {
@@ -713,9 +722,11 @@ export class AmplitudeMCPAnalytics {
                 logger: getLogger(this._amplitude),
               },
             );
+            // Keep `client` as the handshake value — see the initialize hook.
+            scope.ctx = { ...resolved, client: scope.ctx.client };
             this._serverCtx = scope.ctx;
             scope.sessionStartMs = performance.now();
-            emitSessionInitialized(this._amplitude, scope.ctx);
+            emitSessionInitialized(this._amplitude, resolved);
           }
         }
 

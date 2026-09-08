@@ -7,11 +7,16 @@
  * that carries `clientInfo` (the SDK stores it in `_oninitialize` and exposes it
  * via `getClientVersion()`). On stdio and session-bearing Streamable HTTP one
  * server instance handles both, so reading it at `oninitialized` works. On
- * stateless Streamable HTTP it does not: the SDK *requires* a fresh transport
- * per request there, so the two messages land on two different server
- * instances and the one running `oninitialized` never saw the handshake. The
- * result was `[MCP] Client Name: unknown` on every event from a stateless
- * server.
+ * sessionless Streamable HTTP it does not: hosts serve each request from a
+ * fresh transport (and so a fresh server) there, so the two messages land on
+ * two different instances and the one running `oninitialized` never saw the
+ * handshake. The result was `[MCP] Client Name: unknown` on every event from
+ * such a server.
+ *
+ * Newer SDKs enforce that shape by throwing when a sessionless transport is
+ * reused; 1.14.0, the floor of our peer range, permits reuse. This hook does
+ * not depend on which: it reads `clientInfo` off the request that carries it
+ * either way.
  *
  * Wrapping the request handler instead is transport-agnostic and needs no
  * cross-request state, which is what makes it work on per-request and

@@ -26,18 +26,27 @@ them apart:
 **Sessionless transport mode**, on protocol `2025-11-25` and earlier. The host
 constructs `StreamableHTTPServerTransport` with `sessionIdGenerator: undefined`,
 so no `Mcp-Session-Id` is minted or validated. The `initialize` handshake still
-happens — statelessness here is only about the session id. The SDK requires a
-fresh transport per request in this mode (it throws if one is reused), so hosts
-build a fresh `McpServer` per request too.
+happens — statelessness here is only about the session id. Hosts serve each
+request from a fresh transport, and so typically a fresh `McpServer`, in this
+mode. Newer SDKs enforce that by throwing when a sessionless transport is
+reused; `1.14.0`, the floor of the supported peer range, permits reuse. Nothing
+in this SDK depends on which.
 
 **Protocol revision `2026-07-28`**, which is stateless at the *protocol* level.
 It removes the `initialize` / `notifications/initialized` handshake outright,
 drops `Mcp-Session-Id`, and adds `server/discover`. Every request instead
 carries its own protocol version and client identity in `_meta`
 (`io.modelcontextprotocol/protocolVersion`,
-`io.modelcontextprotocol/clientInfo`). No shipped MCP SDK speaks this revision
-yet — `@modelcontextprotocol/sdk` 1.30.0 still reports
-`LATEST_PROTOCOL_VERSION = '2025-11-25'`.
+`io.modelcontextprotocol/clientInfo`).
+
+No MCP SDK negotiates this revision yet. Both `@modelcontextprotocol/sdk`
+1.30.0 and the v2 package set (`@modelcontextprotocol/core` 2.0.0) still report
+`LATEST_PROTOCOL_VERSION = '2025-11-25'`, and neither lists `2026-07-28` in
+`SUPPORTED_PROTOCOL_VERSIONS`. What v2 does ship is the reserved key
+vocabulary: it declares the two keys above as `CLIENT_INFO_META_KEY` and
+`PROTOCOL_VERSION_META_KEY`, which is where the exact spellings this SDK reads
+come from. So the `_meta` source below is wired and correct, but reads as
+absent until an SDK starts negotiating the revision.
 
 What that means per event:
 
@@ -146,7 +155,7 @@ first:
 | Source | Available on | Notes |
 | -- | -- | -- |
 | `instrumentServer({ resolveClientInfo })` | every request | Host callback, given the request's `authInfo` and headers. The only source that can name the client on a per-request server |
-| `_meta` per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. No shipped SDK speaks it yet, so it reads as absent today. The unnamespaced `clientInfo` is accepted as a secondary spelling |
+| `_meta` per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. No SDK negotiates it yet, so it reads as absent today, but the key matches the constant `@modelcontextprotocol/core` 2.0.0 declares. The unnamespaced `clientInfo` is accepted as a secondary spelling |
 | The `initialize` handshake | the whole connection, when one server instance serves it | Captured off the `initialize` request and cached on the server scope. Unreachable when each request gets a fresh server |
 | `instrumentServer({ client })` | this binding | Fixed for the binding's lifetime |
 | `User-Agent` header | Streamable HTTP | Fills `[MCP] User Agent` only, never the name |
@@ -187,7 +196,7 @@ Every event — the four default events *and* custom events emitted through
 | `[MCP] Session ID` | string | always | The protocol session id when the anchor is a session id; the literal `no-session` otherwise |
 | `[MCP] Client Name` | string | always | MCP client name — see [Client identity](#client-identity) for the sources and their precedence; `unknown` when unavailable |
 | `[MCP] Client Version` | string | when known | MCP client version, same sources as the name |
-| `[MCP] OAuth Client ID` | string | when authenticated | OAuth `client_id` from `extra.authInfo`. Identifies a client *registration*, not a product — see [Client identity](#client-identity) |
+| `[MCP] OAuth Client ID` | string | when authenticated | OAuth `client_id` from `extra.authInfo.clientId`, or supplied by a `resolveClientInfo` callback for hosts whose auth does not populate `authInfo`. Never inherited from the connection, so it always describes the request it rides on. Identifies a client *registration*, not a product — see [Client identity](#client-identity) |
 | `[MCP] User Agent` | string | always | Raw HTTP `User-Agent` header (Streamable HTTP); `unknown` otherwise (always `unknown` on stdio) |
 | `[MCP] Server Name` | string | always | `serverName` from the client options |
 | `[MCP] Server Version` | string | when set | `serverVersion` from the client options (always set when instrumented through `instrumentServer`) |

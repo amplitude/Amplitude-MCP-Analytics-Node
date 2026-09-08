@@ -63,12 +63,17 @@ export function resolveTransport(transport: Transport): McpTransport {
  * `initialize` handshake outright and instead has clients identify themselves
  * on **every** request, under the namespaced `_meta` key
  * `io.modelcontextprotocol/clientInfo` — so on that revision this is the only
- * source the wire provides, and the handshake source below cannot exist. No
- * shipped SDK speaks it yet (`@modelcontextprotocol/sdk` 1.30.0 tops out at
- * `2025-11-25`, where `clientInfo` appears only in `InitializeRequest.params`),
- * so it reads as absent today. The unnamespaced `clientInfo` is accepted as a
- * secondary spelling for hosts that adopted it as a local convention before the
- * key was standardized.
+ * source the wire provides, and the handshake source below cannot exist.
+ *
+ * No SDK negotiates that revision yet, so it reads as absent for now: both
+ * `@modelcontextprotocol/sdk` 1.30.0 and the v2 package set
+ * (`@modelcontextprotocol/core` 2.0.0) still report
+ * `LATEST_PROTOCOL_VERSION = '2025-11-25'`, where `clientInfo` appears only in
+ * `InitializeRequest.params`. What v2 does ship is the reserved key
+ * vocabulary — it declares these exact strings as `CLIENT_INFO_META_KEY` and
+ * `PROTOCOL_VERSION_META_KEY` — which is where the spellings below come from.
+ * The unnamespaced `clientInfo` is accepted as a secondary spelling for hosts
+ * that adopted it as a local convention before the key was standardized.
  * @internal
  */
 function resolveRequestClientInfo(
@@ -111,8 +116,10 @@ function resolveRequestClientInfo(
     version: fromHost?.version ?? metaClientInfo?.version ?? clientFromHandshake?.version,
     userAgent:
       fromHost?.userAgent ?? readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
-    oauthClientId:
-      fromHost?.oauthClientId ?? clientIdFromAuth ?? clientFromHandshake?.oauthClientId,
+    // No handshake fallback: `oauthClientId` is per-request by nature, and the
+    // handshake slot is connection-scoped, so falling back to it would carry a
+    // previous request's client id onto an unauthenticated one.
+    oauthClientId: fromHost?.oauthClientId ?? clientIdFromAuth,
   };
 }
 

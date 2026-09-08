@@ -4,10 +4,10 @@
  * fires on which message and which server instance receives it.
  *
  * The shape under test is a host that serves each request from a fresh
- * `McpServer` — mandatory on stateless Streamable HTTP, where the SDK throws if
- * a transport is reused. There the `initialize` request and the
- * `notifications/initialized` notification land on two different instances, so
- * reading `clientInfo` at `oninitialized` (the notification) always missed it.
+ * `McpServer`, which is how sessionless Streamable HTTP is deployed. There the
+ * `initialize` request and the `notifications/initialized` notification land on
+ * two different instances, so reading `clientInfo` at `oninitialized` (the
+ * notification) always missed it.
  */
 import { describe, expect, it } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -240,6 +240,70 @@ describe('oauth client id', () => {
 
     const inits = only(events, '[MCP] Session Initialized');
     expect(inits[0]?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
+  });
+});
+
+describe('server-scope fallback does not go stale', () => {
+  it('does not carry a request-resolved client name or oauth id onto later requests', async () => {
+    const events: AmplitudeEvent[] = [];
+    // One long-lived server. The handshake request carries a resolver answer
+    // and an authenticated client id; the later tool call carries neither. It
+    // must fall back to the HANDSHAKE, not to the handshake request's own
+    // resolved values, or one request's client identity bleeds onto the next.
+    let resolverAnswer: { name: string } | undefined = { name: 'from-resolver' };
+    const { analytics, server } = instrumented(events, {
+      resolveClientInfo: () => resolverAnswer,
+    });
+    server.registerTool(
+      'search',
+      { description: 'search' },
+      analytics.instrumentTool(async () => ({ content: [] }), { name: 'search' }),
+    );
+    const [clientT, serverT] = httpPair('sess-1');
+    await server.connect(serverT);
+
+    await send(clientT, initializeReq, {
+      authInfo: { token: 't', clientId: 'handshake-client-id', scopes: [] },
+    });
+    expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
+      .toBe('from-resolver');
+
+    // Later request: resolver declines, and no authInfo.
+    resolverAnswer = undefined;
+    await send(clientT, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: { name: 'search', arguments: {} },
+    });
+
+    const call = only(events, '[MCP] Tool Call Response')[0];
+    expect(call?.event_properties?.['[MCP] Client Name']).toBe('cursor'); // the handshake
+    expect(call?.event_properties?.['[MCP] Client Name']).not.toBe('from-resolver');
+    // An unauthenticated request must not inherit the earlier client id.
+    expect(call?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
+  });
+});
+
+describe('rejected handshake', () => {
+  it('emits no Session Initialized when the initialize request fails', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events);
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+
+    // An unsupported protocol version makes the SDK's own initialize handler
+    // reject. The hook reports only after the handler settles, so a failed
+    // handshake must not look like a completed session.
+    await send(clientT, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: 42, capabilities: {}, clientInfo: CLIENT_INFO },
+    });
+
+    expect(only(events, '[MCP] Session Initialized')).toHaveLength(0);
+    expect(only(events, '[MCP] Session Ended')).toHaveLength(0);
   });
 });
 

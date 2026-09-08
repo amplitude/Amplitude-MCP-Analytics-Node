@@ -119,8 +119,9 @@ differently:
   `[MCP] Session Ended` does not, since the connection lives and dies inside
   one request and would report no meaningful duration.
 - **Protocol revision `2026-07-28`** removes the handshake entirely, so neither
-  session event fires. Client identity moves to per-request `_meta`. No shipped
-  MCP SDK speaks this revision yet.
+  session event fires. Client identity moves to per-request `_meta`, which this
+  SDK already reads. No MCP SDK negotiates the revision yet: v1 1.30.0 and the
+  v2 package set both still report `LATEST_PROTOCOL_VERSION = '2025-11-25'`.
 
 Nothing is fabricated in either case. Every event also carries the shared
 context properties (identity, client/server, transport, trace correlation).
@@ -131,8 +132,8 @@ Through protocol `2025-11-25` the client's `clientInfo` rides only on the
 `initialize` request, so on a sessionless or serverless host — where each
 request gets a fresh `McpServer` — nothing on a `tools/call` identifies the
 client. (Revision `2026-07-28` fixes this at the protocol level by putting
-client identity in every request's `_meta`, but no SDK speaks it yet.) Two
-things help today:
+client identity in every request's `_meta` — this SDK reads it, but no SDK
+negotiates that revision yet.) Two things help today:
 
 - `[MCP] OAuth Client ID` is emitted from `authInfo.clientId` on every
   authenticated request with no host-side state. It names a client
