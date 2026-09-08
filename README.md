@@ -109,19 +109,30 @@ This table is a summary. The full reference — every property and when it's
 present, identity resolution, transport nuances, and the error taxonomy —
 lives in [`docs/events.md`](./docs/events.md).
 
-A protocol *session* only exists on stdio and legacy (`2025-11-25`) Streamable
-HTTP. Stateless (`2026-07-28+`) HTTP still performs the `initialize` handshake,
-it just mints no session id, so `[MCP] Session Initialized` fires there with
-`[MCP] Session ID: no-session` while `[MCP] Session Ended` does not — the
-connection lives and dies inside one request, so there is no duration to
-report. Nothing is fabricated either way. Every event also carries the shared
+A protocol *session* only exists on stdio and on Streamable HTTP where the
+transport mints a session id. Two distinct cases look "stateless" and behave
+differently:
+
+- **Sessionless transport mode** (`sessionIdGenerator: undefined`, protocol
+  `2025-11-25` and earlier) still performs the `initialize` handshake, so
+  `[MCP] Session Initialized` fires with `[MCP] Session ID: no-session`.
+  `[MCP] Session Ended` does not, since the connection lives and dies inside
+  one request and would report no meaningful duration.
+- **Protocol revision `2026-07-28`** removes the handshake entirely, so neither
+  session event fires. Client identity moves to per-request `_meta`. No shipped
+  MCP SDK speaks this revision yet.
+
+Nothing is fabricated in either case. Every event also carries the shared
 context properties (identity, client/server, transport, trace correlation).
 
 ### Client name on stateless servers
 
-The protocol carries the client's `clientInfo` only on the `initialize`
-request, so on a stateless or serverless host — where each request gets a fresh
-`McpServer` — nothing on a `tools/call` identifies the client. Two things help:
+Through protocol `2025-11-25` the client's `clientInfo` rides only on the
+`initialize` request, so on a sessionless or serverless host — where each
+request gets a fresh `McpServer` — nothing on a `tools/call` identifies the
+client. (Revision `2026-07-28` fixes this at the protocol level by putting
+client identity in every request's `_meta`, but no SDK speaks it yet.) Two
+things help today:
 
 - `[MCP] OAuth Client ID` is emitted from `authInfo.clientId` on every
   authenticated request with no host-side state. It names a client

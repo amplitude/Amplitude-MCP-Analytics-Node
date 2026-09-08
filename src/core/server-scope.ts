@@ -38,6 +38,19 @@ export interface ServerScope {
   /** Handshake timestamp (ms) — doubles as the "a session is active" flag
    *  for THIS server's transport. */
   sessionStartMs?: number;
+  /**
+   * Whether THIS binding's transport outlives the request that opened it,
+   * resolved at the handshake. Gates `[MCP] Session Ended`, which reports a
+   * duration and so is only meaningful for a connection that persists.
+   *
+   * Deliberately not derived from the correlation anchor. A `session-id` anchor
+   * does not imply a persistent transport: `instrumentServer({ sessionId })`
+   * exists for hosts that manage sessions themselves, and those hosts run one
+   * server (and one transport) per request. Reading the anchor there would emit
+   * a false end event on every request while the host's session is still live.
+   * Only a session id the *transport* carries, or stdio, proves persistence.
+   */
+  transportPersists?: boolean;
 }
 
 const storage = new AsyncLocalStorage<ServerScope>();

@@ -21,6 +21,16 @@ import { metaRecord, readHeader, type McpExtra, type Transport } from './mcp.js'
 import type { Logger } from '../utils/logger.js';
 
 /**
+ * Namespaced `_meta` keys defined by protocol revision `2026-07-28`, which
+ * removed the `initialize` handshake and moved per-request client identity and
+ * protocol version into `_meta`. Unnamespaced spellings are still accepted as a
+ * secondary source, for hosts that adopted them before the keys were
+ * standardized. @internal
+ */
+const META_CLIENT_INFO = 'io.modelcontextprotocol/clientInfo';
+const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
+
+/**
  * Classify the transport passed to `server.connect()` (server-scope). Probes for
  * `handleRequest` structurally — only `StreamableHTTPServerTransport` has it,
  * and it is not on the SDK `Transport` interface. Anything else is `stdio`.
@@ -39,7 +49,8 @@ export function resolveTransport(transport: Transport): McpTransport {
  * 1. the host's {@link ClientInfoResolver} — the only source that can carry a
  *    client *name* on a transport that serves each request from a fresh server,
  *    so it wins;
- * 2. `_meta.clientInfo`, for a host that adopts that convention (see below);
+ * 2. per-request `_meta` client info — `io.modelcontextprotocol/clientInfo`
+ *    (see the note below);
  * 3. the `initialize` handshake, captured onto the server scope by
  *    `instrumentServer` — only reachable when one server instance serves the
  *    whole connection;
@@ -48,12 +59,16 @@ export function resolveTransport(transport: Transport): McpTransport {
  * `oauthClientId` is separate: it comes off `authInfo`, so unlike the name it is
  * present on every authenticated request whatever the transport.
  *
- * A note on `_meta.clientInfo`: `_meta` is a real, open extension bag that the
- * MCP SDK passes through verbatim, but a `clientInfo` key inside it is **not**
- * defined by the spec and no shipped client writes one — as of
- * `@modelcontextprotocol/sdk` 1.30.0 `clientInfo` exists only in
- * `InitializeRequest.params`. It is read here so a host that adopts the
- * convention is honored, but it is not a source anything can rely on.
+ * A note on the `_meta` source. Protocol revision `2026-07-28` removes the
+ * `initialize` handshake outright and instead has clients identify themselves
+ * on **every** request, under the namespaced `_meta` key
+ * `io.modelcontextprotocol/clientInfo` — so on that revision this is the only
+ * source the wire provides, and the handshake source below cannot exist. No
+ * shipped SDK speaks it yet (`@modelcontextprotocol/sdk` 1.30.0 tops out at
+ * `2025-11-25`, where `clientInfo` appears only in `InitializeRequest.params`),
+ * so it reads as absent today. The unnamespaced `clientInfo` is accepted as a
+ * secondary spelling for hosts that adopted it as a local convention before the
+ * key was standardized.
  * @internal
  */
 function resolveRequestClientInfo(
@@ -80,7 +95,8 @@ function resolveRequestClientInfo(
     }
   }
 
-  const info = metaRecord(extra)?.clientInfo;
+  const meta = metaRecord(extra);
+  const info = meta?.[META_CLIENT_INFO] ?? meta?.clientInfo;
   const metaClientInfo = info != null && typeof info === 'object'
     ? (info as Implementation)
     : undefined;
@@ -108,7 +124,8 @@ function resolveRequestClientInfo(
 function resolveProtocolVersion(extra: McpExtra): string | undefined {
   const fromHeader = readHeader(extra, 'mcp-protocol-version');
   if (fromHeader != null) return fromHeader;
-  const fromMeta = metaRecord(extra)?.protocolVersion;
+  const meta = metaRecord(extra);
+  const fromMeta = meta?.[META_PROTOCOL_VERSION] ?? meta?.protocolVersion;
   return typeof fromMeta === 'string' ? fromMeta : undefined;
 }
 
@@ -193,21 +210,6 @@ function resolveAnchor(
 
   // Anonymous per-request floor.
   return { type: 'anonymous', value: randomUUID() };
-}
-
-/**
- * Whether this context's connection outlives a single request, which is what
- * makes a session *duration* meaningful.
- *
- * A `session-id` anchor means the transport minted (or the host supplied) a
- * session id, and a `process` anchor means stdio — both persist across
- * requests. `trace` and `anonymous` are the stateless floors: the MCP SDK
- * requires a fresh transport per request in stateless mode, so the "session"
- * begins and ends inside one HTTP request and has no duration worth reporting.
- * @internal
- */
-export function hasPersistentSession(ctx: McpServerContext): boolean {
-  return ctx.anchor.type === 'session-id' || ctx.anchor.type === 'process';
 }
 
 /** Options for identity resolution in {@link buildServerContext} / {@link buildToolContext}. */

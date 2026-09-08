@@ -19,11 +19,13 @@ export const ATTEMPTED_TOOL_NAME_MAX = 200;
 
 /**
  * Default server connection / capability events. `[MCP] Session Initialized`
- * tracks the `initialize` handshake, which happens on every transport —
- * stateless (`2026-07-28+`) Streamable HTTP drops the session id, not the
- * handshake. `[MCP] Session Ended` is reported only where the connection
- * outlives the request that opened it (stdio and legacy `2025-11-25`
- * Streamable HTTP), since a per-request "session" has no duration to report.
+ * tracks the `initialize` handshake, so it fires wherever one happens —
+ * including sessionless transport mode (`sessionIdGenerator: undefined`), which
+ * drops the session id but keeps the handshake. Protocol revision
+ * `2026-07-28` removes the handshake outright, so neither session event exists
+ * there. `[MCP] Session Ended` additionally requires a transport that outlives
+ * the request that opened it, since a per-request "session" has no duration to
+ * report.
  */
 export const SESSION_INITIALIZED = '[MCP] Session Initialized';
 export const SESSION_ENDED = '[MCP] Session Ended';

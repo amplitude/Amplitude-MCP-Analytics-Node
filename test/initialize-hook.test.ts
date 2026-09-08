@@ -15,6 +15,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { AmplitudeMCPAnalytics } from '../src/client.js';
 import { MCPAnalyticsConfig } from '../src/config.js';
 import type { ClientInfoResolver } from '../src/context/types.js';
+import type { McpExtra } from '../src/core/mcp.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from '../src/types.js';
 
 const CLIENT_INFO = { name: 'cursor', version: '1.2.3' };
@@ -37,21 +38,31 @@ function httpPair(sessionId?: string) {
 
 function instrumented(
   events: AmplitudeEvent[],
-  opts: { userId?: string; resolveClientInfo?: ClientInfoResolver; client?: { name?: string } } = {},
+  opts: {
+    userId?: string;
+    resolveClientInfo?: ClientInfoResolver;
+    client?: { name?: string };
+    /** Host-managed correlation session id, per `instrumentServer({ sessionId })`. */
+    sessionId?: string;
+    analytics?: AmplitudeMCPAnalytics;
+  } = {},
 ) {
-  const analytics = new AmplitudeMCPAnalytics({
-    amplitude: fakeAmplitude(events),
-    serverName: 'test-mcp',
-    serverVersion: '1.0.0',
-    // sessionLifecycle left at its default (true) throughout.
-    config: new MCPAnalyticsConfig({}),
-  });
+  const analytics =
+    opts.analytics ??
+    new AmplitudeMCPAnalytics({
+      amplitude: fakeAmplitude(events),
+      serverName: 'test-mcp',
+      serverVersion: '1.0.0',
+      // sessionLifecycle left at its default (true) throughout.
+      config: new MCPAnalyticsConfig({}),
+    });
   const server = new McpServer({ name: 'test-mcp', version: '1.0.0' });
   analytics.instrumentServer(server, {
     userId: opts.userId ?? 'user-1',
     authType: 'oauth',
     resolveClientInfo: opts.resolveClientInfo,
     client: opts.client,
+    sessionId: opts.sessionId,
   });
   return { analytics, server };
 }
@@ -147,6 +158,28 @@ describe('handshake client info (real MCP SDK)', () => {
     expect(ended[0]?.event_properties).toHaveProperty('[MCP] Session Duration');
   });
 
+  it('emits no Session Ended for a host-managed session on a per-request server', async () => {
+    const events: AmplitudeEvent[] = [];
+    // `instrumentServer({ sessionId })` is documented for hosts that manage
+    // sessions themselves against a fresh server per request. That produces a
+    // `session-id` anchor on a transport that does NOT persist, so gating the
+    // end event on the anchor would report the host's still-live session as
+    // ended on every single request.
+    const { server } = instrumented(events, { sessionId: 'host-managed-sess-1' });
+    const [clientT, serverT] = httpPair(); // no transport session id
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+
+    const inits = only(events, '[MCP] Session Initialized');
+    expect(inits).toHaveLength(1);
+    // The anchor still reports the host's session id — that part is correct.
+    expect(inits[0]?.event_properties?.['[MCP] Session ID']).toBe('host-managed-sess-1');
+    expect(inits[0]?.event_properties?.['[MCP] Anchor Type']).toBe('session-id');
+
+    await serverT.close();
+    expect(only(events, '[MCP] Session Ended')).toHaveLength(0);
+  });
+
   it('carries the client name onto later requests when one instance serves the connection', async () => {
     const events: AmplitudeEvent[] = [];
     const { analytics, server } = instrumented(events);
@@ -210,6 +243,42 @@ describe('oauth client id', () => {
   });
 });
 
+describe('per-request _meta client info', () => {
+  // Protocol revision 2026-07-28 removes the handshake and has clients
+  // identify themselves on every request under this namespaced key. No shipped
+  // SDK speaks it yet, so this pins the key we will read when one does.
+  it('reads io.modelcontextprotocol/clientInfo from _meta', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { analytics, server } = instrumented(events);
+    server.registerTool(
+      'search',
+      { description: 'search' },
+      analytics.instrumentTool(async () => ({ content: [] }), { name: 'search' }),
+    );
+    const [clientT, serverT] = httpPair();
+    await server.connect(serverT);
+    await send(clientT, initializeReq);
+    await send(clientT, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name: 'search',
+        arguments: {},
+        _meta: {
+          'io.modelcontextprotocol/clientInfo': { name: 'vscode', version: '2.0.0' },
+        },
+      },
+    });
+
+    const calls = only(events, '[MCP] Tool Call Response');
+    expect(calls).toHaveLength(1);
+    // Per-request identity wins over the handshake's `cursor`.
+    expect(calls[0]?.event_properties?.['[MCP] Client Name']).toBe('vscode');
+    expect(calls[0]?.event_properties?.['[MCP] Client Version']).toBe('2.0.0');
+  });
+});
+
 describe('resolveClientInfo', () => {
   it('supplies the client name per request and wins over the handshake', async () => {
     const events: AmplitudeEvent[] = [];
@@ -256,6 +325,39 @@ describe('resolveClientInfo', () => {
 
     expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
       .toBe('cursor');
+  });
+
+  it('does not leak into a later binding on direct (non-dispatch) invocation', async () => {
+    const events: AmplitudeEvent[] = [];
+
+    // Binding A carries a resolver; binding B, on the SAME analytics client,
+    // does not. Inside a dispatch frame each binding's own scope is used, so
+    // the leak only shows on DIRECT invocation, where `instrumentTool` falls
+    // back to the last-connected values. If the resolver is not cleared there,
+    // B's call is attributed to A's client.
+    const a = instrumented(events, {
+      resolveClientInfo: () => ({ name: 'server-a-client' }),
+    });
+    const [, serverA] = httpPair();
+    await a.server.connect(serverA);
+    await serverA.close();
+
+    const b = instrumented(events, { analytics: a.analytics });
+    const [, serverB] = httpPair();
+    await b.server.connect(serverB);
+
+    // Called straight through, not via serverB's dispatch, and with no
+    // handshake on B — so nothing but the fallback can supply a client name.
+    const tool = a.analytics.instrumentTool(
+      async (_extra: McpExtra) => ({ content: [] }),
+      { name: 'search' },
+    );
+    await tool({ signal: new AbortController().signal, requestId: 1 } as unknown as McpExtra);
+
+    const calls = only(events, '[MCP] Tool Call Response');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.event_properties?.['[MCP] Client Name']).not.toBe('server-a-client');
+    expect(calls[0]?.event_properties?.['[MCP] Client Name']).toBe('unknown');
   });
 
   it('falls through when it throws, without breaking the handshake', async () => {

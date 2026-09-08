@@ -5,7 +5,7 @@ import {
   setRationale as setRationaleOnCtx,
 } from './context/index.js';
 import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
-import { buildServerContext, hasPersistentSession, resolveTransport } from './core/build-context.js';
+import { buildServerContext, resolveTransport } from './core/build-context.js';
 import {
   TrackingProxy,
   installTrackCounter,
@@ -475,10 +475,13 @@ export class AmplitudeMCPAnalytics {
       this._serverIdentity = scope.identity;
     }
 
-    if (opts?.resolveClientInfo != null) {
-      scope.clientInfoResolver = opts.resolveClientInfo;
-      this._clientInfoResolver = opts.resolveClientInfo;
-    }
+    // Assigned unconditionally, including to `undefined`. Guarding on
+    // non-null would leave an earlier binding's resolver in the
+    // last-connected fallback, so a later server instrumented WITHOUT one
+    // would attribute direct (non-dispatch) tool calls using the earlier
+    // server's resolver — i.e. the wrong client.
+    scope.clientInfoResolver = opts?.resolveClientInfo;
+    this._clientInfoResolver = opts?.resolveClientInfo;
 
     // `isConnected()` is only on the high-level McpServer.
     if ('isConnected' in boundServer && boundServer.isConnected()) {
@@ -617,16 +620,14 @@ export class AmplitudeMCPAnalytics {
 
       if (this.config.autocapture.sessionLifecycle) {
         // `[MCP] Session Ended` on transport close — only for a connection that
-        // genuinely persisted. `sessionStartMs` alone is not enough: on a
-        // per-request server the handshake and the close both happen inside the
-        // one `initialize` request, which would emit an "ended session" with a
-        // sub-millisecond `[MCP] Session Duration` for every handshake. The
-        // anchor is what distinguishes the two — a session id or a process means
-        // the connection outlives the request; `trace`/`anonymous` means it does
-        // not, so there is no duration worth reporting.
+        // genuinely persisted (see `ServerScope.transportPersists`).
+        // `sessionStartMs` alone is not enough: on a per-request server the
+        // handshake and the close both happen inside the one `initialize`
+        // request, which would emit an "ended session" with a sub-millisecond
+        // `[MCP] Session Duration` for every handshake.
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
-          if (scope.sessionStartMs != null && scope.ctx != null && hasPersistentSession(scope.ctx)) {
+          if (scope.sessionStartMs != null && scope.ctx != null && scope.transportPersists) {
             emitSessionEnded(this._amplitude, scope.ctx, {
               durationMs: performance.now() - scope.sessionStartMs,
             });
@@ -656,10 +657,21 @@ export class AmplitudeMCPAnalytics {
         // (real anchor/identity) in place; per-request builds still override
         // these per call. The transport has already minted its session id by the
         // time this request is dispatched, so carry it for the anchor.
+        // A session id the TRANSPORT carries proves it is reused across
+        // requests; one supplied via `instrumentServer({ sessionId })` proves
+        // only that the host tracks sessions, and those hosts run a transport
+        // per request. So persistence is decided from the transport's own id
+        // (or stdio), never from the resolved anchor.
+        const transportSessionId =
+          extra.sessionId ?? (transport as { sessionId?: string }).sessionId;
+        scope.transportPersists =
+          scope.ctx.transport === 'stdio' ||
+          (typeof transportSessionId === 'string' && transportSessionId.length > 0);
+
         if (!this.config.autocapture.sessionLifecycle) return;
         scope.ctx = buildServerContext(
           scope.ctx,
-          { ...extra, sessionId: extra.sessionId ?? (transport as { sessionId?: string }).sessionId } as McpExtra,
+          { ...extra, sessionId: transportSessionId } as McpExtra,
           {
             serverIdentity: scope.identity,
             resolveClientInfo: scope.clientInfoResolver,
@@ -684,8 +696,14 @@ export class AmplitudeMCPAnalytics {
             scope.ctx.client = { ...scope.ctx.client, name: clientInfo.name, version: clientInfo.version };
           }
 
+          const sessionId = (transport as { sessionId?: string }).sessionId;
+          if (scope.ctx != null) {
+            scope.transportPersists =
+              scope.ctx.transport === 'stdio' ||
+              (typeof sessionId === 'string' && sessionId.length > 0);
+          }
+
           if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
-            const sessionId = (transport as { sessionId?: string }).sessionId;
             scope.ctx = buildServerContext(
               scope.ctx,
               { sessionId } as unknown as McpExtra,
