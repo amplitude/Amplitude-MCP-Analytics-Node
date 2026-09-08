@@ -12,11 +12,14 @@
  *   - whether it has minted its session id by the time the `initialize`
  *     request is dispatched, which is what `[MCP] Session Initialized`'s anchor
  *     depends on
- *   - that stateless mode really does force a transport (and so a server) per
- *     request, which is the whole premise of the initialize-request hook
- *
  * These run the two deployment shapes for real instead. The stateless case is
  * the customer topology that produced the client-name bug.
+ *
+ * Not asserted here: that stateless mode *forces* a transport per request.
+ * Newer SDKs throw on reuse and 1.14.0 does not, so pinning it would be
+ * version-dependent — and our resolution does not depend on it either way,
+ * since the initialize-request hook captures `clientInfo` whether or not the
+ * instance is reused.
  */
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -27,7 +30,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { AmplitudeMCPAnalytics } from '../src/client.js';
 import { MCPAnalyticsConfig } from '../src/config.js';
-import type { McpExtra } from '../src/core/mcp.js';
 import type { AmplitudeEvent } from '../src/types.js';
 
 const only = (events: AmplitudeEvent[], type: string) =>
@@ -55,8 +57,12 @@ function buildServer(events: AmplitudeEvent[]): McpServer {
   server.registerTool(
     'ping',
     { description: 'ping' },
+    // Declared with no parameters on purpose: `registerTool` types its
+    // callback as `(args, extra)` on older SDKs and `(extra)` on newer ones,
+    // and a zero-parameter function is assignable to both. `instrumentTool`
+    // reads `extra` off the actual call arguments at runtime either way.
     analytics.instrumentTool(
-      async (_extra: McpExtra) => ({ content: [{ type: 'text' as const, text: 'pong' }] }),
+      async () => ({ content: [{ type: 'text' as const, text: 'pong' }] }),
       { name: 'ping' },
     ),
   );
@@ -225,25 +231,5 @@ describe('real Streamable HTTP transport — session-bearing', () => {
     expect(ended).toHaveLength(1);
     expect(propsOf(ended[0])['[MCP] Session ID']).toBe(sessionId);
     expect(propsOf(ended[0])).toHaveProperty('[MCP] Session Duration');
-  });
-
-  it('refuses to reuse a stateless transport across requests', async () => {
-    // Pins the SDK constraint the initialize-request hook is designed around:
-    // stateless mode is not merely compatible with a server per request, it
-    // requires one. If this ever stops throwing, a host could keep one
-    // instance and the handshake cache would start working by accident.
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await buildServer([]).connect(transport);
-    const { http, url } = await listen((req, res) => {
-      transport.handleRequest(req, res).catch(() => {
-        if (!res.headersSent) res.writeHead(500).end();
-      });
-    });
-    cleanup.push(() => new Promise<void>((resolve) => http.close(() => resolve())));
-
-    // A single `Client.connect()` is already more than one POST (`initialize`,
-    // then `notifications/initialized`), so a reused stateless transport fails
-    // before the handshake even completes.
-    await expect(connectClient(url)).rejects.toThrow();
   });
 });
