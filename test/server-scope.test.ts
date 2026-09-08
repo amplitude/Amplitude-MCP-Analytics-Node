@@ -32,6 +32,8 @@ function makeAnalytics(config?: MCPAnalyticsConfig) {
  */
 interface FakeServer {
   connect: (transport: unknown) => Promise<void>;
+  /** Model THIS instance serving the `initialize` request (see below). */
+  fireInitializeRequest: () => void;
   _requestHandlers: Map<string, ServerRequestHandler>;
   oninitialized?: () => void;
   onclose?: () => void;
@@ -39,10 +41,16 @@ interface FakeServer {
 }
 
 function makeServer(handlers: Record<string, ServerRequestHandler> = {}): FakeServer {
+  let handledInitializeRequest = false;
   return {
     connect: async () => undefined,
+    fireInitializeRequest: () => {
+      handledInitializeRequest = true;
+    },
     _requestHandlers: new Map(Object.entries(handlers)),
-    getClientVersion: () => ({ name: 'cursor', version: '1.0.0' }),
+    // Modelled on the real SDK: populated by handling the `initialize`
+    // REQUEST, so a fake that never dispatched one reports nothing.
+    getClientVersion: () => (handledInitializeRequest ? { name: 'cursor', version: '1.0.0' } : undefined),
   };
 }
 
