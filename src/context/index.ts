@@ -3,6 +3,7 @@ export { createServerContext, createToolContext } from './factory.js';
 export type { CreateServerContextInput } from './factory.js';
 export type {
   AnchorType,
+  ClientInfoResolver,
   IdentityResolver,
   IdentityResolvedFrom,
   McpAnchor,
@@ -16,5 +17,6 @@ export type {
   McpToolContext,
   McpToolMeta,
   McpTransport,
+  ResolveClientInfoInput,
   SetIdentityInput,
 } from './types.js';

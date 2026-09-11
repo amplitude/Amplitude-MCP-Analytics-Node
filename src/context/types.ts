@@ -63,12 +63,66 @@ export type IdentityResolver = (authInfo: Record<string, unknown> | undefined) =
 
 /** MCP client info — a dimension, NOT identity. */
 export interface McpClientInfo {
-  /** Protocol `clientInfo.name` from the handshake / `_meta` (e.g. `"cursor"`). */
+  /**
+   * Protocol `clientInfo.name` (e.g. `"cursor"`).
+   *
+   * Through protocol revision `2025-11-25` this is carried **only** on the
+   * `initialize` request, with no per-request copy, so on transports where
+   * each request gets a fresh server it has to be supplied per request via
+   * {@link ClientInfoResolver} or bound via `instrumentServer({ client })`.
+   * Revision `2026-07-28` removes the handshake and carries client identity in
+   * every request's `_meta` instead, which the SDK reads when present.
+   */
   name?: string;
   version?: string;
   /** Raw HTTP `User-Agent` (streamable-http only). */
   userAgent?: string;
+  /**
+   * OAuth 2.0 `client_id` for the calling client, read from `extra.authInfo`.
+   *
+   * This identifies a client **registration**, not a product: under dynamic
+   * client registration (RFC 7591) the same client gets a different id per
+   * authorization server, and potentially one per install. It is therefore
+   * kept off {@link name}, which stays a low-cardinality product dimension —
+   * mixing opaque ids into it would make the property useless for
+   * segmentation and non-comparable across servers.
+   *
+   * Unlike {@link name} it *is* available on every authenticated request, so
+   * it is the one client identifier a sessionless server can report with no
+   * host-side state, and the natural join key for mapping ids to names.
+   *
+   * Resolved from `extra.authInfo.clientId`, and absent on an unauthenticated
+   * request. A {@link ClientInfoResolver} may supply it instead, for a host
+   * whose auth does not populate `authInfo` — it is never inherited from the
+   * connection, so it always describes the request it is emitted on.
+   */
+  oauthClientId?: string;
 }
+
+/** Inputs to {@link ClientInfoResolver}. SDK-free, like {@link IdentityResolver}. */
+export interface ResolveClientInfoInput {
+  /** `extra.authInfo` for this request — OAuth claims, including `clientId`. */
+  authInfo?: Record<string, unknown>;
+  /** Request headers (Streamable HTTP only); absent over stdio. */
+  headers?: Record<string, string | string[] | undefined>;
+}
+
+/**
+ * Callback that resolves MCP client info per request.
+ *
+ * Through protocol revision `2025-11-25` the client's `clientInfo` is carried
+ * only on the `initialize` request, so a host whose transport serves each
+ * request from a fresh server (sessionless Streamable HTTP, serverless) cannot
+ * get the client name from the wire on a `tools/call`. This is the hook for
+ * supplying it from something that *is* per-request — a token claim (an
+ * authorization server learns `client_name` at client registration), or a
+ * header. On revision `2026-07-28`, where every request carries client identity
+ * in `_meta`, this instead acts as an override for that value.
+ *
+ * Return `undefined`, or an object with the fields you know, to fall through to
+ * the SDK's own resolution for the rest.
+ */
+export type ClientInfoResolver = (input: ResolveClientInfoInput) => McpClientInfo | undefined;
 
 /** MCP server identity — attached to every event. */
 export interface McpServerInfo {

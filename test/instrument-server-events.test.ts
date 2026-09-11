@@ -27,13 +27,17 @@ function makeFakeServer(
   opts: { clientInfo?: { name: string; version: string }; toolsListThrows?: unknown } = {},
 ) {
   const requestHandlers = new Map<string, RequestHandler>();
+  let handledInitializeRequest = false;
   const lowLevel: {
     oninitialized?: () => void;
     onclose?: () => void;
     getClientVersion: () => { name: string; version: string } | undefined;
     _requestHandlers: Map<string, RequestHandler>;
   } = {
-    getClientVersion: () => opts.clientInfo ?? { name: 'cursor', version: '0.40' },
+    // Answers only after this instance handled the `initialize` REQUEST, as
+    // the real SDK does. See `makeFakeServer` in instrument-server.test.ts.
+    getClientVersion: () =>
+      handledInitializeRequest ? (opts.clientInfo ?? { name: 'cursor', version: '0.40' }) : undefined,
     _requestHandlers: requestHandlers,
   };
 
@@ -48,7 +52,10 @@ function makeFakeServer(
     server: lowLevel,
     connect: (_t: unknown): Promise<void> => Promise.resolve(),
     isConnected: () => false,
-    fireInitialized: () => lowLevel.oninitialized?.(),
+    fireInitialized: () => {
+      handledInitializeRequest = true;
+      lowLevel.oninitialized?.();
+    },
     fireClose: () => lowLevel.onclose?.(),
     listTools: (extra: unknown = {}) => requestHandlers.get('tools/list')?.({}, extra),
     setTools: (next: { name: string }[]) => {

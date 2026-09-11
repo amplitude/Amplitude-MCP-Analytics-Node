@@ -16,6 +16,8 @@ export interface DefaultServerFields {
   transport: McpTransport;
   anchorType: AnchorType;
   clientVersion?: string;
+  /** OAuth `client_id` from `extra.authInfo`; absent when unauthenticated. */
+  oauthClientId?: string;
   serverVersion?: string;
   serverType?: string;
   protocolVersion?: string;

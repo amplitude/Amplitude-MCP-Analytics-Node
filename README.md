@@ -96,8 +96,8 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 
 | Event | When | Notable properties |
 | -- | -- | -- |
-| `[MCP] Session Initialized` | Connection handshake (stdio + legacy Streamable HTTP) | client/server identity, `[MCP] Transport`, `[MCP] Auth Type` |
-| `[MCP] Session Ended` | Transport close (same transports) | `[MCP] Session Duration` |
+| `[MCP] Session Initialized` | The `initialize` handshake (every transport) | client/server identity, `[MCP] Transport`, `[MCP] Auth Type` |
+| `[MCP] Session Ended` | Close of a connection that outlived one request (stdio + legacy Streamable HTTP) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
 | `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
 | `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
@@ -109,11 +109,51 @@ This table is a summary. The full reference — every property and when it's
 present, identity resolution, transport nuances, and the error taxonomy —
 lives in [`docs/events.md`](./docs/events.md).
 
-Session events model a real protocol session, which only exists on stdio and
-legacy (`2025-11-25`) Streamable HTTP. On stateless (`2026-07-28+`) HTTP there is
-no session handshake, so `[MCP] Session Initialized` / `[MCP] Session Ended` are
-**not** emitted rather than fabricated. Every event also carries the shared
+A protocol *session* only exists on stdio and on Streamable HTTP where the
+transport mints a session id. Two distinct cases look "stateless" and behave
+differently:
+
+- **Sessionless transport mode** (`sessionIdGenerator: undefined`, protocol
+  `2025-11-25` and earlier) still performs the `initialize` handshake, so
+  `[MCP] Session Initialized` fires with `[MCP] Session ID: no-session`.
+  `[MCP] Session Ended` does not, since the connection lives and dies inside
+  one request and would report no meaningful duration.
+- **Protocol revision `2026-07-28`** removes the handshake entirely, so neither
+  session event fires. Client identity moves to per-request `_meta`, which this
+  SDK already reads. The revision is implemented by the **v2** SDK package set
+  (`@modelcontextprotocol/{core,server,client}` 2.0.0), not by
+  `@modelcontextprotocol/sdk` 1.x, which tops out at `2025-11-25`.
+
+Nothing is fabricated in either case. Every event also carries the shared
 context properties (identity, client/server, transport, trace correlation).
+
+### Client name on stateless servers
+
+Through protocol `2025-11-25` the client's `clientInfo` rides only on the
+`initialize` request, so on a sessionless or serverless host — where each
+request gets a fresh `McpServer` — nothing on a `tools/call` identifies the
+client. (Revision `2026-07-28` fixes this at the protocol level by putting
+client identity in every request's `_meta`, which this SDK reads — but that
+revision is implemented by the v2 SDK packages, not by
+`@modelcontextprotocol/sdk` 1.x, and even there it is only a SHOULD.) Two
+things help today:
+
+- `[MCP] OAuth Client ID` is emitted from `authInfo.clientId` on every
+  authenticated request with no host-side state. It names a client
+  *registration* rather than a product, so it is kept out of
+  `[MCP] Client Name`.
+- `resolveClientInfo` supplies the name per request, typically from a token
+  claim (an authorization server already knows `client_name` from dynamic
+  client registration):
+
+```ts
+analytics.instrumentServer(server, {
+  resolveClientInfo: ({ authInfo }) => ({ name: authInfo?.client_name as string }),
+});
+```
+
+See [`docs/events.md`](./docs/events.md#client-identity) for the full
+precedence order.
 
 ## Identity
 

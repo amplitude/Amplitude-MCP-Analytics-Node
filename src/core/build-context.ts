@@ -7,6 +7,7 @@ import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
 import { createServerContext, createToolContext } from '../context/factory.js';
 import type {
+  ClientInfoResolver,
   IdentityResolver,
   McpAnchor,
   McpClientInfo,
@@ -18,6 +19,16 @@ import type {
 import { resolveIdentityFromChain, type ServerIdentity } from './identity.js';
 import { metaRecord, readHeader, type McpExtra, type Transport } from './mcp.js';
 import type { Logger } from '../utils/logger.js';
+
+/**
+ * Namespaced `_meta` keys defined by protocol revision `2026-07-28`, which
+ * removed the `initialize` handshake and moved per-request client identity and
+ * protocol version into `_meta`. Unnamespaced spellings are still accepted as a
+ * secondary source, for hosts that adopted them before the keys were
+ * standardized. @internal
+ */
+const META_CLIENT_INFO = 'io.modelcontextprotocol/clientInfo';
+const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
 
 /**
  * Classify the transport passed to `server.connect()` (server-scope). Probes for
@@ -33,21 +44,85 @@ export function resolveTransport(transport: Transport): McpTransport {
 }
 
 /**
- * Per-request client info. The stateless path carries `clientInfo` in `_meta` on
- * every request (wins); the legacy path negotiates it once at the handshake,
- * which {@link instrumentServer} caches onto the server scope (the fallback).
+ * Per-request client info, by descending precedence:
+ *
+ * 1. the host's {@link ClientInfoResolver} — the only source that can carry a
+ *    client *name* on a transport that serves each request from a fresh server,
+ *    so it wins;
+ * 2. per-request `_meta` client info — `io.modelcontextprotocol/clientInfo`
+ *    (see the note below);
+ * 3. the `initialize` handshake, captured onto the server scope by
+ *    `instrumentServer` — only reachable when one server instance serves the
+ *    whole connection;
+ * 4. the `User-Agent` header, which fills `userAgent` and never `name`.
+ *
+ * `oauthClientId` is separate: it comes off `authInfo`, so unlike the name it is
+ * present on every authenticated request whatever the transport.
+ *
+ * A note on the `_meta` source. Protocol revision `2026-07-28` removes the
+ * `initialize` handshake outright and instead has clients identify themselves
+ * on **every** request, under the namespaced `_meta` key
+ * `io.modelcontextprotocol/clientInfo` — so on that revision this is the only
+ * source the wire provides, and the handshake source below cannot exist.
+ *
+ * Support splits by SDK package line. `@modelcontextprotocol/sdk` 1.x — this
+ * SDK's peer dependency — tops out at `2025-11-25` and does not implement the
+ * revision, so on v1 this source reads as absent. The v2 package set
+ * (`@modelcontextprotocol/{core,server,client}` 2.0.0) does implement it, and
+ * its server reads client identity as `meta[CLIENT_INFO_META_KEY]` — the same
+ * key read below. (Do not be misled by `core` 2.0.0 still exporting
+ * `LATEST_PROTOCOL_VERSION = '2025-11-25'`: that is the handshake-era constant
+ * kept for backward compatibility, not v2's ceiling.) Per-request `clientInfo`
+ * is a SHOULD rather than a MUST, so it can be absent even there.
+ *
+ * The unnamespaced `clientInfo` is accepted as a secondary spelling for hosts
+ * that adopted it as a local convention before the key was standardized.
  * @internal
  */
-function resolveClientInfo(extra: McpExtra, serverCtx: McpServerContext): McpClientInfo {
-  const info = metaRecord(extra)?.clientInfo;
+function resolveRequestClientInfo(
+  extra: McpExtra,
+  serverCtx: McpServerContext,
+  authInfo: Record<string, unknown> | undefined,
+  resolveClientInfo: ClientInfoResolver | undefined,
+  logger: Logger | undefined,
+): McpClientInfo {
+  let fromHost: McpClientInfo | undefined;
+  if (resolveClientInfo != null) {
+    try {
+      fromHost =
+        resolveClientInfo({
+          authInfo,
+          headers: extra.requestInfo?.headers as
+            | Record<string, string | string[] | undefined>
+            | undefined,
+        }) ?? undefined;
+    } catch (err) {
+      logger?.warn(
+        `resolveClientInfo callback threw: ${err instanceof Error ? err.message : String(err)} — falling back to the SDK's own client resolution.`,
+      );
+    }
+  }
+
+  const meta = metaRecord(extra);
+  const info = meta?.[META_CLIENT_INFO] ?? meta?.clientInfo;
   const metaClientInfo = info != null && typeof info === 'object'
     ? (info as Implementation)
     : undefined;
   const clientFromHandshake = serverCtx.client;
+  const clientIdFromAuth =
+    typeof authInfo?.clientId === 'string' && authInfo.clientId.length > 0
+      ? authInfo.clientId
+      : undefined;
+
   return {
-    name: metaClientInfo?.name ?? clientFromHandshake?.name,
-    version: metaClientInfo?.version ?? clientFromHandshake?.version,
-    userAgent: readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
+    name: fromHost?.name ?? metaClientInfo?.name ?? clientFromHandshake?.name,
+    version: fromHost?.version ?? metaClientInfo?.version ?? clientFromHandshake?.version,
+    userAgent:
+      fromHost?.userAgent ?? readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
+    // No handshake fallback: `oauthClientId` is per-request by nature, and the
+    // handshake slot is connection-scoped, so falling back to it would carry a
+    // previous request's client id onto an unauthenticated one.
+    oauthClientId: fromHost?.oauthClientId ?? clientIdFromAuth,
   };
 }
 
@@ -59,7 +134,8 @@ function resolveClientInfo(extra: McpExtra, serverCtx: McpServerContext): McpCli
 function resolveProtocolVersion(extra: McpExtra): string | undefined {
   const fromHeader = readHeader(extra, 'mcp-protocol-version');
   if (fromHeader != null) return fromHeader;
-  const fromMeta = metaRecord(extra)?.protocolVersion;
+  const meta = metaRecord(extra);
+  const fromMeta = meta?.[META_PROTOCOL_VERSION] ?? meta?.protocolVersion;
   return typeof fromMeta === 'string' ? fromMeta : undefined;
 }
 
@@ -149,6 +225,8 @@ function resolveAnchor(
 /** Options for identity resolution in {@link buildServerContext} / {@link buildToolContext}. */
 export interface BuildContextOpts {
   resolveIdentity?: IdentityResolver;
+  /** Host callback for per-request client info — see {@link ClientInfoResolver}. */
+  resolveClientInfo?: ClientInfoResolver;
   serverIdentity?: ServerIdentity;
   logger?: Logger;
 }
@@ -185,7 +263,13 @@ export function buildServerContext(
     protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
     identity: resolved.identity,
     tenant: resolved.tenant ?? serverCtx.tenant,
-    client: resolveClientInfo(extra, serverCtx),
+    client: resolveRequestClientInfo(
+      extra,
+      serverCtx,
+      authInfo,
+      opts?.resolveClientInfo,
+      opts?.logger,
+    ),
   });
 }
 

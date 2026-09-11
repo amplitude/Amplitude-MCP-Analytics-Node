@@ -13,15 +13,28 @@ function serverCtxOf(analytics: AmplitudeMCPAnalytics): McpServerContext | undef
   return (analytics as unknown as { _serverCtx?: McpServerContext })._serverCtx;
 }
 
-/** Minimal fake of the high-level McpServer: a connect we can intercept and a
- *  low-level `.server` carrying the handshake hooks. */
+/**
+ * Minimal fake of the high-level McpServer: a connect we can intercept and a
+ * low-level `.server` carrying the handshake hooks.
+ *
+ * `getClientVersion()` answers only once this instance has actually handled an
+ * `initialize` REQUEST, which is what the real SDK does — it populates
+ * `_clientVersion` in `_oninitialize`. Returning the configured `clientInfo`
+ * unconditionally is what let this file assert "clientInfo is captured" while
+ * the SDK was reading it on the wrong instance: a host that builds one
+ * `McpServer` per request runs `oninitialized` (the `notifications/initialized`
+ * notification) on an instance that never saw the request, so the real answer
+ * there is `undefined`. Use `fireInitializeRequest()` to model the instance
+ * that did handle it.
+ */
 function makeFakeServer(opts: { handleRequest?: boolean; clientInfo?: { name: string; version: string } } = {}) {
   let connectedTransport: unknown;
+  let handledInitializeRequest = false;
   const lowLevel: {
     oninitialized?: () => void;
     getClientVersion: () => { name: string; version: string } | undefined;
   } = {
-    getClientVersion: () => opts.clientInfo,
+    getClientVersion: () => (handledInitializeRequest ? opts.clientInfo : undefined),
   };
   const server = {
     server: lowLevel,
@@ -32,7 +45,13 @@ function makeFakeServer(opts: { handleRequest?: boolean; clientInfo?: { name: st
       return Promise.resolve();
     },
     isConnected: () => connectedTransport != null,
-    /** Simulate the SDK firing the post-handshake callback. */
+    /** Simulate THIS instance handling the `initialize` request, which is
+     *  where the real SDK records the client's `clientInfo`. */
+    fireInitializeRequest() {
+      handledInitializeRequest = true;
+    },
+    /** Simulate the SDK firing the post-handshake callback, which rides the
+     *  separate `notifications/initialized` notification. */
     fireInitialized() {
       lowLevel.oninitialized?.();
     },
@@ -74,8 +93,23 @@ describe('instrumentServer', () => {
     await server.connect(stdioTransport);
 
     expect(serverCtxOf(analytics)?.client).toBeUndefined(); // not until initialized
+    server.fireInitializeRequest(); // this instance served the handshake
     server.fireInitialized();
     expect(serverCtxOf(analytics)?.client).toMatchObject({ name: 'claude', version: '3.0' });
+  });
+
+  it('captures nothing when this instance never handled the initialize request', async () => {
+    // The per-request-server shape: `notifications/initialized` lands on an
+    // instance that did not serve `initialize`, so there is no `clientInfo` to
+    // read. Guards the `oninitialized` fallback against looking correct only
+    // because a fake always answered `getClientVersion()`.
+    const analytics = makeAnalytics();
+    const { server } = makeFakeServer({ clientInfo: { name: 'claude', version: '3.0' } });
+    analytics.instrumentServer(server as unknown as McpServer);
+    await server.connect(stdioTransport);
+
+    server.fireInitialized(); // no fireInitializeRequest()
+    expect(serverCtxOf(analytics)?.client?.name).toBeUndefined();
   });
 
   it('chains an existing oninitialized rather than replacing it', async () => {
@@ -86,6 +120,7 @@ describe('instrumentServer', () => {
 
     analytics.instrumentServer(server as unknown as McpServer);
     await server.connect(stdioTransport);
+    server.fireInitializeRequest();
     server.fireInitialized();
 
     expect(prior).toHaveBeenCalledOnce();

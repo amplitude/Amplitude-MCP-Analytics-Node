@@ -18,10 +18,14 @@ export const TOOL_CALL_REJECTED = '[MCP] Tool Call Rejected';
 export const ATTEMPTED_TOOL_NAME_MAX = 200;
 
 /**
- * Default server connection / capability events. Session lifecycle
- * events apply only where a protocol session exists — stdio and legacy
- * (`2025-11-25`) Streamable HTTP; they are never fabricated on `2026-07-28+`
- * stateless HTTP (no `initialize` handshake fires there).
+ * Default server connection / capability events. `[MCP] Session Initialized`
+ * tracks the `initialize` handshake, so it fires wherever one happens —
+ * including sessionless transport mode (`sessionIdGenerator: undefined`), which
+ * drops the session id but keeps the handshake. Protocol revision
+ * `2026-07-28` removes the handshake outright, so neither session event exists
+ * there. `[MCP] Session Ended` additionally requires a transport that outlives
+ * the request that opened it, since a per-request "session" has no duration to
+ * report.
  */
 export const SESSION_INITIALIZED = '[MCP] Session Initialized';
 export const SESSION_ENDED = '[MCP] Session Ended';
@@ -43,6 +47,9 @@ export const EVENT_PROPERTY_KEYS = {
   sessionId: '[MCP] Session ID',
   clientName: '[MCP] Client Name',
   clientVersion: '[MCP] Client Version',
+  /** OAuth `client_id` — a client *registration*, deliberately not folded into
+   *  `[MCP] Client Name` (see {@link McpClientInfo.oauthClientId}). */
+  oauthClientId: '[MCP] OAuth Client ID',
   userAgent: '[MCP] User Agent',
   serverName: '[MCP] Server Name',
   serverVersion: '[MCP] Server Version',

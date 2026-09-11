@@ -4,7 +4,7 @@ import {
   setIdentity as setIdentityOnCtx,
   setRationale as setRationaleOnCtx,
 } from './context/index.js';
-import type { IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
+import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
 import { buildServerContext, resolveTransport } from './core/build-context.js';
 import {
   TrackingProxy,
@@ -29,6 +29,7 @@ import {
   installServerScopeDispatch,
   type ServerScope,
 } from './core/server-scope.js';
+import { installInitializeHook } from './core/initialize-hook.js';
 import { installToolCallHook, wasToolCallDispatched } from './core/tool-call-hook.js';
 import { classifyPreDispatchRejection } from './core/tool-call-rejection.js';
 import { installToolsListHook } from './core/tools-list-hook.js';
@@ -66,11 +67,31 @@ export interface InstrumentServerOptions {
   authType?: string;
   /**
    * MCP client info when the host resolves it out-of-band (e.g. from an
-   * OAuth client registration or a per-session cache). Handshake `clientInfo`
-   * and per-request `_meta` / `User-Agent` still win when present — this is
-   * the fallback for bindings that never handshake (per-request servers).
+   * OAuth client registration or a per-session cache). Bound once for this
+   * binding; the handshake `clientInfo` and {@link resolveClientInfo} win over
+   * it. Prefer {@link resolveClientInfo} on a per-request server, since a value
+   * bound here is fixed for the binding's lifetime.
    */
   client?: { name?: string; version?: string; userAgent?: string };
+  /**
+   * Resolve MCP client info per request, from the request's own OAuth claims or
+   * headers. This is the hook for supplying a client **name** on a transport
+   * where the `initialize` handshake and the later requests are served by
+   * different server instances (stateless Streamable HTTP, serverless): the
+   * protocol carries `clientInfo` only on `initialize`, so there is nothing on
+   * a `tools/call` to read it from.
+   *
+   * Wins over every SDK-derived source. Return `undefined`, or only the fields
+   * you know, to fall through for the rest.
+   *
+   * @example Client name from a verified token claim
+   * ```typescript
+   * analytics.instrumentServer(server, {
+   *   resolveClientInfo: ({ authInfo }) => ({ name: authInfo?.client_name as string }),
+   * });
+   * ```
+   */
+  resolveClientInfo?: ClientInfoResolver;
   /**
    * Correlation session id when the host manages sessions itself (e.g. an
    * `Mcp-Session-Id` header validated against an external session store).
@@ -166,6 +187,10 @@ export class AmplitudeMCPAnalytics {
   /** Identity from the most recent `instrumentServer(server, opts)` — same
    *  fallback role as {@link _serverCtx}. @internal */
   protected _serverIdentity?: { userId?: string; deviceId?: string; tenant?: McpTenant };
+
+  /** Client-info resolver from the most recent `instrumentServer(server, opts)`
+   *  — same fallback role as {@link _serverCtx}. @internal */
+  protected _clientInfoResolver?: ClientInfoResolver;
 
   constructor(options: AmplitudeMCPAnalyticsOptions) {
     if (!options.serverName) {
@@ -402,6 +427,10 @@ export class AmplitudeMCPAnalytics {
           const scope = currentServerScope();
           return scope != null ? scope.identity : this._serverIdentity;
         },
+        getClientInfoResolver: () => {
+          const scope = currentServerScope();
+          return scope != null ? scope.clientInfoResolver : this._clientInfoResolver;
+        },
         trackToolCalls: this.config.autocapture.toolCalls,
         sanitizeErrorMessage: this.config.sanitizeErrorMessage,
         logger: getLogger(this._amplitude),
@@ -446,6 +475,14 @@ export class AmplitudeMCPAnalytics {
       this._serverIdentity = scope.identity;
     }
 
+    // Assigned unconditionally, including to `undefined`. Guarding on
+    // non-null would leave an earlier binding's resolver in the
+    // last-connected fallback, so a later server instrumented WITHOUT one
+    // would attribute direct (non-dispatch) tool calls using the earlier
+    // server's resolver — i.e. the wrong client.
+    scope.clientInfoResolver = opts?.resolveClientInfo;
+    this._clientInfoResolver = opts?.resolveClientInfo;
+
     // `isConnected()` is only on the high-level McpServer.
     if ('isConnected' in boundServer && boundServer.isConnected()) {
       getLogger(this._amplitude).warn(
@@ -486,6 +523,7 @@ export class AmplitudeMCPAnalytics {
           if (scope.ctx == null) return;
           const ctx = buildServerContext(scope.ctx, extra, {
             serverIdentity: scope.identity,
+            resolveClientInfo: scope.clientInfoResolver,
             logger: getLogger(this._amplitude),
           });
           const tools = result?.tools ?? [];
@@ -534,6 +572,7 @@ export class AmplitudeMCPAnalytics {
 
           const ctx = buildServerContext(scope.ctx, extra, {
             serverIdentity: scope.identity,
+            resolveClientInfo: scope.clientInfoResolver,
             logger: getLogger(this._amplitude),
           });
           // Response size as the client actually received it: SDKs >= 1.21
@@ -580,46 +619,115 @@ export class AmplitudeMCPAnalytics {
       }
 
       if (this.config.autocapture.sessionLifecycle) {
-        // `[MCP] Session Ended` on transport close — only when a session was
-        // initialized (gates out stateless HTTP, which never handshakes).
+        // `[MCP] Session Ended` on transport close — only for a connection that
+        // genuinely persisted (see `ServerScope.transportPersists`).
+        // `sessionStartMs` alone is not enough: on a per-request server the
+        // handshake and the close both happen inside the one `initialize`
+        // request, which would emit an "ended session" with a sub-millisecond
+        // `[MCP] Session Duration` for every handshake.
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
-          if (scope.sessionStartMs != null && scope.ctx != null) {
+          if (scope.sessionStartMs != null && scope.ctx != null && scope.transportPersists) {
             emitSessionEnded(this._amplitude, scope.ctx, {
               durationMs: performance.now() - scope.sessionStartMs,
             });
-            scope.sessionStartMs = undefined;
           }
+          scope.sessionStartMs = undefined;
           existingOnClose?.();
         };
       }
 
-      // Capture the handshake `clientInfo` into the server scope (legacy / stdio
-      // path), chaining any handler the consumer already installed.
+      // Resolve the handshake into the server scope from the `initialize`
+      // REQUEST, which is the only message carrying the client's `clientInfo`.
+      // See `core/initialize-hook.ts` for why `oninitialized` cannot do this on
+      // a per-request server.
+      const initializeHooked = installInitializeHook(lowLevelServer, (clientInfo, extra) => {
+        if (scope.ctx == null) return;
+        if (clientInfo != null) {
+          scope.ctx.client = {
+            ...scope.ctx.client,
+            name: clientInfo.name,
+            version: clientInfo.version,
+          };
+        }
+        // `[MCP] Session Initialized` marks "a client completed the handshake
+        // with this server", which is meaningful on every transport — including
+        // stateless HTTP, where it is now the one event that can carry a real
+        // client name. Resolve the floored server ctx into its connection form
+        // (real anchor/identity) in place; per-request builds still override
+        // these per call. The transport has already minted its session id by the
+        // time this request is dispatched, so carry it for the anchor.
+        // A session id the TRANSPORT carries proves it is reused across
+        // requests; one supplied via `instrumentServer({ sessionId })` proves
+        // only that the host tracks sessions, and those hosts run a transport
+        // per request. So persistence is decided from the transport's own id
+        // (or stdio), never from the resolved anchor.
+        const transportSessionId =
+          extra.sessionId ?? (transport as { sessionId?: string }).sessionId;
+        scope.transportPersists =
+          scope.ctx.transport === 'stdio' ||
+          (typeof transportSessionId === 'string' && transportSessionId.length > 0);
+
+        if (!this.config.autocapture.sessionLifecycle) return;
+        const resolved = buildServerContext(
+          scope.ctx,
+          { ...extra, sessionId: transportSessionId } as McpExtra,
+          {
+            serverIdentity: scope.identity,
+            resolveClientInfo: scope.clientInfoResolver,
+            logger: getLogger(this._amplitude),
+          },
+        );
+        // Persist the CONNECTION-level resolution (anchor, identity, protocol
+        // version) but keep `client` as the handshake value. `resolved.client`
+        // is this one request's answer, including whatever `resolveClientInfo`
+        // returned and the `authInfo` client id; storing it on the server scope
+        // would make it the fallback for later requests, so a request whose
+        // resolver returns nothing (or that carries no `authInfo`) would inherit
+        // the previous request's client name and OAuth client id instead of
+        // falling back to the handshake.
+        scope.ctx = { ...resolved, client: scope.ctx.client };
+        this._serverCtx = scope.ctx;
+        scope.sessionStartMs = performance.now();
+        emitSessionInitialized(this._amplitude, resolved);
+      });
+
+      // `oninitialized` fires on the `notifications/initialized` notification,
+      // after the request above. It is only a fallback for an SDK shape whose
+      // handler map we could not read — running both would double-emit
+      // `[MCP] Session Initialized` on per-request servers, where each instance
+      // has its own scope and so its own "already emitted" state.
       const existingOnInitialized = lowLevelServer.oninitialized;
       lowLevelServer.oninitialized = (): void => {
-        const clientInfo = lowLevelServer.getClientVersion();
-        if (clientInfo != null && scope.ctx != null) {
-          scope.ctx.client = { ...scope.ctx.client, name: clientInfo.name, version: clientInfo.version };
-        }
+        if (!initializeHooked) {
+          const clientInfo = lowLevelServer.getClientVersion();
+          if (clientInfo != null && scope.ctx != null) {
+            scope.ctx.client = { ...scope.ctx.client, name: clientInfo.name, version: clientInfo.version };
+          }
 
-        // `[MCP] Session Initialized` — the handshake only fires on the
-        // session-bearing transports (stdio + legacy HTTP), so this is never
-        // emitted on `2026-07-28+` stateless HTTP. Resolve the floored server ctx
-        // into its connection form (real anchor/identity) once, in place;
-        // per-request builds still override these per call. No request `extra` at
-        // the handshake; carry the transport session id (legacy HTTP) so the
-        // anchor resolves to it, else stdio → process.
-        if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
           const sessionId = (transport as { sessionId?: string }).sessionId;
-          scope.ctx = buildServerContext(
-            scope.ctx,
-            { sessionId } as unknown as McpExtra,
-            { serverIdentity: scope.identity, logger: getLogger(this._amplitude) },
-          );
-          this._serverCtx = scope.ctx;
-          scope.sessionStartMs = performance.now();
-          emitSessionInitialized(this._amplitude, scope.ctx);
+          if (scope.ctx != null) {
+            scope.transportPersists =
+              scope.ctx.transport === 'stdio' ||
+              (typeof sessionId === 'string' && sessionId.length > 0);
+          }
+
+          if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
+            const resolved = buildServerContext(
+              scope.ctx,
+              { sessionId } as unknown as McpExtra,
+              {
+                serverIdentity: scope.identity,
+                resolveClientInfo: scope.clientInfoResolver,
+                logger: getLogger(this._amplitude),
+              },
+            );
+            // Keep `client` as the handshake value — see the initialize hook.
+            scope.ctx = { ...resolved, client: scope.ctx.client };
+            this._serverCtx = scope.ctx;
+            scope.sessionStartMs = performance.now();
+            emitSessionInitialized(this._amplitude, resolved);
+          }
         }
 
         existingOnInitialized?.();

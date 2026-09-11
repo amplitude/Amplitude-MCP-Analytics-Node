@@ -12,6 +12,7 @@ export {
 } from './context/index.js';
 export type {
   AnchorType,
+  ClientInfoResolver,
   CreateServerContextInput,
   IdentityResolver,
   IdentityResolvedFrom,
@@ -26,6 +27,7 @@ export type {
   McpToolContext,
   McpToolMeta,
   McpTransport,
+  ResolveClientInfoInput,
   SetIdentityInput,
 } from './context/index.js';
 export { buildToolError, classifyError, toolErrorResult } from './errors.js';
