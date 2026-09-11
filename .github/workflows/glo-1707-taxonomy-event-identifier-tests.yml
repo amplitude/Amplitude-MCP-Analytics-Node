@@ -1,0 +1,23 @@
+name: GLO-1707 Taxonomy Event Identifier Tests
+
+on:
+  pull_request:
+    paths:
+      - 'contrib/glo-1707-taxonomy-event-identifiers/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'contrib/glo-1707-taxonomy-event-identifiers/**'
+
+jobs:
+  reference-tests:
+    name: Taxonomy event identifier regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Run reference tests
+        working-directory: contrib/glo-1707-taxonomy-event-identifiers/mcp-server
+        run: node --experimental-strip-types --test event-identifier.test.ts
