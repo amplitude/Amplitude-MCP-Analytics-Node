@@ -176,10 +176,15 @@ describe('Tier 1 parameter shape capture', () => {
           fc.string({ minLength: 20, maxLength: 200 }),
         ),
         ([email, uuid, text]) => {
-          const output = JSON.stringify(
-            capture({ emailValue: email, idValue: uuid, textValue: text })
-              .tier1,
-          );
+          const tier1 = capture({ p1: email, p2: uuid, p3: text }).tier1;
+          // Compare human-readable emitted values. The fingerprint is a
+          // non-reversible hash and can coincidentally contain a short input
+          // substring without having emitted that content.
+          const output = JSON.stringify([
+            tier1['[MCP] Param Keys'],
+            tier1['[MCP] Param Count'],
+            tier1['[MCP] Param Shape'],
+          ]);
           for (const value of [email, uuid, text]) {
             for (let index = 0; index <= value.length - 4; index += 1) {
               expect(output).not.toContain(value.slice(index, index + 4));
