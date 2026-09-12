@@ -76,3 +76,37 @@ describe('MCPAnalyticsConfig emitAnonymousEvent', () => {
     expect(new MCPAnalyticsConfig({ emitAnonymousEvent: true }).emitAnonymousEvent).toBe(true);
   });
 });
+
+describe('MCPAnalyticsConfig parameter capture', () => {
+  it('defaults shape on and excludes injected host metadata keys', () => {
+    expect(new MCPAnalyticsConfig().paramCapture).toEqual({
+      shape: true,
+      neverKeys: ['rationale', 'context'],
+    });
+  });
+
+  it('accepts the shape off-switch and custom exclusions', () => {
+    expect(
+      new MCPAnalyticsConfig({
+        paramCapture: { shape: false, neverKeys: ['private'] },
+      }).paramCapture,
+    ).toEqual({
+      shape: false,
+      neverKeys: ['private'],
+    });
+  });
+
+  it('allows an empty exclusion list and drops invalid entries', () => {
+    expect(
+      new MCPAnalyticsConfig({ paramCapture: { neverKeys: [] } }).paramCapture
+        .neverKeys,
+    ).toEqual([]);
+    expect(
+      new MCPAnalyticsConfig({
+        paramCapture: {
+          neverKeys: ['safe', 42] as unknown as string[],
+        },
+      }).paramCapture.neverKeys,
+    ).toEqual(['safe']);
+  });
+});

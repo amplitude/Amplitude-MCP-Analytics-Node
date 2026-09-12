@@ -333,6 +333,11 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock handler duration, rounded |
 | `[MCP] Request Size` | number (bytes) | schema-taking handlers, when serializable | Serialized byte size of the tool's arguments (the handler's first parameter). Absent for handlers registered without an input schema |
 | `[MCP] Response Size` | number (bytes) | when the handler returned, when serializable | Serialized byte size of the returned `CallToolResult`. Absent when the handler threw |
+| `[MCP] Param Keys` | string[] | schema-taking handlers, unless shape capture is disabled | Sorted top-level parameter keys, capped at 32. Globally/tool-excluded keys and names longer than 64 characters are omitted |
+| `[MCP] Param Count` | number | schema-taking handlers, unless shape capture is disabled | Top-level supplied key count after global/tool exclusions. Includes overlong names omitted from `[MCP] Param Keys` |
+| `[MCP] Param Shape` | string | schema-taking handlers, unless shape capture is disabled | Deterministic shallow shape: types, bucketed string lengths, and array/object counts. Capped at 1,024 characters including the visible `…` marker |
+| `[MCP] Param Fingerprint` | string | schema-taking handlers, unless shape capture is disabled | First 12 hexadecimal characters of SHA-256 over the emitted shape |
+| `[MCP] Param: <key>` | string, number, or boolean | when the tool declares a valid `paramCapture.derive` fact | Tool-authored derived metadata after the SDK's key, value, and count backstops |
 | `[MCP] Error Message` | string | on failure | Message of the classified error |
 | `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — the host's `code` from `analytics.toolError()`, or a thrown error's own `err.code`. Absent for a bare thrown exception with no code |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
@@ -367,10 +372,40 @@ handler may enrich `ctx.tool.extra` mid-call and the values land on this event.
     "[MCP] Response Duration": 184,
     "[MCP] Request Size": 64,
     "[MCP] Response Size": 2048,
+    "[MCP] Param Keys": ["limit", "query"],
+    "[MCP] Param Count": 2,
+    "[MCP] Param Shape": "limit:num;query:str[1-32]",
+    "[MCP] Param Fingerprint": "a93d18c6a9ed",
     "feature flag": "new-ranker"
   }
 }
 ```
+
+### Parameter capture
+
+Tier 1 shape capture is on by default. It reads only the handler's parsed,
+schema-validated argument object. Parameter values are represented only by
+types, collection counts, and bucketed string lengths; nested content is never
+walked. `[MCP] Param Keys` is capped at 32, while `[MCP] Param Count` is
+uncapped, so `Param Count > Param Keys.length` indicates omitted keys. Shape
+truncation happens only at a complete `key:type` boundary, and the 1,024
+character limit includes the final `…`.
+
+`MCPAnalyticsConfig({ paramCapture: { shape: false } })` disables Tier 1.
+`neverKeys` replaces the global exclusion list, which defaults to
+`['rationale', 'context']`; `McpToolMeta.paramCapture.never` adds per-tool
+exclusions. A declared `routeKey` contributes a `route=<value>` prefix only for
+a 1–64 character enum/id-shaped value without whitespace, quotes, or `@`.
+
+Tier 2 is opt-in through `McpToolMeta.paramCapture.derive`. It emits up to eight
+scalar `[MCP] Param: <key>` facts. Property suffixes must be bounded
+identifier-like names. String values longer than 256 characters or containing
+`@`, quotes, or newlines are dropped. A callback that throws or returns the
+wrong shape emits no derived facts and cannot affect the handler.
+
+Malformed tool capture metadata logs a warning and disables both tiers for that
+tool. Parameter capture does not run at all when `instrumentServer` has not
+bound a server, preserving `instrumentTool`'s no-op passthrough.
 
 ## `[MCP] Tool Call Rejected`
 
@@ -378,6 +413,8 @@ Reports each `tools/call` request that fails **before any tool callback
 runs**: the requested tool doesn't exist (or is disabled), or the arguments
 fail input-schema validation. No handler executes, so these would otherwise be
 invisible — `[MCP] Tool Call Response` only fires for dispatched calls.
+No parameter tier runs for this event: rejected arguments are unvalidated and
+may contain arbitrary input.
 
 How the MCP SDK reports such a failure to the client depends on its version, and
 this event covers both. Through `@modelcontextprotocol/sdk` 1.20 the `tools/call`
@@ -615,6 +652,11 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
+| `[MCP] Param Count` | number | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
+| `[MCP] Param Fingerprint` | string | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
+| `[MCP] Param Keys` | string[] | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
+| `[MCP] Param Shape` | string | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
+| `[MCP] Param: <key>` | string, number, or boolean | `Tool Call Response` (when declared by `paramCapture.derive`) |
 | `[MCP] Protocol Version` | string | All (when carried on the request) |
 | `[MCP] Rationale` | string | Tool-scope (opt-in, via `setRationale`) |
 | `[MCP] Rejection Reason` | string | `Tool Call Rejected` |

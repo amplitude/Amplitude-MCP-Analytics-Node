@@ -1,6 +1,6 @@
 {
   "name": "@amplitude/mcp-analytics",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Amplitude MCP Analytics SDK - MCP server usage tracking for Amplitude Analytics",
   "keywords": [
     "amplitude",
@@ -51,6 +51,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@types/node": "^25.9.2",
     "@vitest/coverage-v8": "4.0.14",
+    "fast-check": "^4.10.0",
     "rimraf": "5.0.5",
     "tsdown": "0.18.4",
     "typescript": "5.9.3",

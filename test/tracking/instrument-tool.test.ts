@@ -449,6 +449,32 @@ describe('instrumentTool', () => {
   });
 
   describe('no server binding (instrumentServer not called)', () => {
+    it('does not inspect parameters and tolerates malformed capture metadata', async () => {
+      const { client, tracked } = makeAmplitude();
+      const args = new Proxy(
+        {},
+        {
+          ownKeys: () => {
+            throw new Error('parameters were inspected');
+          },
+        },
+      );
+      const wrapped = instrumentTool(
+        mkDeps(client, () => undefined),
+        async (received: object, _extra: McpExtra) => {
+          expect(received).toBe(args);
+          return ok();
+        },
+        {
+          name: 'search_docs',
+          paramCapture: { derive: 'invalid' } as never,
+        },
+      );
+
+      await expect(wrapped(args, mkExtra())).resolves.toEqual(ok());
+      expect(tracked).toHaveLength(0);
+    });
+
     it('is a true no-op passthrough: handler runs untouched, no ctx, nothing emitted', async () => {
       const { client, tracked } = makeAmplitude();
       let received: unknown;
@@ -497,6 +523,137 @@ describe('instrumentTool', () => {
 
       expect(warnings).toHaveLength(1); // once, not per call
       expect(warnings[0]).toMatch(/instrumentTool\('search_docs'\) ran without instrumentServer/);
+    });
+  });
+
+  describe('parameter capture', () => {
+    it('captures shape and derived metadata for a schema-taking handler', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (_args: { q: string; limit: number }, _extra: McpExtra) => ok(),
+        {
+          name: 'search_docs',
+          paramCapture: {
+            derive: (params) => ({ hasLimit: typeof params.limit === 'number' }),
+          },
+        },
+      );
+
+      await wrapped({ q: 'private search', limit: 10 }, legacyExtra);
+
+      const properties = tracked[0]?.event_properties;
+      expect(properties?.['[MCP] Param Keys']).toEqual(['limit', 'q']);
+      expect(properties?.['[MCP] Param Count']).toBe(2);
+      expect(properties?.['[MCP] Param Shape']).toBe(
+        'limit:num;q:str[1-32]',
+      );
+      expect(properties?.['[MCP] Param Fingerprint']).toMatch(
+        /^[a-f0-9]{12}$/,
+      );
+      expect(properties?.['[MCP] Param: hasLimit']).toBe(true);
+      expect(JSON.stringify(properties)).not.toContain('private search');
+    });
+
+    it('can disable Tier 1 while retaining an opted-in derive', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        {
+          ...mkDeps(client, () => boundCtx()),
+          captureParamShape: false,
+        },
+        async (_args: { limit: number }, _extra: McpExtra) => ok(),
+        {
+          name: 'search_docs',
+          paramCapture: { derive: () => ({ range: 30 }) },
+        },
+      );
+
+      await wrapped({ limit: 10 }, legacyExtra);
+
+      expect(tracked[0]?.event_properties).not.toHaveProperty(
+        '[MCP] Param Shape',
+      );
+      expect(tracked[0]?.event_properties?.['[MCP] Param: range']).toBe(30);
+    });
+
+    it('omits parameter properties for handlers without a schema', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (_extra: McpExtra) => ok(),
+        { name: 'no_args' },
+      );
+
+      await wrapped(legacyExtra);
+
+      expect(tracked[0]?.event_properties).not.toHaveProperty(
+        '[MCP] Param Shape',
+      );
+    });
+
+    it('captures shape when a handler throws', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        (_args: { q: string }, _extra: McpExtra): CallToolResult => {
+          throw new Error('boom');
+        },
+        { name: 'search_docs' },
+      );
+
+      expect(() => wrapped({ q: 'private' }, legacyExtra)).toThrow('boom');
+      expect(tracked[0]?.event_properties?.['[MCP] Param Shape']).toBe(
+        'q:str[1-32]',
+      );
+    });
+
+    it('captures shape for an in-band error result', async () => {
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        mkDeps(client, () => boundCtx()),
+        async (_args: { limit: number }, _extra: McpExtra) => ({
+          isError: true,
+          content: [{ type: 'text', text: 'failed' }],
+        }),
+        { name: 'search_docs' },
+      );
+
+      await wrapped({ limit: 500 }, legacyExtra);
+
+      expect(tracked[0]?.event_properties?.['[MCP] Is Error']).toBe(true);
+      expect(tracked[0]?.event_properties?.['[MCP] Param Shape']).toBe(
+        'limit:num',
+      );
+    });
+
+    it('warns and disables capture for malformed metadata', async () => {
+      const warnings: string[] = [];
+      const { client, tracked } = makeAmplitude();
+      const wrapped = instrumentTool(
+        {
+          ...mkDeps(client, () => boundCtx()),
+          logger: {
+            debug: () => undefined,
+            error: () => undefined,
+            info: () => undefined,
+            warn: (message) => warnings.push(message),
+          },
+        },
+        async (_args: { q: string }, _extra: McpExtra) => ok(),
+        {
+          name: 'search_docs',
+          paramCapture: { routeKey: 42 } as never,
+        },
+      );
+
+      await wrapped({ q: 'private' }, legacyExtra);
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('parameter capture is disabled');
+      expect(tracked[0]?.event_properties).not.toHaveProperty(
+        '[MCP] Param Shape',
+      );
     });
   });
 });

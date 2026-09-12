@@ -16,6 +16,8 @@ interface ToolCallOutcome {
   requestSizeBytes?: number;
   /** Serialized byte size of the tool result, when computable. */
   responseSizeBytes?: number;
+  /** Bounded parameter metadata derived by the instrumentation wrapper. */
+  paramProperties?: Record<string, unknown>;
 }
 
 /**
@@ -38,6 +40,9 @@ export function emitToolCallResponse(
 
   if (outcome.requestSizeBytes != null) properties[K.requestSize] = outcome.requestSizeBytes;
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
+  if (outcome.paramProperties != null) {
+    Object.assign(properties, outcome.paramProperties);
+  }
 
   if (ctx.error != null) {
     const message = sanitizeErrorMessage(ctx.error.message, sanitize);
