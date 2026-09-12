@@ -38,6 +38,11 @@ import { isPromise } from '../utils/common.js';
 import { getLogger } from '../utils/logger.js';
 import type { Logger } from '../utils/logger.js';
 import { emitToolCallResponse } from './events/tool-call-response.js';
+import {
+  captureParamProperties,
+  resolveToolParamCapture,
+} from './param-capture.js';
+import type { ResolvedToolParamCapture } from './param-capture.js';
 
 /**
  * Dependencies the standalone {@link instrumentTool} factory needs from the client.
@@ -75,6 +80,10 @@ export interface InstrumentToolDependencies {
   trackToolCalls: boolean;
   /** Rewrites/drops `[MCP] Error Message`, from `config.sanitizeErrorMessage`. */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Whether Tier 1 shape capture is enabled. */
+  captureParamShape?: boolean;
+  /** Global parameter keys excluded from capture. */
+  paramNeverKeys?: readonly string[];
   logger?: Logger;
 }
 
@@ -98,6 +107,15 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
   let warnedUnbound = false;
 
   const trackToolCalls = deps.trackToolCalls !== false;
+  const captureResolution = resolveToolParamCapture(meta.paramCapture);
+  const logger = deps.logger ?? getLogger(deps.amplitude);
+  for (const warning of captureResolution.warnings) {
+    logger.warn(
+      `AmplitudeMCPAnalytics: instrumentTool('${meta.name}') ${warning}; parameter capture ${
+        captureResolution.disabled ? 'is disabled for this tool' : 'will continue without those entries'
+      }.`,
+    );
+  }
 
   return (...callArgs: Args): R => {
     const extra = (callArgs[callArgs.length - 1] ?? {}) as McpExtra;
@@ -143,6 +161,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
         callArgs,
         track: trackToolCalls,
         sanitize: deps.sanitizeErrorMessage,
+        capture: captureResolution.disabled ? undefined : captureResolution.policy,
+        captureDisabled: captureResolution.disabled,
+        captureShape: deps.captureParamShape ?? true,
+        neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+        logger,
       });
       throw err;
     }
@@ -160,6 +183,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             callArgs,
             track: trackToolCalls,
             sanitize: deps.sanitizeErrorMessage,
+            capture: captureResolution.disabled ? undefined : captureResolution.policy,
+            captureDisabled: captureResolution.disabled,
+            captureShape: deps.captureParamShape ?? true,
+            neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+            logger,
           });
           return value;
         },
@@ -172,6 +200,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             callArgs,
             track: trackToolCalls,
             sanitize: deps.sanitizeErrorMessage,
+            capture: captureResolution.disabled ? undefined : captureResolution.policy,
+            captureDisabled: captureResolution.disabled,
+            captureShape: deps.captureParamShape ?? true,
+            neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+            logger,
           });
           throw err;
         },
@@ -187,6 +220,11 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       callArgs,
       track: trackToolCalls,
       sanitize: deps.sanitizeErrorMessage,
+      capture: captureResolution.disabled ? undefined : captureResolution.policy,
+      captureDisabled: captureResolution.disabled,
+      captureShape: deps.captureParamShape ?? true,
+      neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+      logger,
     });
     return result;
   };
@@ -222,6 +260,11 @@ function recordToolCall<Args extends unknown[]>(params: {
    * compiler catches that omission instead of a reviewer.
    */
   sanitize: ErrorMessageSanitizer | undefined;
+  capture: ResolvedToolParamCapture | undefined;
+  captureDisabled: boolean;
+  captureShape: boolean;
+  neverKeys: readonly string[];
+  logger: Logger;
 }): void {
   const { ctx, amplitude, durationMs, callArgs } = params;
   let isToolError = false;
@@ -242,6 +285,32 @@ function recordToolCall<Args extends unknown[]>(params: {
 
   if (!params.track) return;
 
+  let paramProperties: Record<string, unknown> | undefined;
+  const toolArgs = callArgs.length > 1 ? callArgs[0] : undefined;
+  if (
+    !params.captureDisabled &&
+    toolArgs != null &&
+    typeof toolArgs === 'object'
+  ) {
+    try {
+      const captured = captureParamProperties(
+        toolArgs as Record<string, unknown>,
+        {
+          shape: params.captureShape,
+          neverKeys: params.neverKeys,
+          policy: params.capture,
+          logger: params.logger,
+          toolName: ctx.tool.name,
+        },
+      );
+      paramProperties = { ...captured.tier1, ...captured.tier2 };
+    } catch {
+      params.logger.debug(
+        `AmplitudeMCPAnalytics: parameter capture for '${ctx.tool.name}' failed; parameter properties were omitted.`,
+      );
+    }
+  }
+
   // Custom fields ride on `ctx.tool.extra` and are resolved downstream.
   emitToolCallResponse(
     amplitude,
@@ -251,6 +320,7 @@ function recordToolCall<Args extends unknown[]>(params: {
       durationMs,
       requestSizeBytes: byteSize(callArgs.length > 1 ? callArgs[0] : undefined),
       responseSizeBytes: 'returned' in params ? byteSize(params.returned) : undefined,
+      paramProperties,
     },
     params.sanitize,
   );
