@@ -1,7 +1,11 @@
 export { AmplitudeMCPAnalytics, createMcpAnalytics } from './client.js';
 export type { AmplitudeMCPAnalyticsOptions, InstrumentServerOptions } from './client.js';
 export { MCPAnalyticsConfig } from './config.js';
-export type { AutocaptureConfig, MCPAnalyticsConfigOptions } from './config.js';
+export type {
+  AutocaptureConfig,
+  MCPAnalyticsConfigOptions,
+  ParamCaptureConfig,
+} from './config.js';
 export {
   createServerContext,
   createToolContext,
@@ -29,6 +33,7 @@ export type {
   McpTransport,
   ResolveClientInfoInput,
   SetIdentityInput,
+  ToolParamCapture,
 } from './context/index.js';
 export { buildToolError, classifyError, toolErrorResult } from './errors.js';
 export type { McpToolError, McpToolErrorType, ToolErrorInput } from './errors.js';

@@ -50,6 +50,21 @@ export interface AutocaptureConfig {
  */
 export type ErrorMessageSanitizer = (message: string) => string | null;
 
+/** Global controls for tool-parameter capture. */
+export interface ParamCaptureConfig {
+  /**
+   * Emit content-free parameter shape metadata on tool-call events.
+   * @default true
+   */
+  shape?: boolean;
+  /**
+   * Parameter keys excluded from capture for every tool. Tool-level `never`
+   * keys are unioned with this list.
+   * @default ['rationale', 'context']
+   */
+  neverKeys?: readonly string[];
+}
+
 export interface MCPAnalyticsConfigOptions {
   /**
    * Emit verbose internal logging to the console.
@@ -86,6 +101,8 @@ export interface MCPAnalyticsConfigOptions {
    * @see ErrorMessageSanitizer
    */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Global controls for tool-parameter capture. */
+  paramCapture?: ParamCaptureConfig;
 }
 
 const ALL_ON: Required<AutocaptureConfig> = {
@@ -146,6 +163,11 @@ export class MCPAnalyticsConfig {
   readonly emitAnonymousEvent: boolean;
   /** Rewrites/drops `[MCP] Error Message`, when supplied. @see ErrorMessageSanitizer */
   readonly sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Resolved global parameter-capture controls. */
+  readonly paramCapture: {
+    readonly shape: boolean;
+    readonly neverKeys: readonly string[];
+  };
 
   constructor(options: MCPAnalyticsConfigOptions = {}) {
     this.debug = options.debug ?? false;
@@ -155,5 +177,13 @@ export class MCPAnalyticsConfig {
     if (typeof options.sanitizeErrorMessage === 'function') {
       this.sanitizeErrorMessage = options.sanitizeErrorMessage;
     }
+    this.paramCapture = {
+      shape: options.paramCapture?.shape ?? true,
+      neverKeys: Array.isArray(options.paramCapture?.neverKeys)
+        ? options.paramCapture.neverKeys.filter(
+            (key): key is string => typeof key === 'string',
+          )
+        : ['rationale', 'context'],
+    };
   }
 }

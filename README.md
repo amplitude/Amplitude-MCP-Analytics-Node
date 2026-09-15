@@ -99,7 +99,7 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | `[MCP] Session Initialized` | The `initialize` handshake (every transport) | client/server identity, `[MCP] Transport`, `[MCP] Auth Type` |
 | `[MCP] Session Ended` | Close of a connection that outlived one request (stdio + legacy Streamable HTTP) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
-| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
+| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, content-free `[MCP] Param *` shape metadata, `[MCP] Rationale` (opt-in, see below) |
 | `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
@@ -222,6 +222,68 @@ free text, so emitting it is an explicit opt-in, and where it lives is your
 convention. Callable at any depth inside an instrumented handler (like
 `setIdentity`); truncated to 1000 characters; last write wins. Omitted
 entirely when never set.
+
+## Tool parameter capture
+
+For handlers with an input schema, `[MCP] Tool Call Response` automatically
+includes content-free metadata describing which parameters were supplied and
+their shallow types:
+
+- `[MCP] Param Keys` — sorted top-level keys, capped at 32
+- `[MCP] Param Count` — the full top-level key count
+- `[MCP] Param Shape` — deterministic types, array/object counts, and bucketed
+  string lengths, capped at 1,024 characters
+- `[MCP] Param Fingerprint` — a stable 12-character hash of the shape
+
+Values are not included. Nested arrays and objects are counted, not traversed,
+and exact string lengths are bucketed. Keys longer than 64 characters are
+excluded from the keys and shape properties. By default, `rationale` and
+`context` are also excluded because servers commonly use those names for
+content-bearing injected metadata.
+
+Multiplexed tools can include a safe route value in the shape, and tools can
+opt into bounded scalar facts derived from their inputs:
+
+```ts
+server.tool('manage_items', schema, analytics.instrumentTool(
+  async (args, extra) => manageItems(args),
+  {
+    name: 'manage_items',
+    paramCapture: {
+      routeKey: 'action',
+      never: ['privateMetadata'],
+      derive: (params) => ({
+        itemCount: Array.isArray(params.items) ? params.items.length : 0,
+        destructive: params.action === 'delete',
+      }),
+    },
+  },
+));
+```
+
+Derived facts are emitted as `[MCP] Param: <key>`. The SDK accepts at most eight
+per tool call and drops non-scalars, long strings, unsafe property names, and
+strings containing email/free-text indicators such as `@`, quotes, or newlines.
+A throwing `derive` callback is ignored and never affects the tool response.
+Malformed capture metadata logs a warning and disables parameter capture for
+that tool rather than changing server behavior.
+
+Disable automatic shape capture, or replace the global exclusion list, through
+the SDK config. Opted-in `derive` facts still run when `shape` is disabled:
+
+```ts
+new MCPAnalyticsConfig({
+  paramCapture: {
+    shape: false,
+    neverKeys: ['reason', 'customerContext'],
+  },
+});
+```
+
+The SDK may inspect and serialize inputs to derive this metadata and
+`[MCP] Request Size`, but it never emits input content unless the server author
+explicitly opts into a derived fact or calls a content-bearing API such as
+`setRationale`.
 
 ## Error HTTP status
 
