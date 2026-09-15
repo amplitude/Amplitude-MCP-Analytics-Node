@@ -170,7 +170,7 @@ export interface ToolParamCapture {
   derive?: (
     params: Record<string, unknown>,
   ) => Record<string, string | number | boolean>;
-  /** Keys excluded from every parameter-capture tier for this tool. */
+  /** Keys excluded from parameter capture for this tool. */
   never?: readonly string[];
 }
 
@@ -187,7 +187,7 @@ export interface McpToolMeta {
    */
   extra?: Record<string, unknown>;
 
-  /** Parameter-capture policy for this tool. Absent means Tier 1 shape only. */
+  /** Parameter-capture policy for this tool. Absent means automatic shape capture only. */
   paramCapture?: ToolParamCapture;
 
   /** Free-form metadata; forward-compatible and the home for server-specific fields. */

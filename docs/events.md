@@ -383,7 +383,7 @@ handler may enrich `ctx.tool.extra` mid-call and the values land on this event.
 
 ### Parameter capture
 
-Tier 1 shape capture is on by default. It reads only the handler's parsed,
+Shape capture is on by default. It reads only the handler's parsed,
 schema-validated argument object. Parameter values are represented only by
 types, collection counts, and bucketed string lengths; nested content is never
 walked. `[MCP] Param Keys` is capped at 32, while `[MCP] Param Count` is
@@ -391,20 +391,20 @@ uncapped, so `Param Count > Param Keys.length` indicates omitted keys. Shape
 truncation happens only at a complete `key:type` boundary, and the 1,024
 character limit includes the final `…`.
 
-`MCPAnalyticsConfig({ paramCapture: { shape: false } })` disables Tier 1.
-`neverKeys` replaces the global exclusion list, which defaults to
+`MCPAnalyticsConfig({ paramCapture: { shape: false } })` disables shape
+capture. `neverKeys` replaces the global exclusion list, which defaults to
 `['rationale', 'context']`; `McpToolMeta.paramCapture.never` adds per-tool
 exclusions. A declared `routeKey` contributes a `route=<value>` prefix only for
 a 1–64 character enum/id-shaped value without whitespace, quotes, or `@`.
 
-Tier 2 is opt-in through `McpToolMeta.paramCapture.derive`. It emits up to eight
-scalar `[MCP] Param: <key>` facts. Property suffixes must be bounded
+Servers can also opt in through `McpToolMeta.paramCapture.derive`. It emits up
+to eight scalar `[MCP] Param: <key>` facts. Property suffixes must be bounded
 identifier-like names. String values longer than 256 characters or containing
 `@`, quotes, or newlines are dropped. A callback that throws or returns the
 wrong shape emits no derived facts and cannot affect the handler.
 
-Malformed tool capture metadata logs a warning and disables both tiers for that
-tool. Parameter capture does not run at all when `instrumentServer` has not
+Malformed tool capture metadata logs a warning and disables parameter capture
+for that tool. Capture does not run at all when `instrumentServer` has not
 bound a server, preserving `instrumentTool`'s no-op passthrough.
 
 ## `[MCP] Tool Call Rejected`
@@ -413,8 +413,8 @@ Reports each `tools/call` request that fails **before any tool callback
 runs**: the requested tool doesn't exist (or is disabled), or the arguments
 fail input-schema validation. No handler executes, so these would otherwise be
 invisible — `[MCP] Tool Call Response` only fires for dispatched calls.
-No parameter tier runs for this event: rejected arguments are unvalidated and
-may contain arbitrary input.
+Parameter capture does not run for this event: rejected arguments are
+unvalidated and may contain arbitrary input.
 
 How the MCP SDK reports such a failure to the client depends on its version, and
 this event covers both. Through `@modelcontextprotocol/sdk` 1.20 the `tools/call`

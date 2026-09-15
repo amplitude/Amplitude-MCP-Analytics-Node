@@ -555,7 +555,7 @@ describe('instrumentTool', () => {
       expect(JSON.stringify(properties)).not.toContain('private search');
     });
 
-    it('can disable Tier 1 while retaining an opted-in derive', async () => {
+    it('can disable shape capture while retaining an opted-in derive', async () => {
       const { client, tracked } = makeAmplitude();
       const wrapped = instrumentTool(
         {

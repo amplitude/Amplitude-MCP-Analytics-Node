@@ -80,7 +80,7 @@ export interface InstrumentToolDependencies {
   trackToolCalls: boolean;
   /** Rewrites/drops `[MCP] Error Message`, from `config.sanitizeErrorMessage`. */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
-  /** Whether Tier 1 shape capture is enabled. */
+  /** Whether content-free parameter shape capture is enabled. */
   captureParamShape?: boolean;
   /** Global parameter keys excluded from capture. */
   paramNeverKeys?: readonly string[];
