@@ -13,6 +13,13 @@ const logger: Logger = {
   warn: vi.fn(),
 };
 
+function stringBucket(value: string): string {
+  if (value.length === 0) return 'str[0]';
+  if (value.length <= 32) return 'str[1-32]';
+  if (value.length <= 256) return 'str[33-256]';
+  return 'str[257+]';
+}
+
 function capture(
   params: Record<string, unknown>,
   overrides: Partial<Parameters<typeof captureParamProperties>[1]> = {},
@@ -177,22 +184,33 @@ describe('Tier 1 parameter shape capture', () => {
         ),
         ([email, uuid, text]) => {
           const tier1 = capture({ p1: email, p2: uuid, p3: text }).tier1;
-          // Compare human-readable emitted values. The fingerprint is a
-          // non-reversible hash and can coincidentally contain a short input
-          // substring without having emitted that content.
+          const expectedShape = [
+            `p1:${stringBucket(email)}`,
+            `p2:${stringBucket(uuid)}`,
+            `p3:${stringBucket(text)}`,
+          ].join(';');
+          expect(tier1['[MCP] Param Shape']).toBe(expectedShape);
+
+          // Fingerprint is a hash and can coincidentally contain a short
+          // input slice, so only inspect keys/count/shape.
           const output = JSON.stringify([
             tier1['[MCP] Param Keys'],
             tier1['[MCP] Param Count'],
             tier1['[MCP] Param Shape'],
           ]);
           for (const value of [email, uuid, text]) {
+            expect(output).not.toContain(value);
             for (let index = 0; index <= value.length - 4; index += 1) {
-              expect(output).not.toContain(value.slice(index, index + 4));
+              const slice = value.slice(index, index + 4);
+              // UUIDs like `…-2560-…` overlap the bucket token `str[33-256]`.
+              // Skip slices the length-derived grammar is allowed to emit.
+              if (expectedShape.includes(slice)) continue;
+              expect(output).not.toContain(slice);
             }
           }
         },
       ),
-      { numRuns: 100 },
+      { numRuns: 200 },
     );
   });
 });
