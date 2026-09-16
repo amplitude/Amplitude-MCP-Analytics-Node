@@ -118,6 +118,23 @@ describe('instrumentServer — [MCP] Tool Call Rejected', () => {
     expect(eventsOf(tracked, '[MCP] Tool Call Response')).toHaveLength(0);
   });
 
+  it('resolves identity for a stateless rejected tool call', async () => {
+    const { analytics, tracked } = makeAnalytics();
+    const { server } = makeFakeServer();
+    analytics.instrumentServer(server as unknown as McpServer, {
+      resolveIdentity: (authInfo) => ({ userId: authInfo?.sub as string }),
+    });
+    await server.connect(httpTransport);
+
+    await expect(
+      server.callTool('made_up_tool', {}, { authInfo: { sub: 'alice@example.com' } }),
+    ).rejects.toThrow('Tool made_up_tool not found');
+
+    const [rejected] = eventsOf(tracked, '[MCP] Tool Call Rejected');
+    expect(rejected?.user_id).toBe('alice@example.com');
+    expect(rejected?.event_properties?.['[MCP] Anchor Type']).toBe('anonymous');
+  });
+
   it('does not emit for a dispatched instrumented tool that succeeds', async () => {
     const { analytics, tracked } = makeAnalytics();
     const { server } = makeFakeServer();
