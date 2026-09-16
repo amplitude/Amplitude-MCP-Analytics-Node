@@ -230,6 +230,33 @@ describe('per-server scope — server events', () => {
     expect(event?.event_properties?.['[MCP] Tool Count']).toBe(2);
   });
 
+  it('resolves identity for stateless [MCP] Tools Listed events', async () => {
+    const { analytics, tracked } = makeAnalytics();
+
+    const server = makeServer({
+      'tools/list': (async () => ({
+        tools: [{ name: 'search' }],
+      })) as unknown as ServerRequestHandler,
+    });
+    analytics.instrumentServer(server as never, {
+      resolveIdentity: (authInfo) => ({
+        userId: authInfo?.sub as string,
+        tenant: { groupType: 'org id', groupValue: authInfo?.orgId as string },
+      }),
+    });
+    await server.connect(httpTransport());
+
+    await server._requestHandlers.get('tools/list')!(
+      {} as never,
+      mkExtra({ authInfo: { sub: 'alice@example.com', orgId: 'org-a' } }),
+    );
+
+    const event = tracked.find((e) => e.event_type === '[MCP] Tools Listed');
+    expect(event?.user_id).toBe('alice@example.com');
+    expect(event?.groups).toEqual({ 'org id': 'org-a' });
+    expect(event?.event_properties?.['[MCP] Anchor Type']).toBe('anonymous');
+  });
+
   it('emits Tools Listed but no session lifecycle with { serverEvents: false, toolsListed: true }', async () => {
     const { analytics, tracked } = makeAnalytics(
       new MCPAnalyticsConfig({
