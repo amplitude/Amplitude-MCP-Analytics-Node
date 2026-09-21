@@ -107,7 +107,9 @@ same-named events/properties from other Amplitude SDKs on the same project.
 
 This table is a summary. The full reference — every property and when it's
 present, identity resolution, transport nuances, and the error taxonomy —
-lives in [`docs/events.md`](./docs/events.md).
+lives in [`docs/events.md`](./docs/events.md), which is also the normative
+event contract if you are implementing it in another language (see
+[`docs/porting.md`](./docs/porting.md)).
 
 A protocol *session* only exists on stdio and on Streamable HTTP where the
 transport mints a session id. Two distinct cases look "stateless" and behave
@@ -383,8 +385,11 @@ its own timeline without coupling unrelated breaking changes.
 
 ### `-node` suffix
 
-Node/TypeScript only for v1. A Python SDK may follow; the suffix leaves
-room without forcing a future rename.
+This package is Node/TypeScript only; the suffix leaves room for sibling SDKs
+without forcing a rename. A
+[Python SDK](https://github.com/amplitude/Amplitude-MCP-Analytics-Python)
+implements the same event contract. For any other language, that contract is
+documented and portable — see [`docs/porting.md`](./docs/porting.md).
 
 ### Mimic `@amplitude/ai` for DX, not for the domain model
 

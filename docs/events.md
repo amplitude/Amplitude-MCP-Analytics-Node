@@ -490,6 +490,7 @@ and `[MCP] Tool Call Rejected`, and carries one of:
 | `thrown_exception` | The handler threw a JavaScript `Error` not matching a more specific rule |
 | `timeout` | The thrown error was an `AbortError` |
 | `transport_error` | The thrown error carried a Node network error code (`ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `EPIPE`, `EAI_AGAIN`) |
+| `rate_limited` | The thrown error carried HTTP status 429. Also sets `retrySuggested` on `ctx.error` |
 | `protocol_error` | A `tools/call` failed before dispatch (unknown tool, input-schema validation) — always the type on `[MCP] Tool Call Rejected` |
 | `unknown` | A non-`Error` value was thrown |
 
