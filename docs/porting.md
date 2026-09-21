@@ -227,6 +227,22 @@ name      = "<anchorType>:<anchorValue>"
 device_id = uuidv5(namespace, name)
 ```
 
+**Why hash at all?** Amplitude requires a `user_id` or `device_id` on every
+event, and an MCP server frequently has neither — no login, and on stateless
+HTTP nothing that survives the request. Minting a random id per request would
+turn every tool call into a new "device" and make unique-device counts
+meaningless. Hashing a stable anchor instead gives the same id for the same
+session or process every time, **without storing anything** — no lookup table,
+no cache to warm, nothing to lose across a serverless cold start.
+
+**What the namespace does.** It is an input to the hash, not a field on the
+event; it never appears in the ingestion payload. What it controls is the
+*mapping* from anchor to `device_id`. Two implementations that agree on
+everything else but use different namespaces will produce two disjoint device
+populations for identical traffic, and nothing on the wire will say why — which
+is precisely why the test vectors below are worth running before you trust your
+output.
+
 This is standard, unmodified UUIDv5 — SHA-1 over the namespace's 16 raw bytes
 followed by the UTF-8 name, with version and variant bits set. Use your
 language's UUID library; do not hand-roll it. (The Node SDK hand-rolls it only
@@ -251,9 +267,15 @@ namespace above:
 Matching the namespace matters only if you later migrate to a first-party SDK,
 or run a port and an official SDK side by side: it keeps the same anchor
 resolving to the same device across the cutover instead of resetting your whole
-device population. If neither applies, any stable private namespace of your own
-works — just never use one of the four reserved RFC namespaces, which are
-globally published and make every `device_id` reproducible by anyone.
+device population. If neither applies, any stable namespace of your own works.
+
+Whichever you pick, **do not use one of the four namespaces RFC 9562 reserves**
+(DNS, URL, OID, X.500). Their purpose is domain separation: a namespace you own
+guarantees your derivation cannot collide with any other system that happens to
+hash similar-looking names. A reserved constant gives up that guarantee for
+nothing. Pick a random v4 UUID once and treat it as fixed — changing it later
+re-derives every `device_id` you have ever sent, which is a breaking change for
+your data.
 
 ### 4. The skip rule
 
