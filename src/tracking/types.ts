@@ -2,7 +2,12 @@
  * Reserved field types for the event emitters. The wire property names 
  * are produced at emit time by `reservedFieldsToProperties`.
  */
-import type { AnchorType, McpTransport } from '../context/types.js';
+import type {
+  AnchorType,
+  McpEpisodeAnchorConfidence,
+  McpEpisodeAnchorType,
+  McpTransport,
+} from '../context/types.js';
 
 /** Reserved, SDK-derived fields shared by every event. */
 export interface DefaultServerFields {
@@ -22,6 +27,11 @@ export interface DefaultServerFields {
   serverType?: string;
   protocolVersion?: string;
   authType?: string;
+  conversationId?: string;
+  runId?: string;
+  turnId?: string;
+  episodeAnchorType?: McpEpisodeAnchorType;
+  episodeAnchorConfidence?: McpEpisodeAnchorConfidence;
 }
 
 /** Reserved tool-scope fields — extends the server-scope set. */

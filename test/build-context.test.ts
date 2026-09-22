@@ -114,6 +114,79 @@ describe('buildToolContext — protocolVersion', () => {
   });
 });
 
+describe('buildToolContext — client correlation', () => {
+  it('reads conversation, run, and turn identifiers from stateless request _meta', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          conversation_id: 'conversation-123',
+          run_id: 'run-456',
+          turn_id: 'turn-7',
+        },
+      }),
+    );
+
+    expect(ctx.correlation).toEqual({
+      conversationId: 'conversation-123',
+      runId: 'run-456',
+      turnId: 'turn-7',
+      episodeAnchorType: 'conversation-id',
+      episodeAnchorConfidence: 'high',
+    });
+    expect(ctx.anchor.type).toBe('anonymous');
+  });
+
+  it('normalizes job and numeric turn aliases and uses the run as the episode anchor', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({ _meta: { jobId: 'job-456', turn_number: 8 } }),
+    );
+
+    expect(ctx.correlation).toEqual({
+      runId: 'job-456',
+      turnId: '8',
+      episodeAnchorType: 'run-id',
+      episodeAnchorConfidence: 'high',
+    });
+  });
+
+  it('keeps legacy session semantics while reporting the best episode anchor', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        sessionId: 'session-legacy',
+        _meta: { conversationId: 'conversation-123' },
+      }),
+    );
+
+    expect(ctx.anchor).toEqual({ type: 'session-id', value: 'session-legacy' });
+    expect(ctx.correlation?.episodeAnchorType).toBe('conversation-id');
+    expect(ctx.correlation?.episodeAnchorConfidence).toBe('high');
+  });
+
+  it('classifies trace and inferred fallbacks without fabricating identifiers', () => {
+    const traced = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+        },
+      }),
+    );
+    const inferred = toolCtx('streamable-http', mkExtra());
+
+    expect(traced.correlation).toEqual({
+      episodeAnchorType: 'trace',
+      episodeAnchorConfidence: 'medium',
+    });
+    expect(inferred.correlation).toEqual({
+      episodeAnchorType: 'inferred',
+      episodeAnchorConfidence: 'low',
+    });
+  });
+});
+
 describe('buildToolContext — client info', () => {
   it('reads per-request clientInfo from _meta (wins over the handshake)', () => {
     const ctx = toolCtx(
