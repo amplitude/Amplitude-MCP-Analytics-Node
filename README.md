@@ -149,7 +149,7 @@ to strings. Camel-case (`conversationId`, `threadId`, `runId`, `jobId`,
 `turnId`, `turnNumber`) and equivalent `com.amplitude/...` namespaced keys are
 also accepted for compatibility.
 
-Each per-request event also reports `[MCP] Episode Anchor Type` and
+Each tool-scope event also reports `[MCP] Episode Anchor Type` and
 `[MCP] Episode Anchor Confidence`. The strongest available source wins:
 conversation, run/job, transport session, W3C trace, then inferred. These
 properties do not replace `[MCP] Session ID`; legacy session semantics remain

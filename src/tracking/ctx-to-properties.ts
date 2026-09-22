@@ -34,15 +34,6 @@ export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields<Def
   if (ctx.server.type != null) eventFields.serverType = ctx.server.type;
   if (ctx.protocolVersion != null) eventFields.protocolVersion = ctx.protocolVersion;
   if (ctx.authType != null) eventFields.authType = ctx.authType;
-  if (ctx.correlation != null) {
-    if (ctx.correlation.conversationId != null) {
-      eventFields.conversationId = ctx.correlation.conversationId;
-    }
-    if (ctx.correlation.runId != null) eventFields.runId = ctx.correlation.runId;
-    if (ctx.correlation.turnId != null) eventFields.turnId = ctx.correlation.turnId;
-    eventFields.episodeAnchorType = ctx.correlation.episodeAnchorType;
-    eventFields.episodeAnchorConfidence = ctx.correlation.episodeAnchorConfidence;
-  }
 
   const fields: AmplitudeFields<DefaultServerFields> = {
     event_properties: eventFields,
@@ -77,6 +68,15 @@ export function ctxToAmplitudeFieldsForTool(ctx: McpToolContext): AmplitudeField
   const responseHttpStatus = ctx.request?.responseHttpStatus;
   if (typeof responseHttpStatus === 'number') {
     fields.responseHttpStatus = responseHttpStatus;
+  }
+  if (ctx.correlation != null) {
+    if (ctx.correlation.conversationId != null) {
+      fields.conversationId = ctx.correlation.conversationId;
+    }
+    if (ctx.correlation.runId != null) fields.runId = ctx.correlation.runId;
+    if (ctx.correlation.turnId != null) fields.turnId = ctx.correlation.turnId;
+    fields.episodeAnchorType = ctx.correlation.episodeAnchorType;
+    fields.episodeAnchorConfidence = ctx.correlation.episodeAnchorConfidence;
   }
 
   return {

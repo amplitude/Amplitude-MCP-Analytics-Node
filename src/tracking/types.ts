@@ -27,11 +27,6 @@ export interface DefaultServerFields {
   serverType?: string;
   protocolVersion?: string;
   authType?: string;
-  conversationId?: string;
-  runId?: string;
-  turnId?: string;
-  episodeAnchorType?: McpEpisodeAnchorType;
-  episodeAnchorConfidence?: McpEpisodeAnchorConfidence;
 }
 
 /** Reserved tool-scope fields — extends the server-scope set. */
@@ -45,6 +40,11 @@ export interface DefaultToolFields extends DefaultServerFields {
   /** Transport HTTP status of the response; host-supplied via
    *  `ctx.request.responseHttpStatus` (see `McpRequestInfo`). */
   responseHttpStatus?: number;
+  conversationId?: string;
+  runId?: string;
+  turnId?: string;
+  episodeAnchorType?: McpEpisodeAnchorType;
+  episodeAnchorConfidence?: McpEpisodeAnchorConfidence;
 }
 
 /** What the ctx mappers return: identity fields, typed reserved 

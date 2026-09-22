@@ -181,10 +181,10 @@ the request, and `[MCP] Episode Anchor Confidence` reports its reliability:
 | 4 | `trace` | `medium` | W3C `traceparent` |
 | 5 | `inferred` | `low` | No durable client- or transport-supplied boundary |
 
-These properties are emitted on per-request events, including
-`[MCP] Tool Call Response`. They are separate from the transport correlation
-anchor: client identifiers never overwrite `[MCP] Session ID`, change
-`[MCP] Anchor Type`, or alter identity fallback.
+These properties are emitted on tool-scope events, including `[MCP] Tool Call
+Response` and custom events sent through `trackToolEvent`. They are separate
+from the transport correlation anchor: client identifiers never overwrite
+`[MCP] Session ID`, change `[MCP] Anchor Type`, or alter identity fallback.
 
 ### Client identity
 
@@ -250,11 +250,6 @@ Every event — the four default events *and* custom events emitted through
 | `[MCP] Anchor Type` | string | always | `session-id`, `trace`, `process`, or `anonymous` — see [Correlation anchor](#correlation-anchor) |
 | `[MCP] Protocol Version` | string | when carried | Negotiated MCP protocol revision, read per request from the `MCP-Protocol-Version` HTTP header or `_meta.protocolVersion`. Not captured on stdio or at the handshake, so the session events don't carry it |
 | `[MCP] Auth Type` | string | when configured | The `authType` passed to `instrumentServer` (e.g. `oauth`); values are server-specific |
-| `[MCP] Conversation ID` | string | when supplied in request `_meta` | Host conversation/thread identifier |
-| `[MCP] Run ID` | string | when supplied in request `_meta` | Agent run or batch job identifier |
-| `[MCP] Turn ID` | string | when supplied in request `_meta` | Turn identifier or normalized turn number |
-| `[MCP] Episode Anchor Type` | string | per-request events | `conversation-id`, `run-id`, `transport-session`, `trace`, or `inferred` |
-| `[MCP] Episode Anchor Confidence` | string | per-request events | `high`, `medium`, or `low` |
 
 On top of these, any **`extra`** enrichment bags in scope ride along as
 event properties: the server-scope bag (`extra` in `instrumentServer` options)
@@ -365,6 +360,11 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Tool Owner` | string | when set | `owner` from the tool metadata |
 | `[MCP] Tool Tags` | string[] | when set, non-empty | `tags` from the tool metadata |
 | `[MCP] Tool Category` | string | when set, non-empty | `category` from the tool metadata |
+| `[MCP] Conversation ID` | string | when supplied in request `_meta` | Host conversation/thread identifier |
+| `[MCP] Run ID` | string | when supplied in request `_meta` | Agent run or batch job identifier |
+| `[MCP] Turn ID` | string | when supplied in request `_meta` | Turn identifier or normalized turn number |
+| `[MCP] Episode Anchor Type` | string | always | `conversation-id`, `run-id`, `transport-session`, `trace`, or `inferred` |
+| `[MCP] Episode Anchor Confidence` | string | always | `high`, `medium`, or `low` |
 | `[MCP] Is Error` | boolean | always | `true` on a thrown exception or an in-band `isError` result |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock handler duration, rounded |
 | `[MCP] Request Size` | number (bytes) | schema-taking handlers, when serializable | Serialized byte size of the tool's arguments (the handler's first parameter). Absent for handlers registered without an input schema |
@@ -646,13 +646,13 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |
-| `[MCP] Conversation ID` | string | Per-request events (when supplied) |
+| `[MCP] Conversation ID` | string | Tool-scope (when supplied) |
 | `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
 | `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
-| `[MCP] Episode Anchor Confidence` | string | Per-request events |
-| `[MCP] Episode Anchor Type` | string | Per-request events |
+| `[MCP] Episode Anchor Confidence` | string | Tool-scope |
+| `[MCP] Episode Anchor Type` | string | Tool-scope |
 | `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Protocol Version` | string | All (when carried on the request) |
 | `[MCP] Rationale` | string | Tool-scope (opt-in, via `setRationale`) |
@@ -661,7 +661,7 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Response HTTP Status` | number | `Tool Call Rejected` (Streamable HTTP); tool-scope when host-supplied via `ctx.request.responseHttpStatus` |
 | `[MCP] Response Size` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
-| `[MCP] Run ID` | string | Per-request events (when supplied as a run or job id) |
+| `[MCP] Run ID` | string | Tool-scope (when supplied as a run or job id) |
 | `[MCP] Server Name` | string | All |
 | `[MCP] Server Type` | string | All (when set on the context) |
 | `[MCP] Server Version` | string | All |
@@ -675,5 +675,5 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Tool Owner` | string | Tool-scope (when set) |
 | `[MCP] Tool Tags` | string[] | Tool-scope (when set) |
 | `[MCP] Transport` | string | All |
-| `[MCP] Turn ID` | string | Per-request events (when supplied as a turn id or number) |
+| `[MCP] Turn ID` | string | Tool-scope (when supplied as a turn id or number) |
 | `[MCP] User Agent` | string | All |
