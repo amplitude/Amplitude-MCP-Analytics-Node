@@ -146,8 +146,7 @@ Clients can identify a conversation, run, and turn on each request through
 The SDK emits `[MCP] Conversation ID`, `[MCP] Run ID`, and `[MCP] Turn ID`.
 `job_id` is normalized to the run property. Numeric turn values are normalized
 to strings. Camel-case (`conversationId`, `threadId`, `runId`, `jobId`,
-`turnId`, `turnNumber`) and equivalent `com.amplitude/...` namespaced keys are
-also accepted for compatibility.
+`turnId`, `turnNumber`) is also accepted.
 
 Each tool-scope event also reports `[MCP] Episode Anchor Type` and
 `[MCP] Episode Anchor Confidence`. The strongest available source wins:

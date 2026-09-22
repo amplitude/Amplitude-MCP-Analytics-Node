@@ -166,7 +166,6 @@ preferred keys and emitted properties are:
 | `run_id` | `runId`, `job_id`, `jobId` | `[MCP] Run ID` |
 | `turn_id` | `turnId`, `turn_number`, `turnNumber` | `[MCP] Turn ID` |
 
-Equivalent `com.amplitude/...` namespaced camel-case keys are also accepted.
 Identifiers must be non-empty strings. Finite numeric values are accepted and
 normalized to strings, which is useful for turn numbers.
 

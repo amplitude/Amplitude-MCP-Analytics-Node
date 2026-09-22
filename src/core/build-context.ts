@@ -35,25 +35,9 @@ const META_CONVERSATION_IDS = [
   'conversationId',
   'thread_id',
   'threadId',
-  'com.amplitude/conversationId',
-  'com.amplitude/threadId',
 ] as const;
-const META_RUN_IDS = [
-  'run_id',
-  'runId',
-  'job_id',
-  'jobId',
-  'com.amplitude/runId',
-  'com.amplitude/jobId',
-] as const;
-const META_TURN_IDS = [
-  'turn_id',
-  'turnId',
-  'turn_number',
-  'turnNumber',
-  'com.amplitude/turnId',
-  'com.amplitude/turnNumber',
-] as const;
+const META_RUN_IDS = ['run_id', 'runId', 'job_id', 'jobId'] as const;
+const META_TURN_IDS = ['turn_id', 'turnId', 'turn_number', 'turnNumber'] as const;
 
 /**
  * Classify the transport passed to `server.connect()` (server-scope). Probes for
