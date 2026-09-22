@@ -108,7 +108,7 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     (mock as unknown as { _serverCtx?: McpServerContext })._serverCtx = createServerContext({
       server: { name: 'test-server', version: '0.0.0' },
       transport: 'streamable-http',
-      identity: { userId: 'user-123', resolvedFrom: 'explicit' },
+      tenant: { groupType: 'org id', groupValue: '36958' },
     });
 
     const wrapped = mock.instrumentTool<[McpExtra], Promise<CallToolResult>>(
