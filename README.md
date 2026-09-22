@@ -99,7 +99,7 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | `[MCP] Session Initialized` | The `initialize` handshake (every transport) | client/server identity, `[MCP] Transport`, `[MCP] Auth Type` |
 | `[MCP] Session Ended` | Close of a connection that outlived one request (stdio + legacy Streamable HTTP) | `[MCP] Session Duration` |
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
-| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, `[MCP] Rationale` (opt-in, see below) |
+| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, client-supplied conversation/run/turn correlation, `[MCP] Rationale` (opt-in, see below) |
 | `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
@@ -126,6 +126,33 @@ differently:
 
 Nothing is fabricated in either case. Every event also carries the shared
 context properties (identity, client/server, transport, trace correlation).
+
+### Client-supplied episode correlation
+
+Clients can identify a conversation, run, and turn on each request through
+`_meta`. The preferred keys are `conversation_id`, `run_id` (or `job_id`), and
+`turn_id` (or `turn_number`):
+
+```ts
+{
+  _meta: {
+    conversation_id: 'conversation-123',
+    run_id: 'run-456',
+    turn_id: 'turn-7',
+  },
+}
+```
+
+The SDK emits `[MCP] Conversation ID`, `[MCP] Run ID`, and `[MCP] Turn ID`.
+`job_id` is normalized to the run property. Numeric turn values are normalized
+to strings. Camel-case (`conversationId`, `threadId`, `runId`, `jobId`,
+`turnId`, `turnNumber`) is also accepted.
+
+Each tool-scope event also reports `[MCP] Episode Anchor Type` and
+`[MCP] Episode Anchor Confidence`. The strongest available source wins:
+conversation, run/job, transport session, W3C trace, then inferred. These
+properties do not replace `[MCP] Session ID`; legacy session semantics remain
+unchanged.
 
 ### Client name on stateless servers
 

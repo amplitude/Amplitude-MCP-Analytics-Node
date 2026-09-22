@@ -69,6 +69,15 @@ export function ctxToAmplitudeFieldsForTool(ctx: McpToolContext): AmplitudeField
   if (typeof responseHttpStatus === 'number') {
     fields.responseHttpStatus = responseHttpStatus;
   }
+  if (ctx.correlation != null) {
+    if (ctx.correlation.conversationId != null) {
+      fields.conversationId = ctx.correlation.conversationId;
+    }
+    if (ctx.correlation.runId != null) fields.runId = ctx.correlation.runId;
+    if (ctx.correlation.turnId != null) fields.turnId = ctx.correlation.turnId;
+    fields.episodeAnchorType = ctx.correlation.episodeAnchorType;
+    fields.episodeAnchorConfidence = ctx.correlation.episodeAnchorConfidence;
+  }
 
   return {
     ...base,

@@ -2,7 +2,12 @@
  * Reserved field types for the event emitters. The wire property names 
  * are produced at emit time by `reservedFieldsToProperties`.
  */
-import type { AnchorType, McpTransport } from '../context/types.js';
+import type {
+  AnchorType,
+  McpEpisodeAnchorConfidence,
+  McpEpisodeAnchorType,
+  McpTransport,
+} from '../context/types.js';
 
 /** Reserved, SDK-derived fields shared by every event. */
 export interface DefaultServerFields {
@@ -35,6 +40,11 @@ export interface DefaultToolFields extends DefaultServerFields {
   /** Transport HTTP status of the response; host-supplied via
    *  `ctx.request.responseHttpStatus` (see `McpRequestInfo`). */
   responseHttpStatus?: number;
+  conversationId?: string;
+  runId?: string;
+  turnId?: string;
+  episodeAnchorType?: McpEpisodeAnchorType;
+  episodeAnchorConfidence?: McpEpisodeAnchorConfidence;
 }
 
 /** What the ctx mappers return: identity fields, typed reserved 

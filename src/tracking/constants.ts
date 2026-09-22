@@ -58,6 +58,11 @@ export const EVENT_PROPERTY_KEYS = {
   serverType: '[MCP] Server Type',
   protocolVersion: '[MCP] Protocol Version',
   authType: '[MCP] Auth Type',
+  conversationId: '[MCP] Conversation ID',
+  runId: '[MCP] Run ID',
+  turnId: '[MCP] Turn ID',
+  episodeAnchorType: '[MCP] Episode Anchor Type',
+  episodeAnchorConfidence: '[MCP] Episode Anchor Confidence',
   // tool-scope reserved fields
   toolName: '[MCP] Tool Name',
   toolOwner: '[MCP] Tool Owner',

@@ -11,6 +11,7 @@ import type {
   IdentityResolver,
   McpAnchor,
   McpClientInfo,
+  McpCorrelation,
   McpServerContext,
   McpToolContext,
   McpTransport,
@@ -29,6 +30,14 @@ import type { Logger } from '../utils/logger.js';
  */
 const META_CLIENT_INFO = 'io.modelcontextprotocol/clientInfo';
 const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
+const META_CONVERSATION_IDS = [
+  'conversation_id',
+  'conversationId',
+  'thread_id',
+  'threadId',
+] as const;
+const META_RUN_IDS = ['run_id', 'runId', 'job_id', 'jobId'] as const;
+const META_TURN_IDS = ['turn_id', 'turnId', 'turn_number', 'turnNumber'] as const;
 
 /**
  * Classify the transport passed to `server.connect()` (server-scope). Probes for
@@ -137,6 +146,67 @@ function resolveProtocolVersion(extra: McpExtra): string | undefined {
   const meta = metaRecord(extra);
   const fromMeta = meta?.[META_PROTOCOL_VERSION] ?? meta?.protocolVersion;
   return typeof fromMeta === 'string' ? fromMeta : undefined;
+}
+
+/** Read a non-empty string or finite numeric identifier from `_meta`. */
+function readMetaIdentifier(
+  meta: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = meta?.[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return undefined;
+}
+
+/**
+ * Resolve client-supplied episode identifiers without changing the transport
+ * anchor used for legacy session semantics and identity fallback.
+ */
+function resolveCorrelation(extra: McpExtra, anchor: McpAnchor): McpCorrelation {
+  const meta = metaRecord(extra);
+  const conversationId = readMetaIdentifier(meta, META_CONVERSATION_IDS);
+  const runId = readMetaIdentifier(meta, META_RUN_IDS);
+  const turnId = readMetaIdentifier(meta, META_TURN_IDS);
+
+  if (conversationId != null) {
+    return {
+      conversationId,
+      runId,
+      turnId,
+      episodeAnchorType: 'conversation-id',
+      episodeAnchorConfidence: 'high',
+    };
+  }
+  if (runId != null) {
+    return {
+      runId,
+      turnId,
+      episodeAnchorType: 'run-id',
+      episodeAnchorConfidence: 'high',
+    };
+  }
+  if (anchor.type === 'session-id' || anchor.type === 'process') {
+    return {
+      turnId,
+      episodeAnchorType: 'transport-session',
+      episodeAnchorConfidence: 'high',
+    };
+  }
+  if (anchor.type === 'trace') {
+    return {
+      turnId,
+      episodeAnchorType: 'trace',
+      episodeAnchorConfidence: 'medium',
+    };
+  }
+  return {
+    turnId,
+    episodeAnchorType: 'inferred',
+    episodeAnchorConfidence: 'low',
+  };
 }
 
 /**
@@ -261,6 +331,7 @@ export function buildServerContext(
     ...serverCtx,
     anchor: resolvedAnchor,
     protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
+    correlation: resolveCorrelation(extra, resolvedAnchor),
     identity: resolved.identity,
     tenant: resolved.tenant ?? serverCtx.tenant,
     client: resolveRequestClientInfo(
