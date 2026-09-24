@@ -24,7 +24,7 @@
  * MCP SDK still surfaces them to the client; the best-effort guarantee applies 
  * only to event emission, not to the handler's return value.
  */
-import type { ErrorMessageSanitizer } from '../config.js';
+import { DEFAULT_PARAM_NEVER_KEYS, type ErrorMessageSanitizer } from '../config.js';
 import { runWithContext } from '../context/als.js';
 import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
@@ -109,10 +109,14 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
   const trackToolCalls = deps.trackToolCalls !== false;
   const captureResolution = resolveToolParamCapture(meta.paramCapture);
   const logger = deps.logger ?? getLogger(deps.amplitude);
+  const neverKeys = deps.paramNeverKeys ?? DEFAULT_PARAM_NEVER_KEYS;
+  const capture = captureResolution.disabled ? undefined : captureResolution.policy;
   for (const warning of captureResolution.warnings) {
     logger.warn(
       `AmplitudeMCPAnalytics: instrumentTool('${meta.name}') ${warning}; parameter capture ${
-        captureResolution.disabled ? 'is disabled for this tool' : 'will continue without those entries'
+        captureResolution.disabled
+          ? 'is disabled for this tool'
+          : 'will continue, ignoring the invalid fields'
       }.`,
     );
   }
@@ -161,10 +165,10 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
         callArgs,
         track: trackToolCalls,
         sanitize: deps.sanitizeErrorMessage,
-        capture: captureResolution.disabled ? undefined : captureResolution.policy,
+        capture,
         captureDisabled: captureResolution.disabled,
         captureShape: deps.captureParamShape ?? true,
-        neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+        neverKeys,
         logger,
       });
       throw err;
@@ -183,10 +187,10 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             callArgs,
             track: trackToolCalls,
             sanitize: deps.sanitizeErrorMessage,
-            capture: captureResolution.disabled ? undefined : captureResolution.policy,
+            capture,
             captureDisabled: captureResolution.disabled,
             captureShape: deps.captureParamShape ?? true,
-            neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+            neverKeys,
             logger,
           });
           return value;
@@ -200,10 +204,10 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             callArgs,
             track: trackToolCalls,
             sanitize: deps.sanitizeErrorMessage,
-            capture: captureResolution.disabled ? undefined : captureResolution.policy,
+            capture,
             captureDisabled: captureResolution.disabled,
             captureShape: deps.captureParamShape ?? true,
-            neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+            neverKeys,
             logger,
           });
           throw err;
@@ -220,10 +224,10 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       callArgs,
       track: trackToolCalls,
       sanitize: deps.sanitizeErrorMessage,
-      capture: captureResolution.disabled ? undefined : captureResolution.policy,
+      capture,
       captureDisabled: captureResolution.disabled,
       captureShape: deps.captureParamShape ?? true,
-      neverKeys: deps.paramNeverKeys ?? ['rationale', 'context'],
+      neverKeys,
       logger,
     });
     return result;

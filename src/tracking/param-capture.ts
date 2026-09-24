@@ -3,7 +3,6 @@ import type { ToolParamCapture } from '../context/types.js';
 import type { Logger } from '../utils/logger.js';
 import { EVENT_PROPERTY_KEYS as K } from './constants.js';
 
-const PARAM_KEY_MAX = 64;
 const PARAM_KEYS_MAX = 32;
 const PARAM_SHAPE_MAX = 1024;
 const DERIVED_PARAM_MAX = 8;
@@ -28,8 +27,9 @@ export interface ToolParamCaptureResolution {
 }
 
 /**
- * Validate capture metadata without throwing. Invalid declarations disable
- * capture for that tool so instrumentation can never break server setup.
+ * Validate capture metadata without throwing. Invalid *fields* are ignored so
+ * default shape capture still runs. Only a non-object `paramCapture` disables
+ * capture for the tool.
  *
  * @internal
  */
@@ -46,35 +46,36 @@ export function resolveToolParamCapture(
 
   const input = value as ToolParamCapture;
   const warnings: string[] = [];
-  if (input.routeKey != null && typeof input.routeKey !== 'string') {
-    warnings.push('paramCapture.routeKey must be a string');
+  const policy: ResolvedToolParamCapture = { never: [] };
+
+  if (input.routeKey != null) {
+    if (typeof input.routeKey === 'string') {
+      policy.routeKey = input.routeKey;
+    } else {
+      warnings.push('paramCapture.routeKey must be a string; it was ignored');
+    }
   }
-  if (input.derive != null && typeof input.derive !== 'function') {
-    warnings.push('paramCapture.derive must be a function');
+  if (input.derive != null) {
+    if (typeof input.derive === 'function') {
+      policy.derive = input.derive;
+    } else {
+      warnings.push('paramCapture.derive must be a function; it was ignored');
+    }
   }
-  if (input.never != null && !Array.isArray(input.never)) {
-    warnings.push('paramCapture.never must be an array of strings');
-  }
-  if (warnings.length > 0) {
-    return { disabled: true, warnings };
+  if (input.never != null) {
+    if (Array.isArray(input.never)) {
+      policy.never = input.never.filter(
+        (key): key is string => typeof key === 'string',
+      );
+      if (policy.never.length !== input.never.length) {
+        warnings.push('non-string entries in paramCapture.never were ignored');
+      }
+    } else {
+      warnings.push('paramCapture.never must be an array of strings; it was ignored');
+    }
   }
 
-  const never = (input.never ?? []).filter(
-    (key): key is string => typeof key === 'string',
-  );
-  if (never.length !== (input.never?.length ?? 0)) {
-    warnings.push('non-string entries in paramCapture.never were ignored');
-  }
-
-  return {
-    disabled: false,
-    policy: {
-      ...(input.routeKey == null ? {} : { routeKey: input.routeKey }),
-      ...(input.derive == null ? {} : { derive: input.derive }),
-      never,
-    },
-    warnings,
-  };
+  return { disabled: false, policy, warnings };
 }
 
 /** Capture properties computed for one dispatched tool call. @internal */
@@ -127,18 +128,13 @@ function deriveShapeProperties(
     (key) => !excluded.has(key) && params[key] !== undefined,
   );
   const boundedKeys = suppliedKeys
-    .filter((key) => key.length <= PARAM_KEY_MAX)
+    .filter((key) => SAFE_IDENTIFIER.test(key))
     .sort();
 
   const tokens = boundedKeys.map((key) => `${key}:${shapeOf(params[key])}`);
   const routeValue = routeKey == null ? undefined : params[routeKey];
-  if (
-    routeKey != null &&
-    !excluded.has(routeKey) &&
-    typeof routeValue === 'string' &&
-    SAFE_IDENTIFIER.test(routeValue)
-  ) {
-    tokens.unshift(`route=${routeValue}`);
+  if (routeKey != null && !excluded.has(routeKey) && isSafeRouteValue(routeValue)) {
+    tokens.unshift(`route=${formatRouteValue(routeValue)}`);
   }
 
   const shape = truncateTokens(tokens, PARAM_SHAPE_MAX);
@@ -152,6 +148,18 @@ function deriveShapeProperties(
       .digest('hex')
       .slice(0, 12),
   };
+}
+
+function isSafeRouteValue(
+  value: unknown,
+): value is string | number | boolean {
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return typeof value === 'string' && SAFE_IDENTIFIER.test(value);
+}
+
+function formatRouteValue(value: string | number | boolean): string {
+  return String(value);
 }
 
 function shapeOf(value: unknown): string {
@@ -225,7 +233,8 @@ function deriveMetadataProperties(
 function isSafeDerivedValue(
   value: unknown,
 ): value is string | number | boolean {
-  if (typeof value === 'boolean' || typeof value === 'number') return true;
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
   return (
     typeof value === 'string' &&
     value.length <= DERIVED_VALUE_MAX &&

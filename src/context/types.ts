@@ -164,13 +164,20 @@ export interface McpServerContext {
  * provides tool-specific exclusions, route discrimination, and derived facts.
  */
 export interface ToolParamCapture {
-  /** Safe enum/id-shaped parameter used to distinguish multiplexed routes. */
+  /**
+   * Parameter whose value distinguishes multiplexed routes of one tool.
+   * Intended for small schema enums (string, finite number, or boolean) —
+   * not high-cardinality ids such as `userId` / `chartId`.
+   */
   routeKey?: string;
   /** Project parameters into bounded, chartable scalar facts. */
   derive?: (
     params: Record<string, unknown>,
   ) => Record<string, string | number | boolean>;
-  /** Keys excluded from parameter capture for this tool. */
+  /**
+   * Keys excluded from parameter capture for this tool — both input keys on
+   * the shape/keys list and derived `[MCP] Param: <key>` fact names.
+   */
   never?: readonly string[];
 }
 

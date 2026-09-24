@@ -333,8 +333,8 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock handler duration, rounded |
 | `[MCP] Request Size` | number (bytes) | schema-taking handlers, when serializable | Serialized byte size of the tool's arguments (the handler's first parameter). Absent for handlers registered without an input schema |
 | `[MCP] Response Size` | number (bytes) | when the handler returned, when serializable | Serialized byte size of the returned `CallToolResult`. Absent when the handler threw |
-| `[MCP] Param Keys` | string[] | schema-taking handlers, unless shape capture is disabled | Sorted top-level parameter keys, capped at 32. Globally/tool-excluded keys and names longer than 64 characters are omitted |
-| `[MCP] Param Count` | number | schema-taking handlers, unless shape capture is disabled | Top-level supplied key count after global/tool exclusions. Includes overlong names omitted from `[MCP] Param Keys` |
+| `[MCP] Param Keys` | string[] | schema-taking handlers, unless shape capture is disabled | Sorted top-level identifier-like parameter keys, capped at 32. Globally/tool-excluded keys and names that are not `[A-Za-z0-9_.:\\-/]{1,64}` are omitted |
+| `[MCP] Param Count` | number | schema-taking handlers, unless shape capture is disabled | Top-level supplied key count after global/tool exclusions. Includes names omitted from `[MCP] Param Keys` |
 | `[MCP] Param Shape` | string | schema-taking handlers, unless shape capture is disabled | Deterministic shallow shape: types, bucketed string lengths, and array/object counts. Capped at 1,024 characters including the visible `…` marker |
 | `[MCP] Param Fingerprint` | string | schema-taking handlers, unless shape capture is disabled | First 12 hexadecimal characters of SHA-256 over the emitted shape |
 | `[MCP] Param: <key>` | string, number, or boolean | when the tool declares a valid `paramCapture.derive` fact | Tool-authored derived metadata after the SDK's key, value, and count backstops |
@@ -392,20 +392,25 @@ truncation happens only at a complete `key:type` boundary, and the 1,024
 character limit includes the final `…`.
 
 `MCPAnalyticsConfig({ paramCapture: { shape: false } })` disables shape
-capture. `neverKeys` replaces the global exclusion list, which defaults to
-`['rationale', 'context']`; `McpToolMeta.paramCapture.never` adds per-tool
-exclusions. A declared `routeKey` contributes a `route=<value>` prefix only for
-a 1–64 character enum/id-shaped value without whitespace, quotes, or `@`.
+capture. `neverKeys` **replaces** the global exclusion list, which defaults to
+`['rationale', 'context']` — include those names if you still want them
+omitted. Pass `[]` to exclude nothing globally. `McpToolMeta.paramCapture.never`
+adds per-tool exclusions and also drops matching derived fact names. A declared
+`routeKey` contributes a `route=<value>` prefix only for a small schema enum:
+an identifier-like string, a finite number, or a boolean. Do not point it at
+high-cardinality id fields.
 
 Servers can also opt in through `McpToolMeta.paramCapture.derive`. It emits up
 to eight scalar `[MCP] Param: <key>` facts. Property suffixes must be bounded
 identifier-like names. String values longer than 256 characters or containing
-`@`, quotes, or newlines are dropped. A callback that throws or returns the
-wrong shape emits no derived facts and cannot affect the handler.
+`@`, quotes, or newlines are dropped, as are `NaN` and `Infinity`. A callback
+that throws or returns the wrong shape emits no derived facts and cannot affect
+the handler.
 
-Malformed tool capture metadata logs a warning and disables parameter capture
-for that tool. Capture does not run at all when `instrumentServer` has not
-bound a server, preserving `instrumentTool`'s no-op passthrough.
+A mistyped opt-in field on `paramCapture` logs a warning and is ignored;
+default shape capture still runs. Only a non-object `paramCapture` disables
+capture for that tool. Capture does not run at all when `instrumentServer` has
+not bound a server, preserving `instrumentTool`'s no-op passthrough.
 
 ## `[MCP] Tool Call Rejected`
 

@@ -236,13 +236,17 @@ their shallow types:
 - `[MCP] Param Fingerprint` — a stable 12-character hash of the shape
 
 Values are not included. Nested arrays and objects are counted, not traversed,
-and exact string lengths are bucketed. Keys longer than 64 characters are
-excluded from the keys and shape properties. By default, `rationale` and
-`context` are also excluded because servers commonly use those names for
-content-bearing injected metadata.
+and exact string lengths are bucketed. Only identifier-like keys
+(`[A-Za-z0-9_.:\\-/]{1,64}`) appear on `[MCP] Param Keys` and
+`[MCP] Param Shape`; caller-controlled names from record/passthrough schemas
+(for example an email used as a key) are omitted there but still counted in
+`[MCP] Param Count`. By default, `rationale` and `context` are also excluded
+because servers commonly use those names for content-bearing injected metadata.
 
-Multiplexed tools can include a safe route value in the shape, and tools can
-opt into bounded scalar facts derived from their inputs:
+Multiplexed tools can include a safe route value in the shape (`routeKey` is
+for small schema enums — string, finite number, or boolean — not `userId`-
+style fields). Tools can also opt into bounded scalar facts derived from
+their inputs:
 
 ```ts
 server.tool('manage_items', schema, analytics.instrumentTool(
@@ -262,20 +266,26 @@ server.tool('manage_items', schema, analytics.instrumentTool(
 ```
 
 Derived facts are emitted as `[MCP] Param: <key>`. The SDK accepts at most eight
-per tool call and drops non-scalars, long strings, unsafe property names, and
-strings containing email/free-text indicators such as `@`, quotes, or newlines.
-A throwing `derive` callback is ignored and never affects the tool response.
-Malformed capture metadata logs a warning and disables parameter capture for
-that tool rather than changing server behavior.
+per tool call and drops non-scalars, non-finite numbers, long strings, unsafe
+property names, and strings containing email/free-text indicators such as `@`,
+quotes, or newlines. `never` applies to both input keys and those derived fact
+names. A throwing `derive` callback is ignored and never affects the tool
+response. A mistyped opt-in field (`routeKey`, `derive`, `never`) logs a
+warning and is ignored; default shape capture still runs. Only a non-object
+`paramCapture` disables capture for that tool.
 
 Disable automatic shape capture, or replace the global exclusion list, through
-the SDK config. Opted-in `derive` facts still run when `shape` is disabled:
+the SDK config. `neverKeys` **replaces** the default
+`['rationale', 'context']` — include those names if you still want them
+omitted. Opted-in `derive` facts still run when `shape` is disabled:
 
 ```ts
+import { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from '@amplitude/mcp-analytics';
+
 new MCPAnalyticsConfig({
   paramCapture: {
     shape: false,
-    neverKeys: ['reason', 'customerContext'],
+    neverKeys: [...DEFAULT_PARAM_NEVER_KEYS, 'reason', 'customerContext'],
   },
 });
 ```

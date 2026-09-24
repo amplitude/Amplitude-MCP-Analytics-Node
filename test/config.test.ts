@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MCPAnalyticsConfig } from '../src/config.js';
+import { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from '../src/config.js';
 
 describe('MCPAnalyticsConfig autocapture normalization', () => {
   it('defaults every family on when unset', () => {
@@ -81,7 +81,7 @@ describe('MCPAnalyticsConfig parameter capture', () => {
   it('defaults shape on and excludes injected host metadata keys', () => {
     expect(new MCPAnalyticsConfig().paramCapture).toEqual({
       shape: true,
-      neverKeys: ['rationale', 'context'],
+      neverKeys: DEFAULT_PARAM_NEVER_KEYS,
     });
   });
 

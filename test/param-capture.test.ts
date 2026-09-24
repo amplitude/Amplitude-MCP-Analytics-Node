@@ -99,6 +99,35 @@ describe('Tier 1 parameter shape capture', () => {
     ]);
   });
 
+  it('omits caller-controlled key names from keys and shape but still counts them', () => {
+    const result = capture({
+      'jane@example.com': true,
+      'user id': 1,
+      safe: false,
+    });
+
+    expect(result.tier1['[MCP] Param Keys']).toEqual(['safe']);
+    expect(result.tier1['[MCP] Param Count']).toBe(3);
+    expect(result.tier1['[MCP] Param Shape']).toBe('safe:bool');
+    expect(JSON.stringify(result.tier1)).not.toContain('jane@example.com');
+    expect(JSON.stringify(result.tier1)).not.toContain('user id');
+  });
+
+  it('does not emit generated key-name content', () => {
+    fc.assert(
+      fc.property(fc.emailAddress(), (email) => {
+        const tier1 = capture({ [email]: true, safe: 1 }).tier1;
+        const output = JSON.stringify([
+          tier1['[MCP] Param Keys'],
+          tier1['[MCP] Param Shape'],
+        ]);
+        expect(output).not.toContain(email);
+        expect(tier1['[MCP] Param Count']).toBe(2);
+      }),
+      { numRuns: 50 },
+    );
+  });
+
   it('bounds key names and the keys list while retaining the supplied count', () => {
     const overlong = 'x'.repeat(65);
     const params = Object.fromEntries([
@@ -162,6 +191,27 @@ describe('Tier 1 parameter shape capture', () => {
       },
     ).tier1['[MCP] Param Shape'];
     expect(excluded).toBe('q:bool');
+  });
+
+  it('folds finite numbers and booleans into the route prefix', () => {
+    expect(
+      capture(
+        { action: 1, q: true },
+        { policy: { routeKey: 'action', never: [] } },
+      ).tier1['[MCP] Param Shape'],
+    ).toBe('route=1;action:num;q:bool');
+    expect(
+      capture(
+        { action: true, q: 1 },
+        { policy: { routeKey: 'action', never: [] } },
+      ).tier1['[MCP] Param Shape'],
+    ).toBe('route=true;action:bool;q:num');
+    expect(
+      capture(
+        { action: Number.NaN, q: true },
+        { policy: { routeKey: 'action', never: [] } },
+      ).tier1['[MCP] Param Shape'],
+    ).toBe('action:num;q:bool');
   });
 
   it('hashes the exact shape, preserving arity', () => {
@@ -259,6 +309,20 @@ describe('Tier 2 derived parameter metadata', () => {
     expect(result.tier2).toEqual({ '[MCP] Param: safe': 'ok' });
   });
 
+  it('drops NaN and Infinity derived numbers', () => {
+    const result = capture(
+      {},
+      {
+        policy: {
+          never: [],
+          derive: () => ({ nan: Number.NaN, inf: Number.POSITIVE_INFINITY, ok: 1 }),
+        },
+      },
+    );
+
+    expect(result.tier2).toEqual({ '[MCP] Param: ok': 1 });
+  });
+
   it('caps derived properties at eight', () => {
     const result = capture(
       {},
@@ -297,16 +361,25 @@ describe('Tier 2 derived parameter metadata', () => {
 });
 
 describe('capture declaration validation', () => {
-  it('disables malformed declarations without throwing', () => {
-    expect(
-      resolveToolParamCapture({ routeKey: 42 } as unknown),
-    ).toMatchObject({ disabled: true });
-    expect(
-      resolveToolParamCapture({ derive: 'nope' } as unknown),
-    ).toMatchObject({ disabled: true });
-    expect(
-      resolveToolParamCapture({ never: 'secret' } as unknown),
-    ).toMatchObject({ disabled: true });
+  it('ignores mistyped opt-in fields without disabling shape capture', () => {
+    const route = resolveToolParamCapture({ routeKey: 42 } as unknown);
+    expect(route.disabled).toBe(false);
+    expect(route.policy?.routeKey).toBeUndefined();
+    expect(route.warnings.length).toBeGreaterThan(0);
+
+    const derive = resolveToolParamCapture({ derive: 'nope' } as unknown);
+    expect(derive.disabled).toBe(false);
+    expect(derive.policy?.derive).toBeUndefined();
+
+    const never = resolveToolParamCapture({ never: 'secret' } as unknown);
+    expect(never.disabled).toBe(false);
+    expect(never.policy?.never).toEqual([]);
+  });
+
+  it('disables capture only when paramCapture is not an object', () => {
+    expect(resolveToolParamCapture(['nope'] as unknown)).toMatchObject({
+      disabled: true,
+    });
   });
 
   it('ignores invalid never entries but keeps the declaration enabled', () => {

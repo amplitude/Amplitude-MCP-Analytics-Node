@@ -627,7 +627,7 @@ describe('instrumentTool', () => {
       );
     });
 
-    it('warns and disables capture for malformed metadata', async () => {
+    it('warns on a mistyped routeKey but still emits shape', async () => {
       const warnings: string[] = [];
       const { client, tracked } = makeAmplitude();
       const wrapped = instrumentTool(
@@ -650,9 +650,9 @@ describe('instrumentTool', () => {
       await wrapped({ q: 'private' }, legacyExtra);
 
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain('parameter capture is disabled');
-      expect(tracked[0]?.event_properties).not.toHaveProperty(
-        '[MCP] Param Shape',
+      expect(warnings[0]).toContain('invalid fields');
+      expect(tracked[0]?.event_properties?.['[MCP] Param Shape']).toBe(
+        'q:str[1-32]',
       );
     });
   });

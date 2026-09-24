@@ -50,6 +50,12 @@ export interface AutocaptureConfig {
  */
 export type ErrorMessageSanitizer = (message: string) => string | null;
 
+/** Default keys omitted from parameter capture for every tool. */
+export const DEFAULT_PARAM_NEVER_KEYS: readonly string[] = [
+  'rationale',
+  'context',
+];
+
 /** Global controls for tool-parameter capture. */
 export interface ParamCaptureConfig {
   /**
@@ -58,8 +64,11 @@ export interface ParamCaptureConfig {
    */
   shape?: boolean;
   /**
-   * Parameter keys excluded from capture for every tool. Tool-level `never`
-   * keys are unioned with this list.
+   * Parameter keys excluded from capture for every tool. **Replaces**
+   * {@link DEFAULT_PARAM_NEVER_KEYS} when provided — it is not unioned.
+   * Include `rationale` and `context` if you still want those omitted.
+   * Pass `[]` to exclude nothing globally. Tool-level `never` is unioned
+   * with the resolved list.
    * @default ['rationale', 'context']
    */
   neverKeys?: readonly string[];
@@ -183,7 +192,7 @@ export class MCPAnalyticsConfig {
         ? options.paramCapture.neverKeys.filter(
             (key): key is string => typeof key === 'string',
           )
-        : ['rationale', 'context'],
+        : DEFAULT_PARAM_NEVER_KEYS,
     };
   }
 }

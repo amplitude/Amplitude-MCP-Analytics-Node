@@ -1,6 +1,6 @@
 export { AmplitudeMCPAnalytics, createMcpAnalytics } from './client.js';
 export type { AmplitudeMCPAnalyticsOptions, InstrumentServerOptions } from './client.js';
-export { MCPAnalyticsConfig } from './config.js';
+export { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from './config.js';
 export type {
   AutocaptureConfig,
   MCPAnalyticsConfigOptions,
