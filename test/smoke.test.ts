@@ -9,6 +9,7 @@ describe('smoke test: all public exports are defined', () => {
 
     // Config
     expect(mod.MCPAnalyticsConfig).toBeDefined();
+    expect(mod.DEFAULT_PARAM_NEVER_KEYS).toEqual(['rationale', 'context']);
 
     // Testing
     expect(mod.MockAmplitudeMCPAnalytics).toBeDefined();

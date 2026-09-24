@@ -157,6 +157,30 @@ export interface McpServerContext {
   emitAnonymousEvent?: boolean;
 }
 
+/**
+ * Parameter-capture policy for one instrumented tool.
+ *
+ * Shape capture is controlled globally by `MCPAnalyticsConfig`; this policy
+ * provides tool-specific exclusions, route discrimination, and derived facts.
+ */
+export interface ToolParamCapture {
+  /**
+   * Parameter whose value distinguishes multiplexed routes of one tool.
+   * Intended for small schema enums (string, finite number, or boolean) —
+   * not high-cardinality ids such as `userId` / `chartId`.
+   */
+  routeKey?: string;
+  /** Project parameters into bounded, chartable scalar facts. */
+  derive?: (
+    params: Record<string, unknown>,
+  ) => Record<string, string | number | boolean>;
+  /**
+   * Keys excluded from parameter capture for this tool — both input keys on
+   * the shape/keys list and derived `[MCP] Param: <key>` fact names.
+   */
+  never?: readonly string[];
+}
+
 /** Tool metadata the caller attaches when instrumenting a tool. */
 export interface McpToolMeta {
   name: string;
@@ -169,6 +193,9 @@ export interface McpToolMeta {
    * `[MCP] `-prefixed keys, which are reserved for SDK-derived properties).
    */
   extra?: Record<string, unknown>;
+
+  /** Parameter-capture policy for this tool. Absent means automatic shape capture only. */
+  paramCapture?: ToolParamCapture;
 
   /** Free-form metadata; forward-compatible and the home for server-specific fields. */
   [key: string]: unknown;

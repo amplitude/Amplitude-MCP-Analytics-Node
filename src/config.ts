@@ -50,6 +50,30 @@ export interface AutocaptureConfig {
  */
 export type ErrorMessageSanitizer = (message: string) => string | null;
 
+/** Default keys omitted from parameter capture for every tool. */
+export const DEFAULT_PARAM_NEVER_KEYS: readonly string[] = [
+  'rationale',
+  'context',
+];
+
+/** Global controls for tool-parameter capture. */
+export interface ParamCaptureConfig {
+  /**
+   * Emit content-free parameter shape metadata on tool-call events.
+   * @default true
+   */
+  shape?: boolean;
+  /**
+   * Parameter keys excluded from capture for every tool. **Replaces**
+   * {@link DEFAULT_PARAM_NEVER_KEYS} when provided — it is not unioned.
+   * Include `rationale` and `context` if you still want those omitted.
+   * Pass `[]` to exclude nothing globally. Tool-level `never` is unioned
+   * with the resolved list.
+   * @default ['rationale', 'context']
+   */
+  neverKeys?: readonly string[];
+}
+
 export interface MCPAnalyticsConfigOptions {
   /**
    * Emit verbose internal logging to the console.
@@ -86,6 +110,8 @@ export interface MCPAnalyticsConfigOptions {
    * @see ErrorMessageSanitizer
    */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Global controls for tool-parameter capture. */
+  paramCapture?: ParamCaptureConfig;
 }
 
 const ALL_ON: Required<AutocaptureConfig> = {
@@ -146,6 +172,11 @@ export class MCPAnalyticsConfig {
   readonly emitAnonymousEvent: boolean;
   /** Rewrites/drops `[MCP] Error Message`, when supplied. @see ErrorMessageSanitizer */
   readonly sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Resolved global parameter-capture controls. */
+  readonly paramCapture: {
+    readonly shape: boolean;
+    readonly neverKeys: readonly string[];
+  };
 
   constructor(options: MCPAnalyticsConfigOptions = {}) {
     this.debug = options.debug ?? false;
@@ -155,5 +186,13 @@ export class MCPAnalyticsConfig {
     if (typeof options.sanitizeErrorMessage === 'function') {
       this.sanitizeErrorMessage = options.sanitizeErrorMessage;
     }
+    this.paramCapture = {
+      shape: options.paramCapture?.shape ?? true,
+      neverKeys: Array.isArray(options.paramCapture?.neverKeys)
+        ? options.paramCapture.neverKeys.filter(
+            (key): key is string => typeof key === 'string',
+          )
+        : DEFAULT_PARAM_NEVER_KEYS,
+    };
   }
 }

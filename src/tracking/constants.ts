@@ -79,6 +79,10 @@ export const EVENT_PROPERTY_KEYS = {
   responseDuration: '[MCP] Response Duration',
   responseSize: '[MCP] Response Size',
   requestSize: '[MCP] Request Size',
+  paramKeys: '[MCP] Param Keys',
+  paramCount: '[MCP] Param Count',
+  paramShape: '[MCP] Param Shape',
+  paramFingerprint: '[MCP] Param Fingerprint',
   // server connection / capability outcome
   toolCount: '[MCP] Tool Count',
   toolNames: '[MCP] Tool Names',
