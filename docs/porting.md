@@ -91,8 +91,9 @@ Content-Type: application/json
 Get these points right at this layer:
 
 - **Send `user_id` or `device_id` on every event.** Amplitude drops an id
-  shorter than 5 characters, and it gives no error. The identity chain below
-  always produces at least one valid id.
+  shorter than 5 characters, and it gives no error. Generated fallback ids meet
+  this requirement, but validate caller-supplied ids because they are used
+  verbatim.
 - **Set `time` in milliseconds since epoch.** Set it at the moment the event
   happens. Do not set it at flush time. Your own batching then skews your
   latency analysis and your funnel analysis.
