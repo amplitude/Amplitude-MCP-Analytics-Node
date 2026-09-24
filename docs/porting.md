@@ -90,10 +90,12 @@ Content-Type: application/json
 
 Get these points right at this layer:
 
-- **Send `user_id` or `device_id` on every event.** Amplitude drops an id
-  shorter than 5 characters, and it gives no error. Generated fallback ids meet
-  this requirement, but validate caller-supplied ids because they are used
-  verbatim.
+- **Send `user_id` or `device_id` on every event.** Amplitude removes an id
+  shorter than 5 characters from the event. If no valid id remains, Amplitude
+  can reject the event with HTTP 400. Generated fallback ids meet this
+  requirement. Check caller-supplied ids because the reference SDK uses them
+  verbatim: it warns about a short id, but it does not rewrite the id or
+  continue down the fallback chain. The host must correct the value.
 - **Set `time` in milliseconds since epoch.** Set it at the moment the event
   happens. Do not set it at flush time. Your own batching then skews your
   latency analysis and your funnel analysis.
@@ -133,13 +135,13 @@ those events. The Node SDK counts unflushed events and warns you at exit.
 
 ### The hook points
 
-The SDK builds every event from five observation points. Check that your MCP
-SDK gives you these hooks before you start. Hook availability differs between
-SDKs.
+Across the supported protocol revisions, the SDK builds its events from five
+observation points. Check that your MCP SDK gives you the applicable hooks
+before you start. Hook availability differs between SDKs.
 
 | Hook | What you observe | Events it drives |
 | -- | -- | -- |
-| `initialize` request handler | Client name and version, handshake time | `[MCP] Session Initialized` |
+| `initialize` request handler (through protocol `2025-11-25`) | Client name and version, handshake time | `[MCP] Session Initialized` |
 | Transport close | Connection teardown | `[MCP] Session Ended` |
 | `tools/list` request handler | Tool count, tool names, duration, errors | `[MCP] Tools Listed` |
 | Tool handler wrapper | Arguments, result, duration, errors | `[MCP] Tool Call Response` |
@@ -148,6 +150,24 @@ SDKs.
 Most SDKs give you handler registration and some form of middleware. That
 covers the first four hooks. The fifth hook needs access to the tool registry
 of the server. See [Conformance tiers](#conformance-tiers).
+
+The lifecycle hooks depend on the protocol revision:
+
+- Protocol `2025-11-25` and earlier has an `initialize` handshake. Emit
+  `[MCP] Session Initialized` when that handshake completes. Sessionless
+  Streamable HTTP still performs the handshake, so this event fires with
+  `[MCP] Session ID` set to `no-session`. Do not emit `[MCP] Session Ended` for
+  a transport that lives for only one request.
+- Protocol `2026-07-28` has no `initialize` handshake and no protocol session.
+  Never emit `[MCP] Session Initialized` or `[MCP] Session Ended` for this
+  revision. Read the protocol version and client identity from each request's
+  `_meta` (`io.modelcontextprotocol/protocolVersion` and
+  `io.modelcontextprotocol/clientInfo`). Do not treat `server/discover` as a
+  replacement session-start event.
+
+On a handshake-era connection, emit `[MCP] Session Ended` only when the
+transport outlived the request that opened it and a matching
+`[MCP] Session Initialized` event was emitted first.
 
 ### Rules for every hook
 
@@ -176,8 +196,8 @@ else is an implementation detail.
 
 ### 1. Names are byte-exact
 
-Every event name and property name that the SDK emits starts with the prefix
-`[MCP] `. **The prefix ends with a space.** `[MCP]Tool Name` and
+Every default event name and every SDK-derived property name starts with the
+prefix `[MCP] `. **The prefix ends with a space.** `[MCP]Tool Name` and
 `[MCP] tool name` are different properties from `[MCP] Tool Name`. Amplitude
 creates all three and reports no error. A typo therefore splits one dimension
 into two.
@@ -185,6 +205,10 @@ into two.
 Copy the names from the [property index](./events.md#property-index) as string
 literals. Define them as constants in one file. Write a test that asserts the
 literal values.
+
+Custom event names and host-supplied property names are different. Emit them
+verbatim, including keys from `extra` and per-call `properties`. Do not add the
+`[MCP] ` prefix to them; that namespace is reserved for contract-defined names.
 
 ### 2. The identity chain
 
@@ -346,9 +370,11 @@ You do not have to build all of it. Ship in the order below.
 Tier 1 gives you adoption, tool popularity, latency, error rate, and
 segmentation by client. Tier 1 alone is a working integration.
 
-**Tier 2: lifecycle.** Add `[MCP] Session Initialized`, `[MCP] Session Ended`,
-and `[MCP] Tools Listed`. These give you session counts, session durations, and
-discovery behavior. They reuse the context and identity code from Tier 1.
+**Tier 2: lifecycle.** Add `[MCP] Tools Listed`. On handshake-era protocols,
+also add `[MCP] Session Initialized` and, for connections that outlive one
+request, `[MCP] Session Ended`. These give you session counts, session
+durations, and discovery behavior. They reuse the context and identity code
+from Tier 1. Do not emit either session event on protocol `2026-07-28`.
 
 **Tier 3: optional.** Add `[MCP] Tool Call Rejected`, rationale capture, error
 message sanitization, and custom events.
@@ -407,24 +433,27 @@ Complete this list before you rely on the data.
 
 1. **Check the UUIDv5 vectors.** Run the RFC pair and the anchor-key table
    above. All five must pass.
-2. **Assert the property names as literals in a test.** Include the trailing
+2. **Check caller-supplied ids.** Confirm that an id shorter than five
+   characters produces a warning. Keep the supplied value unchanged, as the
+   reference SDK does, and make clear that the host must correct it.
+3. **Assert the property names as literals in a test.** Include the trailing
    space in `[MCP] `.
-3. **Land one real event.** Send it to a scratch Amplitude project. Confirm
+4. **Land one real event.** Send it to a scratch Amplitude project. Confirm
    that it appears, and that `user_id` or `device_id` holds a value. Confirm
    the property types: a number as a number, a boolean as a boolean, and
    `[MCP] Tool Names` as an array of strings. Check that a number does not
    arrive as a string.
-4. **Test the failure path.** Assert that a handler that throws still produces
+5. **Test the failure path.** Assert that a handler that throws still produces
    the event. Assert that it also re-raises the original error with no changes.
-5. **Contain your tracking errors.** Force your delivery layer to throw. Assert
+6. **Contain your tracking errors.** Force your delivery layer to throw. Assert
    that the tool call still succeeds.
-6. **Test the skip rule.** A stateless request with no identity and no tenant
+7. **Test the skip rule.** A stateless request with no identity and no tenant
    must emit nothing by default.
-7. **Test anchor stability.** Two calls in one session must share a
+8. **Test anchor stability.** Two calls in one session must share a
    `device_id`. Two separate processes must not share one.
-8. **Test the flush.** Confirm that a flush happens on shutdown. Confirm that
+9. **Test the flush.** Confirm that a flush happens on shutdown. Confirm that
    a flush happens before the handler returns under serverless.
-9. **Run a side-by-side comparison if you can.** Run your port and the Node SDK
+10. **Run a side-by-side comparison if you can.** Run your port and the Node SDK
    against equivalent servers. Compare the event payloads.
 
 ## Common pitfalls
