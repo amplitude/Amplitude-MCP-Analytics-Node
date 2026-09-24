@@ -55,9 +55,10 @@ export interface McpAnchor {
 }
 
 /**
- * Callback that resolves identity from `extra.authInfo`. For MCP servers using
- * the standard OAuth flow where `authInfo` carries the user's claims. The SDK
- * never guesses — the consumer specifies which claim maps to which field.
+ * Callback that resolves identity for one request. The SDK passes
+ * `extra.authInfo`, which is the common MCP-provided source for OAuth claims;
+ * consumers may also consult their own trusted application or request-local
+ * context. The SDK never guesses — the consumer specifies the mapping.
  */
 export type IdentityResolver = (authInfo: Record<string, unknown> | undefined) => SetIdentityInput;
 

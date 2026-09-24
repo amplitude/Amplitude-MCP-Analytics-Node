@@ -177,11 +177,22 @@ analytics.instrumentTool(async (args, extra) => {
   return doWork(args);
 }, { name: 'search' });
 
-// 3. Opt-in, derived from the request's authInfo (you map the claims).
-analytics.instrumentTool(handler, { name: 'search' }, {
+// 3. Opt-in, resolved per request for server events and tool calls.
+analytics.instrumentServer(server, {
   resolveIdentity: (authInfo) => ({ userId: authInfo?.sub as string }),
 });
 ```
+
+`resolveIdentity` receives the request's MCP `authInfo`, the common source for
+verified OAuth claims. Its input schema is the same on `instrumentServer` and
+`instrumentTool`. Your resolver may also consult trusted application-owned or
+request-local context (for example, an async-local authenticated principal);
+the SDK does not require identity to come exclusively from `authInfo` or treat
+arbitrary request headers as trusted identity.
+
+Use `instrumentServer({ resolveIdentity })` when server-scope events such as
+`[MCP] Tools Listed` and `[MCP] Tool Call Rejected` need the resolved identity.
+Use the per-tool option when a particular tool needs a different resolver.
 
 Resolution order (first match wins): `setIdentity()` → `resolveIdentity()` →
 `instrumentServer` options → correlation anchor → an anonymous floor. When no
@@ -415,4 +426,3 @@ pnpm build
 pnpm test
 pnpm lint
 ```
-
