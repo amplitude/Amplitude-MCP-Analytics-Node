@@ -61,6 +61,7 @@ export const EVENT_PROPERTY_KEYS = {
   conversationId: '[MCP] Conversation ID',
   runId: '[MCP] Run ID',
   turnId: '[MCP] Turn ID',
+  subjectId: '[MCP] Subject ID',
   episodeAnchorType: '[MCP] Episode Anchor Type',
   episodeAnchorConfidence: '[MCP] Episode Anchor Confidence',
   // tool-scope reserved fields

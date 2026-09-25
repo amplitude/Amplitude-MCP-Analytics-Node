@@ -165,6 +165,56 @@ describe('buildToolContext — client correlation', () => {
     expect(ctx.correlation?.episodeAnchorConfidence).toBe('high');
   });
 
+  it('reads ChatGPT session as the conversation and keeps subject off the episode anchor', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          'openai/session': 'chatgpt-conversation',
+          'openai/subject': 'chatgpt-user',
+        },
+      }),
+    );
+
+    expect(ctx.correlation).toEqual({
+      conversationId: 'chatgpt-conversation',
+      subjectId: 'chatgpt-user',
+      episodeAnchorType: 'conversation-id',
+      episodeAnchorConfidence: 'high',
+    });
+    expect(ctx.anchor.type).toBe('anonymous');
+    expect(ctx.identity.userId).not.toBe('chatgpt-user');
+  });
+
+  it('prefers an unnamespaced conversation id over openai/session', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          conversation_id: 'conversation-123',
+          'openai/session': 'chatgpt-conversation',
+          'openai/subject': 'chatgpt-user',
+        },
+      }),
+    );
+
+    expect(ctx.correlation?.conversationId).toBe('conversation-123');
+    expect(ctx.correlation?.subjectId).toBe('chatgpt-user');
+  });
+
+  it('emits a ChatGPT subject without treating it as a conversation', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({ _meta: { 'openai/subject': 'chatgpt-user' } }),
+    );
+
+    expect(ctx.correlation).toEqual({
+      subjectId: 'chatgpt-user',
+      episodeAnchorType: 'inferred',
+      episodeAnchorConfidence: 'low',
+    });
+  });
+
   it('classifies trace and inferred fallbacks without fabricating identifiers', () => {
     const traced = toolCtx(
       'streamable-http',

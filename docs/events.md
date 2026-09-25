@@ -162,12 +162,19 @@ preferred keys and emitted properties are:
 
 | `_meta` key | Accepted aliases | Event property |
 | -- | -- | -- |
-| `conversation_id` | `conversationId`, `thread_id`, `threadId` | `[MCP] Conversation ID` |
+| `conversation_id` | `conversationId`, `thread_id`, `threadId`, `openai/session` | `[MCP] Conversation ID` |
 | `run_id` | `runId`, `job_id`, `jobId` | `[MCP] Run ID` |
 | `turn_id` | `turnId`, `turn_number`, `turnNumber` | `[MCP] Turn ID` |
+| — | `openai/subject` | `[MCP] Subject ID` |
 
 Identifiers must be non-empty strings. Finite numeric values are accepted and
 normalized to strings, which is useful for turn numbers.
+
+`openai/session` and `openai/subject` are the keys ChatGPT sends on tool calls:
+an anonymized conversation id and an anonymized user id. An unnamespaced
+conversation or thread id wins over `openai/session`. `[MCP] Subject ID` is
+not copied to `user_id`, and a subject alone does not change the episode
+anchor, because one user can have several conversations.
 
 `[MCP] Episode Anchor Type` identifies the strongest boundary available for
 the request, and `[MCP] Episode Anchor Confidence` reports its reliability:
@@ -362,6 +369,7 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Conversation ID` | string | when supplied in request `_meta` | Host conversation/thread identifier |
 | `[MCP] Run ID` | string | when supplied in request `_meta` | Agent run or batch job identifier |
 | `[MCP] Turn ID` | string | when supplied in request `_meta` | Turn identifier or normalized turn number |
+| `[MCP] Subject ID` | string | when ChatGPT sends `openai/subject` | Anonymized ChatGPT user id. Not `user_id`, and not an episode boundary |
 | `[MCP] Episode Anchor Type` | string | always | `conversation-id`, `run-id`, `transport-session`, `trace`, or `inferred` |
 | `[MCP] Episode Anchor Confidence` | string | always | `high`, `medium`, or `low` |
 | `[MCP] Is Error` | boolean | always | `true` on a thrown exception or an in-band `isError` result |
@@ -666,6 +674,7 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Server Version` | string | All |
 | `[MCP] Session Duration` | number | `Session Ended` |
 | `[MCP] Session ID` | string | All |
+| `[MCP] Subject ID` | string | Tool-scope (when ChatGPT sends `openai/subject`) |
 | `[MCP] Tool Category` | string | Tool-scope (when set) |
 | `[MCP] Tool Count` | number | `Tools Listed` |
 | `[MCP] Tool Name` | string | Tool-scope |

@@ -75,6 +75,7 @@ export function ctxToAmplitudeFieldsForTool(ctx: McpToolContext): AmplitudeField
     }
     if (ctx.correlation.runId != null) fields.runId = ctx.correlation.runId;
     if (ctx.correlation.turnId != null) fields.turnId = ctx.correlation.turnId;
+    if (ctx.correlation.subjectId != null) fields.subjectId = ctx.correlation.subjectId;
     fields.episodeAnchorType = ctx.correlation.episodeAnchorType;
     fields.episodeAnchorConfidence = ctx.correlation.episodeAnchorConfidence;
   }

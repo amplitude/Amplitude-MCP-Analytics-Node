@@ -36,6 +36,12 @@ export interface McpCorrelation {
   conversationId?: string;
   runId?: string;
   turnId?: string;
+  /**
+   * Host-supplied subject identifier, such as ChatGPT's anonymized
+   * `openai/subject`. Kept off `user_id`: it does not match a customer's
+   * existing Amplitude user.
+   */
+  subjectId?: string;
   episodeAnchorType: McpEpisodeAnchorType;
   episodeAnchorConfidence: McpEpisodeAnchorConfidence;
 }

@@ -136,6 +136,42 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     });
   });
 
+  it('emits ChatGPT session and subject metadata on the tool response event', async () => {
+    const mock = new MockAmplitudeMCPAnalytics({
+      serverName: 'test-server',
+      serverVersion: '0.0.0',
+    });
+    (mock as unknown as { _serverCtx?: McpServerContext })._serverCtx = createServerContext({
+      server: { name: 'test-server', version: '0.0.0' },
+      transport: 'streamable-http',
+      tenant: { groupType: 'org id', groupValue: '36958' },
+    });
+
+    const wrapped = mock.instrumentTool<[McpExtra], Promise<CallToolResult>>(
+      async () => ok(),
+      { name: 'search_docs' },
+    );
+
+    await wrapped(
+      mkExtra({
+        _meta: {
+          'openai/session': 'chatgpt-conversation',
+          'openai/subject': 'chatgpt-user',
+        },
+      }),
+    );
+
+    const event = mock.getEvents('[MCP] Tool Call Response')[0];
+    expect(event?.user_id).not.toBe('chatgpt-user');
+    expect(event?.event_properties).toMatchObject({
+      '[MCP] Conversation ID': 'chatgpt-conversation',
+      '[MCP] Subject ID': 'chatgpt-user',
+      '[MCP] Episode Anchor Type': 'conversation-id',
+      '[MCP] Episode Anchor Confidence': 'high',
+      '[MCP] Session ID': 'no-session',
+    });
+  });
+
   it('instrumentTool is a no-op passthrough when instrumentServer was not called', async () => {
     const mock = new MockAmplitudeMCPAnalytics({
       serverName: 'test-server',

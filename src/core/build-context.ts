@@ -38,6 +38,13 @@ const META_CONVERSATION_IDS = [
 ] as const;
 const META_RUN_IDS = ['run_id', 'runId', 'job_id', 'jobId'] as const;
 const META_TURN_IDS = ['turn_id', 'turnId', 'turn_number', 'turnNumber'] as const;
+/**
+ * ChatGPT Apps SDK keys. `openai/session` is an anonymized conversation id;
+ * `openai/subject` is an anonymized user id. Unnamespaced conversation keys
+ * win over the session key.
+ */
+const META_HOST_CONVERSATION_IDS = ['openai/session'] as const;
+const META_HOST_SUBJECT_IDS = ['openai/subject'] as const;
 
 /**
  * Classify the transport passed to `server.connect()` (server-scope). Probes for
@@ -167,43 +174,49 @@ function readMetaIdentifier(
  */
 function resolveCorrelation(extra: McpExtra, anchor: McpAnchor): McpCorrelation {
   const meta = metaRecord(extra);
-  const conversationId = readMetaIdentifier(meta, META_CONVERSATION_IDS);
+  const conversationId =
+    readMetaIdentifier(meta, META_CONVERSATION_IDS) ??
+    readMetaIdentifier(meta, META_HOST_CONVERSATION_IDS);
   const runId = readMetaIdentifier(meta, META_RUN_IDS);
   const turnId = readMetaIdentifier(meta, META_TURN_IDS);
+  const subjectId = readMetaIdentifier(meta, META_HOST_SUBJECT_IDS);
+  const ids: Pick<McpCorrelation, 'conversationId' | 'runId' | 'turnId' | 'subjectId'> = {
+    ...(conversationId != null ? { conversationId } : {}),
+    ...(runId != null ? { runId } : {}),
+    ...(turnId != null ? { turnId } : {}),
+    ...(subjectId != null ? { subjectId } : {}),
+  };
 
   if (conversationId != null) {
     return {
-      conversationId,
-      runId,
-      turnId,
+      ...ids,
       episodeAnchorType: 'conversation-id',
       episodeAnchorConfidence: 'high',
     };
   }
   if (runId != null) {
     return {
-      runId,
-      turnId,
+      ...ids,
       episodeAnchorType: 'run-id',
       episodeAnchorConfidence: 'high',
     };
   }
   if (anchor.type === 'session-id' || anchor.type === 'process') {
     return {
-      turnId,
+      ...ids,
       episodeAnchorType: 'transport-session',
       episodeAnchorConfidence: 'high',
     };
   }
   if (anchor.type === 'trace') {
     return {
-      turnId,
+      ...ids,
       episodeAnchorType: 'trace',
       episodeAnchorConfidence: 'medium',
     };
   }
   return {
-    turnId,
+    ...ids,
     episodeAnchorType: 'inferred',
     episodeAnchorConfidence: 'low',
   };

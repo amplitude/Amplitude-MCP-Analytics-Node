@@ -43,6 +43,8 @@ export interface DefaultToolFields extends DefaultServerFields {
   conversationId?: string;
   runId?: string;
   turnId?: string;
+  /** Host subject id, such as ChatGPT `openai/subject`. Not an Amplitude `user_id`. */
+  subjectId?: string;
   episodeAnchorType?: McpEpisodeAnchorType;
   episodeAnchorConfidence?: McpEpisodeAnchorConfidence;
 }

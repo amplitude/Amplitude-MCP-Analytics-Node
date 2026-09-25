@@ -148,6 +148,12 @@ The SDK emits `[MCP] Conversation ID`, `[MCP] Run ID`, and `[MCP] Turn ID`.
 to strings. Camel-case (`conversationId`, `threadId`, `runId`, `jobId`,
 `turnId`, `turnNumber`) is also accepted.
 
+ChatGPT already sends two of these on tool calls. `_meta["openai/session"]` is
+read as `[MCP] Conversation ID` when no unnamespaced conversation or thread id
+is present. `_meta["openai/subject"]` is emitted as `[MCP] Subject ID`. That
+subject is an anonymized ChatGPT user id, so it stays off `user_id` and does
+not group separate conversations into one episode.
+
 Each tool-scope event also reports `[MCP] Episode Anchor Type` and
 `[MCP] Episode Anchor Confidence`. The strongest available source wins:
 conversation, run/job, transport session, W3C trace, then inferred. These
