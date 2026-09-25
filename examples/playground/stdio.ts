@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { logStdioMessages } from './request-log.js';
 import { createPlayground } from './server.js';
 
 /**
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
 
   session.playground = await createPlayground();
   if (stopping) return;
-  session.transport = new StdioServerTransport();
+  session.transport = new StdioServerTransport(logStdioMessages(process.stdin, session.playground.requests));
   await session.playground.server.connect(session.transport);
   if (process.stdin.readableEnded) stop();
 }

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { RequestLog } from './request-log.js';
 import { createPlayground, type Playground, type PlaygroundOptions } from './server.js';
 
 export const PLAYGROUND_HTTP_PORT = 8787;
@@ -37,7 +38,7 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
-    void transport.handleRequest(req, res).catch(() => {
+    void handleMcpRequest(req, res, transport, playground.requests).catch(() => {
       if (!res.headersSent) res.writeHead(500).end();
     });
   });
@@ -64,6 +65,78 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
       await playground.close();
     },
   };
+}
+
+const MAX_MCP_BODY_BYTES = 1_000_000;
+
+/**
+ * Log the client request, then hand it to the MCP transport.
+ *
+ * The body is read here so it can be written to the request log. The parsed
+ * value is passed into `handleRequest` because that stream can only be read once.
+ */
+async function handleMcpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  transport: StreamableHTTPServerTransport,
+  requests: RequestLog,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    await requests.write({ transport: 'streamable-http', httpMethod: req.method ?? 'UNKNOWN' });
+    await transport.handleRequest(req, res);
+    return;
+  }
+
+  let raw: string;
+  try {
+    raw = await readBody(req);
+  } catch {
+    json(res, 413, { error: 'payload too large' });
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    await requests.write({ transport: 'streamable-http', httpMethod: 'POST', raw });
+    await transport.handleRequest(req, res);
+    return;
+  }
+
+  const messages = Array.isArray(parsed) ? parsed : [parsed];
+  if (messages.length === 0) {
+    await requests.write({ transport: 'streamable-http', httpMethod: 'POST', message: parsed });
+  } else {
+    for (const message of messages) {
+      await requests.write({ transport: 'streamable-http', httpMethod: 'POST', message });
+    }
+  }
+  await transport.handleRequest(req, res, parsed);
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_MCP_BODY_BYTES) {
+        reject(new Error('payload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function json(res: ServerResponse, status: number, body: Record<string, unknown>): void {
+  if (res.headersSent || res.writableEnded) return;
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(body));
 }
 
 function listen(server: HttpServer, port: number): Promise<void> {

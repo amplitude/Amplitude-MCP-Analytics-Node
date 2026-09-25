@@ -5,6 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createMcpAnalytics, type AmplitudeMCPAnalytics } from '../../src/client.js';
 import type { AmplitudeClientLike } from '../../src/types.js';
+import { defaultRequestLogPath, openRequestLog, type RequestLog } from './request-log.js';
 import { startIngestionSink, type IngestionSink } from './sink.js';
 
 export const PLAYGROUND_SERVER_NAME = 'amplitude-playground';
@@ -26,6 +27,11 @@ export interface PlaygroundOptions {
    * anything else selects the sink.
    */
   delivery?: 'sink' | 'amplitude';
+  /**
+   * Where client MCP requests are appended. Defaults to
+   * `examples/playground/mcp-requests.ndjson`.
+   */
+  requestLogPath?: string;
 }
 
 export interface Playground {
@@ -33,6 +39,8 @@ export interface Playground {
   analytics: AmplitudeMCPAnalytics;
   sink?: IngestionSink;
   logPath?: string;
+  /** Client-to-server MCP messages, including tool arguments. */
+  requests: RequestLog;
   flush: () => Promise<void>;
   /** Flush queued events, then stop the sink. Does not close the MCP transport. */
   close: () => Promise<void>;
@@ -50,6 +58,7 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
   const delivery = resolveDelivery(options.delivery);
   const logPath = options.logPath ?? defaultLogPath();
   const sink = delivery === 'sink' ? await startIngestionSink({ logPath }) : undefined;
+  const requests = await openRequestLog(options.requestLogPath ?? defaultRequestLogPath());
   const apiKey = delivery === 'amplitude' ? requiredApiKey() : LOCAL_API_KEY;
 
   const initOptions: amplitude.Types.NodeOptions = {
@@ -101,6 +110,7 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
 
   analytics.instrumentServer(server);
 
+  process.stderr.write(`[playground] logging MCP requests to ${requests.logPath}\n`);
   if (sink) {
     process.stderr.write(`[playground] logging ingestion payloads to ${sink.logPath}\n`);
   } else {
@@ -113,6 +123,7 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
     analytics,
     sink,
     logPath: sink?.logPath,
+    requests,
     flush: () => flushAnalytics(analytics),
     close: async () => {
       if (closed) return;
@@ -120,7 +131,11 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
       try {
         await flushAnalytics(analytics);
       } finally {
-        await sink?.close();
+        try {
+          await sink?.close();
+        } finally {
+          await requests.close();
+        }
       }
     },
   };
