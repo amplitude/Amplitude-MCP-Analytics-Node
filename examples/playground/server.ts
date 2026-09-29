@@ -35,7 +35,14 @@ export interface PlaygroundOptions {
 }
 
 export interface Playground {
+  /**
+   * One ready-made server, for stdio where a process serves one connection.
+   * Streamable HTTP must use {@link Playground.createServer}: a server connects
+   * to one transport, and a transport serves one session.
+   */
   server: McpServer;
+  /** A fresh instrumented server with the playground tools, not yet connected. */
+  createServer: () => McpServer;
   analytics: AmplitudeMCPAnalytics;
   sink?: IngestionSink;
   logPath?: string;
@@ -75,40 +82,44 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
     serverVersion: packageVersion(),
   });
 
-  const server = new McpServer(
-    { name: PLAYGROUND_SERVER_NAME, version: packageVersion() },
-    {
-      instructions:
-        'Local playground for Amplitude MCP analytics. echo returns the message you pass and, when you include rationale, records why you called it. whoami records a fixed playground user id. Neither tool does any other work.',
-    },
-  );
+  const createServer = (): McpServer => {
+    const server = new McpServer(
+      { name: PLAYGROUND_SERVER_NAME, version: packageVersion() },
+      {
+        instructions:
+          'Local playground for Amplitude MCP analytics. echo returns the message you pass and, when you include rationale, records why you called it. whoami records a fixed playground user id. Neither tool does any other work.',
+      },
+    );
 
-  server.tool(
-    'echo',
-    'Return the message you were given. Include rationale when you know why you are calling this tool.',
-    {
-      message: z.string().describe('Text to echo back.'),
-      rationale: z.string().optional().describe('Why you called this tool.'),
-    },
-    analytics.instrumentTool(async (args) => {
-      if (typeof args.rationale === 'string' && args.rationale.length > 0) {
-        analytics.setRationale(args.rationale);
-      }
-      const message = typeof args.message === 'string' ? args.message : '';
-      return { content: [{ type: 'text' as const, text: message }] };
-    }, { name: 'echo' }),
-  );
+    server.tool(
+      'echo',
+      'Return the message you were given. Include rationale when you know why you are calling this tool.',
+      {
+        message: z.string().describe('Text to echo back.'),
+        rationale: z.string().optional().describe('Why you called this tool.'),
+      },
+      analytics.instrumentTool(async (args) => {
+        if (typeof args.rationale === 'string' && args.rationale.length > 0) {
+          analytics.setRationale(args.rationale);
+        }
+        const message = typeof args.message === 'string' ? args.message : '';
+        return { content: [{ type: 'text' as const, text: message }] };
+      }, { name: 'echo' }),
+    );
 
-  server.tool(
-    'whoami',
-    'Report the playground user id and attach it to analytics for this call.',
-    analytics.instrumentTool(async () => {
-      analytics.setIdentity({ userId: 'playground-user' });
-      return { content: [{ type: 'text' as const, text: 'playground-user' }] };
-    }, { name: 'whoami' }),
-  );
+    server.tool(
+      'whoami',
+      'Report the playground user id and attach it to analytics for this call.',
+      analytics.instrumentTool(async () => {
+        analytics.setIdentity({ userId: 'playground-user' });
+        return { content: [{ type: 'text' as const, text: 'playground-user' }] };
+      }, { name: 'whoami' }),
+    );
 
-  analytics.instrumentServer(server);
+    analytics.instrumentServer(server);
+    return server;
+  };
+  const server = createServer();
 
   process.stderr.write(`[playground] logging MCP requests to ${requests.logPath}\n`);
   if (sink) {
@@ -120,6 +131,7 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
   let closed = false;
   const playground: Playground = {
     server,
+    createServer,
     analytics,
     sink,
     logPath: sink?.logPath,

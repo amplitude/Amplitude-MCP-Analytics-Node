@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { RequestLog } from './request-log.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createPlayground, type Playground, type PlaygroundOptions } from './server.js';
 
 export const PLAYGROUND_HTTP_PORT = 8787;
@@ -20,16 +21,24 @@ export interface RunningPlaygroundHttp {
   close: () => Promise<void>;
 }
 
+/** One MCP session: a transport serves exactly one session, a server one transport. */
+interface Session {
+  transport: StreamableHTTPServerTransport;
+  server: McpServer;
+}
+
 /**
- * Session-bearing Streamable HTTP server. One long-lived process, one
- * transport: fine for a single local client (Inspector, Cursor, a test).
+ * Session-bearing Streamable HTTP server. One long-lived process serving any
+ * number of sessions over its lifetime.
+ *
+ * Each `initialize` gets its own transport and server, looked up afterwards by
+ * `Mcp-Session-Id`. A single shared transport would be unusable after the first
+ * session ends: clients such as Codex probe with a short session, `DELETE` it,
+ * and reconnect when a tool is first called.
  */
 export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): Promise<RunningPlaygroundHttp> {
   const playground = await createPlayground(options);
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-  });
-  await playground.server.connect(transport);
+  const sessions = new Map<string, Session>();
 
   const http = createServer((req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
@@ -38,7 +47,7 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
-    void handleMcpRequest(req, res, transport, playground.requests).catch(() => {
+    void handleMcpRequest(req, res, sessions, playground).catch(() => {
       if (!res.headersSent) res.writeHead(500).end();
     });
   });
@@ -60,7 +69,8 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
     close: async () => {
       if (closed) return;
       closed = true;
-      await transport.close();
+      // Closing a transport ends its session, so `[MCP] Session Ended` fires.
+      await Promise.allSettled([...sessions.values()].map((session) => session.transport.close()));
       await closeHttp(http);
       await playground.close();
     },
@@ -70,7 +80,7 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
 const MAX_MCP_BODY_BYTES = 1_000_000;
 
 /**
- * Log the client request, then hand it to the MCP transport.
+ * Log the client request, then hand it to the session's transport.
  *
  * The body is read here so it can be written to the request log. The parsed
  * value is passed into `handleRequest` because that stream can only be read once.
@@ -78,12 +88,20 @@ const MAX_MCP_BODY_BYTES = 1_000_000;
 async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  transport: StreamableHTTPServerTransport,
-  requests: RequestLog,
+  sessions: Map<string, Session>,
+  playground: Playground,
 ): Promise<void> {
+  const requests = playground.requests;
+  const sessionId = headerValue(req.headers['mcp-session-id']);
+  const existing = sessionId === undefined ? undefined : sessions.get(sessionId);
+
   if (req.method !== 'POST') {
     await requests.write({ transport: 'streamable-http', httpMethod: req.method ?? 'UNKNOWN' });
-    await transport.handleRequest(req, res);
+    if (existing == null) {
+      sessionError(res, sessionId);
+      return;
+    }
+    await existing.transport.handleRequest(req, res);
     return;
   }
 
@@ -100,7 +118,7 @@ async function handleMcpRequest(
     parsed = JSON.parse(raw) as unknown;
   } catch {
     await requests.write({ transport: 'streamable-http', httpMethod: 'POST', raw });
-    await transport.handleRequest(req, res);
+    jsonRpcError(res, 400, -32700, 'Parse error: invalid JSON');
     return;
   }
 
@@ -112,7 +130,63 @@ async function handleMcpRequest(
       await requests.write({ transport: 'streamable-http', httpMethod: 'POST', message });
     }
   }
-  await transport.handleRequest(req, res, parsed);
+
+  // An `initialize` always opens a new session, even when the client still
+  // sends the id of one this process no longer knows (for example after a
+  // restart). Anything else needs a session that exists.
+  if (messages.some((message) => isInitializeRequest(message))) {
+    const session = await openSession(sessions, playground);
+    await session.transport.handleRequest(req, res, parsed);
+    // A rejected initialize never produced a session id: release its server.
+    if (session.transport.sessionId === undefined) {
+      await session.server.close().catch(() => undefined);
+    }
+    return;
+  }
+
+  if (existing == null) {
+    sessionError(res, sessionId);
+    return;
+  }
+  await existing.transport.handleRequest(req, res, parsed);
+}
+
+async function openSession(sessions: Map<string, Session>, playground: Playground): Promise<Session> {
+  const server = playground.createServer();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (id) => {
+      sessions.set(id, session);
+      process.stderr.write(`[playground] session opened ${id} (${sessions.size} active)\n`);
+    },
+  });
+  const session: Session = { transport, server };
+  // Set before `connect`, which chains onto an existing `onclose`.
+  transport.onclose = () => {
+    const id = transport.sessionId;
+    if (id === undefined || !sessions.delete(id)) return;
+    process.stderr.write(`[playground] session closed ${id} (${sessions.size} active)\n`);
+  };
+  await server.connect(transport);
+  return session;
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value;
+  return first === undefined || first.length === 0 ? undefined : first;
+}
+
+/** MCP Streamable HTTP: an unknown session is 404 so the client re-initializes. */
+function sessionError(res: ServerResponse, sessionId: string | undefined): void {
+  if (sessionId === undefined) {
+    jsonRpcError(res, 400, -32000, 'Bad Request: Mcp-Session-Id header is required');
+    return;
+  }
+  jsonRpcError(res, 404, -32001, 'Session not found');
+}
+
+function jsonRpcError(res: ServerResponse, status: number, code: number, message: string): void {
+  json(res, status, { jsonrpc: '2.0', error: { code, message }, id: null });
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

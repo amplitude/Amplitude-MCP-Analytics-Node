@@ -109,6 +109,80 @@ describe('playground ingestion sink', () => {
     });
   });
 
+  it('serves a new session after the previous one is deleted', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mcp-playground-sessions-'));
+    const logPath = join(dir, 'events.ndjson');
+    running = await startPlaygroundHttp({
+      port: 0,
+      logPath,
+      requestLogPath: join(dir, 'mcp-requests.ndjson'),
+      delivery: 'sink',
+    });
+
+    // Codex-style: a short probe session that is closed, then a reconnect.
+    const probe = new Client({ name: 'playground-test', version: '1.0.0' });
+    const probeTransport = new StreamableHTTPClientTransport(running.url);
+    await probe.connect(probeTransport);
+    const staleSessionId = probeTransport.sessionId;
+    await probe.listTools();
+    await probeTransport.terminateSession();
+    await probe.close();
+    expect(staleSessionId).toBeDefined();
+
+    client = new Client({ name: 'playground-test', version: '1.0.0' });
+    const transport = new StreamableHTTPClientTransport(running.url);
+    await client.connect(transport);
+    expect(transport.sessionId).toBeDefined();
+    expect(transport.sessionId).not.toBe(staleSessionId);
+    const result = await client.callTool({ name: 'echo', arguments: { message: 'again' } });
+    expect(result).toMatchObject({ content: [{ type: 'text', text: 'again' }] });
+
+    // The deleted session is gone: a request on it is 404 so clients re-initialize.
+    const stale = await fetch(running.url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': staleSessionId ?? '',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list' }),
+    });
+    expect(stale.status).toBe(404);
+
+    // An initialize is accepted even while it carries the stale session id.
+    const reinit = await fetch(running.url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': staleSessionId ?? '',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'playground-test', version: '1.0.0' },
+        },
+      }),
+    });
+    expect(reinit.status).toBe(200);
+    expect(reinit.headers.get('mcp-session-id')).not.toBe(staleSessionId);
+    await reinit.text();
+
+    await running.flush();
+    const events = (await readNdjson<IngestionBatch>(logPath)).flatMap((entry) => entry.events ?? []);
+    const sessionIds = new Set(
+      events
+        .filter((event) => event.event_type === '[MCP] Session Initialized')
+        .map((event) => event.event_properties?.['[MCP] Session ID']),
+    );
+    expect(sessionIds.size).toBeGreaterThanOrEqual(2);
+    expect(events.some((event) => event.event_type === '[MCP] Tool Call Response')).toBe(true);
+  });
+
   it('logs stdio JSON-RPC lines, including a line split across chunks', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'mcp-playground-stdio-'));
     const log = await openRequestLog(join(dir, 'mcp-requests.ndjson'));
