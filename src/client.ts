@@ -433,6 +433,8 @@ export class AmplitudeMCPAnalytics {
         },
         trackToolCalls: this.config.autocapture.toolCalls,
         sanitizeErrorMessage: this.config.sanitizeErrorMessage,
+        captureParamShape: this.config.paramCapture.shape,
+        paramNeverKeys: this.config.paramCapture.neverKeys,
         logger: getLogger(this._amplitude),
       },
       handler,

@@ -1,0 +1,394 @@
+import { describe, expect, it, vi } from 'vitest';
+import fc from 'fast-check';
+import {
+  captureParamProperties,
+  resolveToolParamCapture,
+} from '../src/tracking/param-capture.js';
+import type { Logger } from '../src/utils/logger.js';
+
+const logger: Logger = {
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+};
+
+function stringBucket(value: string): string {
+  if (value.length === 0) return 'str[0]';
+  if (value.length <= 32) return 'str[1-32]';
+  if (value.length <= 256) return 'str[33-256]';
+  return 'str[257+]';
+}
+
+function capture(
+  params: Record<string, unknown>,
+  overrides: Partial<Parameters<typeof captureParamProperties>[1]> = {},
+) {
+  return captureParamProperties(params, {
+    shape: true,
+    neverKeys: ['rationale', 'context'],
+    logger,
+    toolName: 'search',
+    ...overrides,
+  });
+}
+
+describe('Tier 1 parameter shape capture', () => {
+  it('describes every JSON type without including values or nested content', () => {
+    const result = capture({
+      bool: true,
+      num: 42,
+      empty: '',
+      short: 'secret',
+      medium: 'x'.repeat(33),
+      long: 'x'.repeat(257),
+      array: ['secret', 2],
+      object: { nested: 'secret', other: true },
+      nil: null,
+    });
+
+    expect(result.tier1['[MCP] Param Shape']).toBe(
+      'array:arr[2];bool:bool;empty:str[0];long:str[257+];medium:str[33-256];nil:null;num:num;object:obj[2];short:str[1-32]',
+    );
+    expect(result.tier1['[MCP] Param Count']).toBe(9);
+    expect(result.tier1['[MCP] Param Keys']).toEqual([
+      'array',
+      'bool',
+      'empty',
+      'long',
+      'medium',
+      'nil',
+      'num',
+      'object',
+      'short',
+    ]);
+  });
+
+  it('is deterministic across input key order', () => {
+    const a = capture({ z: true, a: [1, 2] }).tier1;
+    const b = capture({ a: [9, 8], z: false }).tier1;
+
+    expect(a['[MCP] Param Shape']).toBe(b['[MCP] Param Shape']);
+    expect(a['[MCP] Param Fingerprint']).toBe(
+      b['[MCP] Param Fingerprint'],
+    );
+  });
+
+  it('excludes global and tool-level never keys', () => {
+    const result = capture(
+      { rationale: 'why', context: 'where', secret: 'hidden', safe: true },
+      {
+        policy: { never: ['secret'] },
+      },
+    );
+
+    expect(result.tier1['[MCP] Param Keys']).toEqual(['safe']);
+    expect(result.tier1['[MCP] Param Count']).toBe(1);
+    expect(result.tier1['[MCP] Param Shape']).toBe('safe:bool');
+  });
+
+  it('allows consumers to override the default exclusions', () => {
+    const result = capture(
+      { rationale: 'why', context: 'where' },
+      { neverKeys: [] },
+    );
+
+    expect(result.tier1['[MCP] Param Keys']).toEqual([
+      'context',
+      'rationale',
+    ]);
+  });
+
+  it('omits caller-controlled key names from keys and shape but still counts them', () => {
+    const result = capture({
+      'jane@example.com': true,
+      'user id': 1,
+      safe: false,
+    });
+
+    expect(result.tier1['[MCP] Param Keys']).toEqual(['safe']);
+    expect(result.tier1['[MCP] Param Count']).toBe(3);
+    expect(result.tier1['[MCP] Param Shape']).toBe('safe:bool');
+    expect(JSON.stringify(result.tier1)).not.toContain('jane@example.com');
+    expect(JSON.stringify(result.tier1)).not.toContain('user id');
+  });
+
+  it('does not emit generated key-name content', () => {
+    fc.assert(
+      fc.property(fc.emailAddress(), (email) => {
+        const tier1 = capture({ [email]: true, safe: 1 }).tier1;
+        const output = JSON.stringify([
+          tier1['[MCP] Param Keys'],
+          tier1['[MCP] Param Shape'],
+        ]);
+        expect(output).not.toContain(email);
+        expect(tier1['[MCP] Param Count']).toBe(2);
+      }),
+      { numRuns: 50 },
+    );
+  });
+
+  it('bounds key names and the keys list while retaining the supplied count', () => {
+    const overlong = 'x'.repeat(65);
+    const params = Object.fromEntries([
+      ...Array.from({ length: 33 }, (_, index) => [`key${index}`, index]),
+      [overlong, true],
+    ]);
+    const result = capture(params);
+
+    expect(result.tier1['[MCP] Param Keys']).toHaveLength(32);
+    expect(result.tier1['[MCP] Param Count']).toBe(34);
+    expect(result.tier1['[MCP] Param Shape']).not.toContain(overlong);
+    expect(
+      (result.tier1['[MCP] Param Keys'] as string[]).some(
+        (key) => key.length > 64,
+      ),
+    ).toBe(false);
+
+    const boundary = 'y'.repeat(64);
+    expect(
+      capture({ [boundary]: true }).tier1['[MCP] Param Keys'],
+    ).toContain(boundary);
+  });
+
+  it('caps shape at 1,024 characters including a visible marker', () => {
+    const params = Object.fromEntries(
+      Array.from({ length: 40 }, (_, index) => [
+        `${String(index).padStart(2, '0')}-${'x'.repeat(60)}`,
+        'value',
+      ]),
+    );
+    const shape = capture(params).tier1['[MCP] Param Shape'] as string;
+
+    expect(shape.length).toBeLessThanOrEqual(1024);
+    expect(shape.endsWith('…')).toBe(true);
+    for (const token of shape.slice(0, -1).split(';')) {
+      expect(token.endsWith(':str[1-32]')).toBe(true);
+    }
+  });
+
+  it('uses only safe route values and honors never', () => {
+    const accepted = capture(
+      { action: 'list-items', q: true },
+      { policy: { routeKey: 'action', never: [] } },
+    ).tier1['[MCP] Param Shape'];
+    expect(accepted).toBe('route=list-items;action:str[1-32];q:bool');
+
+    const rejected = capture(
+      { action: 'email@example.com', q: true },
+      { policy: { routeKey: 'action', never: [] } },
+    ).tier1['[MCP] Param Shape'];
+    const undeclared = capture({
+      action: 'email@example.com',
+      q: true,
+    }).tier1['[MCP] Param Shape'];
+    expect(rejected).toBe(undeclared);
+
+    const excluded = capture(
+      { action: 'list-items', q: true },
+      {
+        policy: { routeKey: 'action', never: ['action'] },
+      },
+    ).tier1['[MCP] Param Shape'];
+    expect(excluded).toBe('q:bool');
+  });
+
+  it('folds finite numbers and booleans into the route prefix', () => {
+    expect(
+      capture(
+        { action: 1, q: true },
+        { policy: { routeKey: 'action', never: [] } },
+      ).tier1['[MCP] Param Shape'],
+    ).toBe('route=1;action:num;q:bool');
+    expect(
+      capture(
+        { action: true, q: 1 },
+        { policy: { routeKey: 'action', never: [] } },
+      ).tier1['[MCP] Param Shape'],
+    ).toBe('route=true;action:bool;q:num');
+    expect(
+      capture(
+        { action: Number.NaN, q: true },
+        { policy: { routeKey: 'action', never: [] } },
+      ).tier1['[MCP] Param Shape'],
+    ).toBe('action:num;q:bool');
+  });
+
+  it('hashes the exact shape, preserving arity', () => {
+    const two = capture({ command: [1, 2] }).tier1;
+    const three = capture({ command: [1, 2, 3] }).tier1;
+
+    expect(two['[MCP] Param Fingerprint']).not.toBe(
+      three['[MCP] Param Fingerprint'],
+    );
+    expect(two['[MCP] Param Fingerprint']).toMatch(/^[a-f0-9]{12}$/);
+  });
+
+  it('does not emit parameter value substrings', () => {
+    fc.assert(
+      fc.property(
+        fc.tuple(
+          fc.emailAddress(),
+          fc.uuid(),
+          fc.string({ minLength: 20, maxLength: 200 }),
+        ),
+        ([email, uuid, text]) => {
+          const tier1 = capture({ p1: email, p2: uuid, p3: text }).tier1;
+          const expectedShape = [
+            `p1:${stringBucket(email)}`,
+            `p2:${stringBucket(uuid)}`,
+            `p3:${stringBucket(text)}`,
+          ].join(';');
+          expect(tier1['[MCP] Param Shape']).toBe(expectedShape);
+
+          // Fingerprint is a hash and can coincidentally contain a short
+          // input slice, so only inspect keys/count/shape.
+          const output = JSON.stringify([
+            tier1['[MCP] Param Keys'],
+            tier1['[MCP] Param Count'],
+            tier1['[MCP] Param Shape'],
+          ]);
+          for (const value of [email, uuid, text]) {
+            expect(output).not.toContain(value);
+            for (let index = 0; index <= value.length - 4; index += 1) {
+              const slice = value.slice(index, index + 4);
+              // UUIDs like `…-2560-…` overlap the bucket token `str[33-256]`.
+              // Skip slices the length-derived grammar is allowed to emit.
+              if (expectedShape.includes(slice)) continue;
+              expect(output).not.toContain(slice);
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});
+
+describe('Tier 2 derived parameter metadata', () => {
+  it('emits safe scalar values in stable key order', () => {
+    const result = capture(
+      { raw: 'ignored' },
+      {
+        policy: {
+          never: [],
+          derive: () => ({ range: 30, destructive: false, metric: 'formula' }),
+        },
+      },
+    );
+
+    expect(result.tier2).toEqual({
+      '[MCP] Param: destructive': false,
+      '[MCP] Param: metric': 'formula',
+      '[MCP] Param: range': 30,
+    });
+  });
+
+  it('drops unsafe values, keys, and non-scalars', () => {
+    const result = capture(
+      {},
+      {
+        policy: {
+          never: ['excluded'],
+          derive: () =>
+            ({
+              email: 'user@example.com',
+              newline: 'hello\nworld',
+              doubleQuote: 'say "hello"',
+              singleQuote: "say 'hello'",
+              tooLong: 'x'.repeat(257),
+              object: { unsafe: true },
+              excluded: true,
+              ['x'.repeat(65)]: true,
+              safe: 'ok',
+            }) as unknown as Record<string, string | number | boolean>,
+        },
+      },
+    );
+
+    expect(result.tier2).toEqual({ '[MCP] Param: safe': 'ok' });
+  });
+
+  it('drops NaN and Infinity derived numbers', () => {
+    const result = capture(
+      {},
+      {
+        policy: {
+          never: [],
+          derive: () => ({ nan: Number.NaN, inf: Number.POSITIVE_INFINITY, ok: 1 }),
+        },
+      },
+    );
+
+    expect(result.tier2).toEqual({ '[MCP] Param: ok': 1 });
+  });
+
+  it('caps derived properties at eight', () => {
+    const result = capture(
+      {},
+      {
+        policy: {
+          never: [],
+          derive: () =>
+            Object.fromEntries(
+              Array.from({ length: 10 }, (_, index) => [`key${index}`, index]),
+            ),
+        },
+      },
+    );
+
+    expect(Object.keys(result.tier2)).toHaveLength(8);
+  });
+
+  it('fails closed when derive throws', () => {
+    const debug = vi.fn();
+    const result = capture(
+      {},
+      {
+        logger: { ...logger, debug },
+        policy: {
+          never: [],
+          derive: () => {
+            throw new Error('boom');
+          },
+        },
+      },
+    );
+
+    expect(result.tier2).toEqual({});
+    expect(debug).toHaveBeenCalledOnce();
+  });
+});
+
+describe('capture declaration validation', () => {
+  it('ignores mistyped opt-in fields without disabling shape capture', () => {
+    const route = resolveToolParamCapture({ routeKey: 42 } as unknown);
+    expect(route.disabled).toBe(false);
+    expect(route.policy?.routeKey).toBeUndefined();
+    expect(route.warnings.length).toBeGreaterThan(0);
+
+    const derive = resolveToolParamCapture({ derive: 'nope' } as unknown);
+    expect(derive.disabled).toBe(false);
+    expect(derive.policy?.derive).toBeUndefined();
+
+    const never = resolveToolParamCapture({ never: 'secret' } as unknown);
+    expect(never.disabled).toBe(false);
+    expect(never.policy?.never).toEqual([]);
+  });
+
+  it('disables capture only when paramCapture is not an object', () => {
+    expect(resolveToolParamCapture(['nope'] as unknown)).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('ignores invalid never entries but keeps the declaration enabled', () => {
+    const result = resolveToolParamCapture({
+      never: ['secret', 42],
+    } as unknown);
+
+    expect(result.disabled).toBe(false);
+    expect(result.policy?.never).toEqual(['secret']);
+    expect(result.warnings).toHaveLength(1);
+  });
+});

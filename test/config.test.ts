@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MCPAnalyticsConfig } from '../src/config.js';
+import { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from '../src/config.js';
 
 describe('MCPAnalyticsConfig autocapture normalization', () => {
   it('defaults every family on when unset', () => {
@@ -74,5 +74,39 @@ describe('MCPAnalyticsConfig emitAnonymousEvent', () => {
 
   it('honors an explicit true', () => {
     expect(new MCPAnalyticsConfig({ emitAnonymousEvent: true }).emitAnonymousEvent).toBe(true);
+  });
+});
+
+describe('MCPAnalyticsConfig parameter capture', () => {
+  it('defaults shape on and excludes injected host metadata keys', () => {
+    expect(new MCPAnalyticsConfig().paramCapture).toEqual({
+      shape: true,
+      neverKeys: DEFAULT_PARAM_NEVER_KEYS,
+    });
+  });
+
+  it('accepts the shape off-switch and custom exclusions', () => {
+    expect(
+      new MCPAnalyticsConfig({
+        paramCapture: { shape: false, neverKeys: ['private'] },
+      }).paramCapture,
+    ).toEqual({
+      shape: false,
+      neverKeys: ['private'],
+    });
+  });
+
+  it('allows an empty exclusion list and drops invalid entries', () => {
+    expect(
+      new MCPAnalyticsConfig({ paramCapture: { neverKeys: [] } }).paramCapture
+        .neverKeys,
+    ).toEqual([]);
+    expect(
+      new MCPAnalyticsConfig({
+        paramCapture: {
+          neverKeys: ['safe', 42] as unknown as string[],
+        },
+      }).paramCapture.neverKeys,
+    ).toEqual(['safe']);
   });
 });

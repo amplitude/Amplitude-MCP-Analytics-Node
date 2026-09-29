@@ -22,4 +22,5 @@ export type {
   McpTransport,
   ResolveClientInfoInput,
   SetIdentityInput,
+  ToolParamCapture,
 } from './types.js';
