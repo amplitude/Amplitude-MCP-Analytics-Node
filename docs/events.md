@@ -164,7 +164,7 @@ preferred keys and emitted properties are:
 | -- | -- | -- |
 | `conversation_id` | `conversationId`, `thread_id`, `threadId`, `openai/session` | `[MCP] Conversation ID` |
 | `run_id` | `runId`, `job_id`, `jobId` | `[MCP] Run ID` |
-| `turn_id` | `turnId`, `turn_number`, `turnNumber` | `[MCP] Turn ID` |
+| `turn_id` | `turnId`, `turn_number`, `turnNumber`, `x-codex-turn-metadata.turn_id` | `[MCP] Turn ID` |
 | — | `openai/subject` | `[MCP] Subject ID` |
 
 Identifiers must be non-empty strings. Finite numeric values are accepted and
@@ -175,6 +175,10 @@ an anonymized conversation id and an anonymized user id. An unnamespaced
 conversation or thread id wins over `openai/session`. `[MCP] Subject ID` is
 not copied to `user_id`, and a subject alone does not change the episode
 anchor, because one user can have several conversations.
+
+Codex sends its turn id at `_meta["x-codex-turn-metadata"].turn_id`. Any
+top-level turn key wins over that nested value. Only `turn_id` is read from
+the nested object, and a turn id does not change the episode anchor.
 
 `[MCP] Episode Anchor Type` identifies the strongest boundary available for
 the request, and `[MCP] Episode Anchor Confidence` reports its reliability:

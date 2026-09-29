@@ -38,6 +38,8 @@ const META_CONVERSATION_IDS = [
 ] as const;
 const META_RUN_IDS = ['run_id', 'runId', 'job_id', 'jobId'] as const;
 const META_TURN_IDS = ['turn_id', 'turnId', 'turn_number', 'turnNumber'] as const;
+/** Codex sends the turn id only inside this nested `_meta` object. */
+const META_CODEX_TURN_METADATA = 'x-codex-turn-metadata';
 /**
  * ChatGPT Apps SDK keys. `openai/session` is an anonymized conversation id;
  * `openai/subject` is an anonymized user id. Unnamespaced conversation keys
@@ -168,6 +170,26 @@ function readMetaIdentifier(
   return undefined;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Codex turn id, read only from `x-codex-turn-metadata.turn_id`. The rest of
+ * that object is ignored. Never throws.
+ */
+function readCodexTurnId(meta: Record<string, unknown> | undefined): string | undefined {
+  try {
+    const nested = meta?.[META_CODEX_TURN_METADATA];
+    if (!isPlainObject(nested)) return undefined;
+    return readMetaIdentifier(nested, ['turn_id']);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Resolve client-supplied episode identifiers without changing the transport
  * anchor used for legacy session semantics and identity fallback.
@@ -178,7 +200,7 @@ function resolveCorrelation(extra: McpExtra, anchor: McpAnchor): McpCorrelation 
     readMetaIdentifier(meta, META_CONVERSATION_IDS) ??
     readMetaIdentifier(meta, META_HOST_CONVERSATION_IDS);
   const runId = readMetaIdentifier(meta, META_RUN_IDS);
-  const turnId = readMetaIdentifier(meta, META_TURN_IDS);
+  const turnId = readMetaIdentifier(meta, META_TURN_IDS) ?? readCodexTurnId(meta);
   const subjectId = readMetaIdentifier(meta, META_HOST_SUBJECT_IDS);
   const ids: Pick<McpCorrelation, 'conversationId' | 'runId' | 'turnId' | 'subjectId'> = {
     ...(conversationId != null ? { conversationId } : {}),
