@@ -12,12 +12,20 @@ import { PassThrough } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterEach, describe, expect, it } from 'vitest';
-import { logStdioMessages, openRequestLog, type McpRequestRecord } from '../examples/playground/request-log.js';
-import { LOCAL_API_KEY } from '../examples/playground/server.js';
+import {
+  logStdioMessages,
+  type McpRequestRecord,
+  type McpResponseRecord,
+  openRequestLog,
+  type RequestLogRecord,
+} from '../examples/playground/request-log.js';
+import { createRunInfo } from '../examples/playground/run.js';
+import { LOCAL_API_KEY, type SdkTrackRecord } from '../examples/playground/server.js';
 import { startPlaygroundHttp, type RunningPlaygroundHttp } from '../examples/playground/http.js';
 
 interface IngestionBatch {
   api_key?: string;
+  runId?: string;
   events?: Array<{
     event_type?: string;
     user_id?: string;
@@ -40,8 +48,9 @@ describe('playground ingestion sink', () => {
     const dir = await mkdtemp(join(tmpdir(), 'mcp-playground-'));
     const logPath = join(dir, 'events.ndjson');
     const requestLogPath = join(dir, 'mcp-requests.ndjson');
+    const trackLogPath = join(dir, 'sdk-track.ndjson');
     // Force the sink even when AMPLITUDE_API_KEY is set in the environment.
-    running = await startPlaygroundHttp({ port: 0, logPath, requestLogPath, delivery: 'sink' });
+    running = await startPlaygroundHttp({ port: 0, logPath, requestLogPath, trackLogPath, delivery: 'sink' });
 
     client = new Client({ name: 'playground-test', version: '1.0.0' });
     await client.connect(new StreamableHTTPClientTransport(running.url));
@@ -83,7 +92,10 @@ describe('playground ingestion sink', () => {
       ]),
     );
 
-    const requests = await readNdjson<McpRequestRecord>(requestLogPath);
+    const requestLog = await readNdjson<RequestLogRecord>(requestLogPath);
+    const requests = requestLog.filter(
+      (record): record is McpRequestRecord => record.type == null || record.type === 'request',
+    );
     const echoCall = requests.find(
       (record) =>
         record.message != null &&
@@ -107,13 +119,38 @@ describe('playground ingestion sink', () => {
         },
       },
     });
+
+    // Every line of this run carries the run id, and the request has a seq
+    // that its response and its track() call share.
+    const runId = running.playground.run.runId;
+    expect(echoCall?.runId).toBe(runId);
+    expect(typeof echoCall?.seq).toBe('number');
+    expect(echoCall?.headers).toMatchObject({ 'content-type': expect.stringContaining('application/json') });
+    expect(echoCall?.headers?.authorization).toBeUndefined();
+    const response = requestLog.find(
+      (record): record is McpResponseRecord => record.type === 'response' && record.seq === echoCall?.seq,
+    );
+    expect(response).toMatchObject({ runId, status: 200 });
+
+    const tracks = await readNdjson<SdkTrackRecord>(trackLogPath);
+    const echoTrack = tracks.find(
+      (record) => record.type === 'track' && record.requestSeq === echoCall?.seq,
+    );
+    expect(echoTrack).toMatchObject({
+      runId,
+      event_type: '[MCP] Tool Call Response',
+      event_properties: expect.objectContaining({ '[MCP] Tool Name': 'echo' }),
+    });
+    expect(echoTrack?.sessionId).toBe(echoCall?.sessionId);
+    expect(batch?.runId).toBe(runId);
   });
 
   it('logs stdio JSON-RPC lines, including a line split across chunks', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'mcp-playground-stdio-'));
-    const log = await openRequestLog(join(dir, 'mcp-requests.ndjson'));
+    const run = createRunInfo('stdio');
+    const log = await openRequestLog(join(dir, 'mcp-requests.ndjson'), run);
     const input = new PassThrough();
-    const output = logStdioMessages(input, log);
+    const output = logStdioMessages(input, log, run);
     const forwarded: Buffer[] = [];
     output.on('data', (chunk: Buffer) => {
       forwarded.push(chunk);
@@ -134,10 +171,14 @@ describe('playground ingestion sink', () => {
     await done;
 
     expect(Buffer.concat(forwarded).toString('utf8')).toBe(line);
-    const records = await readNdjson<McpRequestRecord>(log.logPath);
+    const records = await readNdjson<McpRequestRecord | { type: string; runId: string }>(log.logPath);
     expect(records).toEqual([
+      expect.objectContaining({ type: 'run_started', runId: run.runId, transport: 'stdio' }),
       expect.objectContaining({
         transport: 'stdio',
+        runId: run.runId,
+        seq: expect.any(Number),
+        receivedAt: expect.any(Number),
         message,
       }),
     ]);

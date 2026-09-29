@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import { dirname } from 'node:path';
+import { type RunInfo, runStartedRecord } from './run.js';
 
 /** Bytes of one ingestion POST we will buffer. Playground batches are small. */
 const MAX_BODY_BYTES = 1_000_000;
@@ -18,8 +19,12 @@ export interface IngestionSink {
  * `@amplitude/analytics-node` POSTs `{ api_key, events, options }` and decides
  * success from the JSON `code` field, not the HTTP status. It also never
  * resolves the request if the body is empty, so every response is JSON.
+ *
+ * Each logged body keeps every field the SDK sent and gains two top-level
+ * fields, `runId` and `receivedAt`, so a line can be tied to the process
+ * that produced it. The log opens with a `run_started` marker.
  */
-export async function startIngestionSink(options: { logPath: string }): Promise<IngestionSink> {
+export async function startIngestionSink(options: { logPath: string; run: RunInfo }): Promise<IngestionSink> {
   await mkdir(dirname(options.logPath), { recursive: true });
   // Create the file up front so `tail -f` works before the first event.
   await appendFile(options.logPath, '');
@@ -29,9 +34,10 @@ export async function startIngestionSink(options: { logPath: string }): Promise<
     writes = writes.then(() => appendFile(options.logPath, line, 'utf8'));
     return writes;
   };
+  await enqueue(`${JSON.stringify(runStartedRecord(options.run))}\n`);
 
   const server = createServer((req, res) => {
-    void handleIngestion(req, res, enqueue, options.logPath);
+    void handleIngestion(req, res, enqueue, options.logPath, options.run.runId);
   });
 
   await listen(server);
@@ -43,10 +49,12 @@ export async function startIngestionSink(options: { logPath: string }): Promise<
   return {
     serverUrl: `http://127.0.0.1:${address.port}/2/httpapi`,
     logPath: options.logPath,
-    close: () =>
-      new Promise((resolve, reject) => {
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
-      }),
+      });
+      await writes;
+    },
   };
 }
 
@@ -67,6 +75,7 @@ async function handleIngestion(
   res: ServerResponse,
   enqueue: (line: string) => Promise<void>,
   logPath: string,
+  runId: string,
 ): Promise<void> {
   if (req.method !== 'POST') {
     json(res, 405, { code: 405, error: 'method not allowed' });
@@ -89,7 +98,7 @@ async function handleIngestion(
     return;
   }
 
-  const line = raw.endsWith('\n') ? raw : `${raw}\n`;
+  const line = stampedLine(parsed, raw, runId);
   try {
     await enqueue(line);
   } catch (error) {
@@ -110,6 +119,17 @@ async function handleIngestion(
     payload_size_bytes: Buffer.byteLength(raw),
     server_upload_time: Date.now(),
   });
+}
+
+/**
+ * Add `runId` and `receivedAt` to the body without touching what the SDK
+ * sent. A body that is not a JSON object is logged as received.
+ */
+function stampedLine(parsed: unknown, raw: string, runId: string): string {
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return raw.endsWith('\n') ? raw : `${raw}\n`;
+  }
+  return `${JSON.stringify({ ...(parsed as Record<string, unknown>), runId, receivedAt: Date.now() })}\n`;
 }
 
 function eventTypes(body: unknown): string[] {

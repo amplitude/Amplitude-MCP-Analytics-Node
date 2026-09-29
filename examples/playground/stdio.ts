@@ -45,9 +45,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  session.playground = await createPlayground();
+  session.playground = await createPlayground({ transport: 'stdio' });
   if (stopping) return;
-  session.transport = new StdioServerTransport(logStdioMessages(process.stdin, session.playground.requests));
+  session.transport = new StdioServerTransport(
+    logStdioMessages(process.stdin, session.playground.requests, session.playground.run),
+  );
   await session.playground.server.connect(session.transport);
   if (process.stdin.readableEnded) stop();
 }

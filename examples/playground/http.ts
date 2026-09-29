@@ -1,14 +1,27 @@
 import { randomUUID } from 'node:crypto';
-import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type OutgoingHttpHeader,
+  type OutgoingHttpHeaders,
+  type Server as HttpServer,
+  type ServerResponse,
+} from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { RequestLog } from './request-log.js';
+import {
+  MAX_LOGGED_ERROR_BODY_BYTES,
+  type McpResponseRecord,
+  pickLoggedHeaders,
+  type RequestLog,
+} from './request-log.js';
+import { currentRequest, nextSeq, requestContext, type RequestStore } from './run.js';
 import { createPlayground, type Playground, type PlaygroundOptions } from './server.js';
 
 export const PLAYGROUND_HTTP_PORT = 8787;
 export const PLAYGROUND_HTTP_PATH = '/mcp';
 
-export interface PlaygroundHttpOptions extends PlaygroundOptions {
+export interface PlaygroundHttpOptions extends Omit<PlaygroundOptions, 'transport'> {
   /** TCP port. `0` asks the OS for one. Default {@link PLAYGROUND_HTTP_PORT}. */
   port?: number;
 }
@@ -23,11 +36,40 @@ export interface RunningPlaygroundHttp {
 /**
  * Session-bearing Streamable HTTP server. One long-lived process, one
  * transport: fine for a single local client (Inspector, Cursor, a test).
+ *
+ * One transport also means one session. A second `initialize` while a
+ * session exists is rejected by the transport with HTTP 400; the request log
+ * records that as `initialize_with_existing_session` plus the 400 response.
  */
 export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): Promise<RunningPlaygroundHttp> {
-  const playground = await createPlayground(options);
+  const playground = await createPlayground({ ...options, transport: 'streamable-http' });
+  const { requests, run } = playground;
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (sessionId) => {
+      // Runs inside the `initialize` request's store, so later track() calls
+      // from this request see the session the transport just minted.
+      const store = currentRequest();
+      if (store) store.sessionId = sessionId;
+      void requests.write({
+        type: 'session_opened',
+        transport: 'streamable-http',
+        runId: run.runId,
+        seq: store?.requestSeq,
+        at: Date.now(),
+        sessionId,
+      });
+    },
+    onsessionclosed: (sessionId) => {
+      void requests.write({
+        type: 'session_closed',
+        transport: 'streamable-http',
+        runId: run.runId,
+        seq: currentRequest()?.requestSeq,
+        at: Date.now(),
+        sessionId,
+      });
+    },
   });
   await playground.server.connect(transport);
 
@@ -38,8 +80,21 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
-    void handleMcpRequest(req, res, transport, playground.requests).catch(() => {
-      if (!res.headersSent) res.writeHead(500).end();
+    const seq = nextSeq();
+    const receivedAt = Date.now();
+    const headers = pickLoggedHeaders(req.headers);
+    const store: RequestStore = { requestSeq: seq, sessionId: headers['mcp-session-id'] };
+    observeResponse(res, { seq, receivedAt, runId: run.runId }, requests);
+    requestContext.run(store, () => {
+      void handleMcpRequest(req, res, transport, requests, {
+        seq,
+        receivedAt,
+        runId: run.runId,
+        path: pathname,
+        headers,
+      }).catch(() => {
+        if (!res.headersSent) res.writeHead(500).end();
+      });
     });
   });
 
@@ -69,6 +124,14 @@ export async function startPlaygroundHttp(options: PlaygroundHttpOptions = {}): 
 
 const MAX_MCP_BODY_BYTES = 1_000_000;
 
+interface RequestEnvelope {
+  seq: number;
+  receivedAt: number;
+  runId: string;
+  path: string;
+  headers: Record<string, string>;
+}
+
 /**
  * Log the client request, then hand it to the MCP transport.
  *
@@ -80,9 +143,21 @@ async function handleMcpRequest(
   res: ServerResponse,
   transport: StreamableHTTPServerTransport,
   requests: RequestLog,
+  envelope: RequestEnvelope,
 ): Promise<void> {
+  const base = {
+    type: 'request' as const,
+    transport: 'streamable-http' as const,
+    runId: envelope.runId,
+    seq: envelope.seq,
+    receivedAt: envelope.receivedAt,
+    path: envelope.path,
+    headers: envelope.headers,
+    sessionId: envelope.headers['mcp-session-id'],
+  };
+
   if (req.method !== 'POST') {
-    await requests.write({ transport: 'streamable-http', httpMethod: req.method ?? 'UNKNOWN' });
+    await requests.write({ ...base, httpMethod: req.method ?? 'UNKNOWN' });
     await transport.handleRequest(req, res);
     return;
   }
@@ -99,20 +174,163 @@ async function handleMcpRequest(
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    await requests.write({ transport: 'streamable-http', httpMethod: 'POST', raw });
+    await requests.write({ ...base, httpMethod: 'POST', raw });
     await transport.handleRequest(req, res);
     return;
   }
 
   const messages = Array.isArray(parsed) ? parsed : [parsed];
   if (messages.length === 0) {
-    await requests.write({ transport: 'streamable-http', httpMethod: 'POST', message: parsed });
+    await requests.write({ ...base, httpMethod: 'POST', message: parsed });
   } else {
     for (const message of messages) {
-      await requests.write({ transport: 'streamable-http', httpMethod: 'POST', message });
+      await requests.write({ ...base, httpMethod: 'POST', message });
     }
   }
+
+  if (transport.sessionId !== undefined && messages.some(isInitializeRequest)) {
+    await requests.write({
+      type: 'initialize_with_existing_session',
+      transport: 'streamable-http',
+      runId: envelope.runId,
+      seq: envelope.seq,
+      at: Date.now(),
+      sessionId: base.sessionId,
+      existingSessionId: transport.sessionId,
+    });
+  }
+
   await transport.handleRequest(req, res, parsed);
+}
+
+function isInitializeRequest(message: unknown): boolean {
+  return message != null && typeof message === 'object' && 'method' in message && message.method === 'initialize';
+}
+
+/**
+ * Record how the request with `seq` was answered.
+ *
+ * Wraps `writeHead`, `write`, and `end` on the response. Nothing is buffered
+ * for 2xx responses or `text/event-stream`; an SSE response is recorded as soon
+ * as its headers go out, with only the status. Non-2xx bodies are kept up to
+ * {@link MAX_LOGGED_ERROR_BODY_BYTES}.
+ */
+function observeResponse(
+  res: ServerResponse,
+  request: { seq: number; receivedAt: number; runId: string },
+  requests: RequestLog,
+): void {
+  let status: number | undefined;
+  let responseHeaders: Record<string, string> = {};
+  let sse = false;
+  let recorded = false;
+  const bodyChunks: Buffer[] = [];
+  let bodyBytes = 0;
+
+  const record = (extra: Partial<McpResponseRecord> = {}): void => {
+    if (recorded) return;
+    recorded = true;
+    const finalStatus = status ?? res.statusCode;
+    const entry: McpResponseRecord = {
+      type: 'response',
+      transport: 'streamable-http',
+      runId: request.runId,
+      seq: request.seq,
+      at: Date.now(),
+      status: finalStatus,
+      durationMs: Date.now() - request.receivedAt,
+      ...extra,
+    };
+    const sessionId = responseHeaders['mcp-session-id'] ?? headerValue(res.getHeader('mcp-session-id'));
+    if (sessionId) entry.sessionId = sessionId;
+    if (sse) entry.sse = true;
+    if (!sse && (finalStatus < 200 || finalStatus >= 300) && bodyBytes > 0) {
+      entry.errorBody = Buffer.concat(bodyChunks).subarray(0, MAX_LOGGED_ERROR_BODY_BYTES).toString('utf8');
+    }
+    void requests.write(entry);
+  };
+
+  // Observation only: a bug here must not stall the client's response.
+  const capture = (chunk: unknown): void => {
+    try {
+      if (sse) return;
+      const current = status ?? res.statusCode;
+      if (current >= 200 && current < 300) return;
+      if (bodyBytes >= MAX_LOGGED_ERROR_BODY_BYTES) return;
+      const buffer = toBuffer(chunk);
+      if (!buffer) return;
+      bodyChunks.push(buffer);
+      bodyBytes += buffer.length;
+    } catch (error) {
+      process.stderr.write(`[playground] failed to capture response body: ${String(error)}\n`);
+    }
+  };
+
+  const originalWriteHead = res.writeHead.bind(res);
+  res.writeHead = ((code: number, ...rest: unknown[]) => {
+    try {
+      status = code;
+      responseHeaders = normalizeHeaders(rest.find((arg) => arg != null && typeof arg === 'object'));
+      const contentType = responseHeaders['content-type'] ?? headerValue(res.getHeader('content-type'));
+      sse = typeof contentType === 'string' && contentType.toLowerCase().includes('text/event-stream');
+    } catch (error) {
+      process.stderr.write(`[playground] failed to read response headers: ${String(error)}\n`);
+    }
+    const result = (originalWriteHead as (...args: unknown[]) => ServerResponse)(code, ...rest);
+    if (sse) record();
+    return result;
+  }) as typeof res.writeHead;
+
+  const originalWrite = res.write.bind(res);
+  res.write = ((chunk: unknown, ...rest: unknown[]) => {
+    capture(chunk);
+    return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
+  }) as typeof res.write;
+
+  const originalEnd = res.end.bind(res);
+  res.end = ((chunk?: unknown, ...rest: unknown[]) => {
+    if (chunk != null && typeof chunk !== 'function') capture(chunk);
+    return (originalEnd as (...args: unknown[]) => ServerResponse)(chunk, ...rest);
+  }) as typeof res.end;
+
+  res.once('finish', () => record());
+  res.once('close', () => {
+    if (!res.writableFinished) record({ aborted: true });
+  });
+}
+
+/** Hono hands Node plain `Uint8Array`s, not `Buffer`s. */
+function toBuffer(chunk: unknown): Buffer | undefined {
+  if (typeof chunk === 'string') return Buffer.from(chunk);
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  return undefined;
+}
+
+function normalizeHeaders(headers: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (headers == null || typeof headers !== 'object') return out;
+  if (Array.isArray(headers)) {
+    // Node's flat `[name, value, name, value]` form.
+    for (let i = 0; i + 1 < headers.length; i += 2) {
+      const name = headers[i];
+      const value = headerValue(headers[i + 1] as OutgoingHttpHeader | undefined);
+      if (typeof name === 'string' && value !== undefined) out[name.toLowerCase()] = value;
+    }
+    return out;
+  }
+  for (const [name, value] of Object.entries(headers as OutgoingHttpHeaders)) {
+    const text = headerValue(value);
+    if (text !== undefined) out[name.toLowerCase()] = text;
+  }
+  return out;
+}
+
+function headerValue(value: OutgoingHttpHeader | undefined): string | undefined {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value[0];
+  return undefined;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
