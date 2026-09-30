@@ -20,6 +20,32 @@ export type IdentityResolvedFrom = 'explicit' | 'authInfo' | 'anchor' | 'anonymo
  */
 export type AnchorType = 'session-id' | 'trace' | 'process' | 'anonymous';
 
+/** The strongest available boundary for grouping requests into an episode. */
+export type McpEpisodeAnchorType =
+  | 'transport-session'
+  | 'conversation-id'
+  | 'run-id'
+  | 'trace'
+  | 'inferred';
+
+/** Reliability of the selected episode anchor. */
+export type McpEpisodeAnchorConfidence = 'high' | 'medium' | 'low';
+
+/** Client-supplied request correlation identifiers and their resolved anchor. */
+export interface McpCorrelation {
+  conversationId?: string;
+  runId?: string;
+  turnId?: string;
+  /**
+   * Host-supplied subject identifier, such as ChatGPT's anonymized
+   * `openai/subject`. Kept off `user_id`: it does not match a customer's
+   * existing Amplitude user.
+   */
+  subjectId?: string;
+  episodeAnchorType: McpEpisodeAnchorType;
+  episodeAnchorConfidence: McpEpisodeAnchorConfidence;
+}
+
 /** MCP transport. */
 export type McpTransport = 'stdio' | 'streamable-http';
 
@@ -141,6 +167,8 @@ export interface McpServerContext {
   transport: McpTransport;
   /** Negotiated MCP protocol version. */
   protocolVersion?: string;
+  /** Per-request client correlation read from MCP `_meta`, when available. */
+  correlation?: McpCorrelation;
   client?: McpClientInfo;
   server: McpServerInfo;
   /** How the subject authenticated; values are server-specific (e.g. `"OAuth"`). */
