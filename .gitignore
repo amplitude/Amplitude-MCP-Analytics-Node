@@ -24,3 +24,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Local captures from the MCP playground
+examples/playground/events.ndjson
+examples/playground/mcp-requests.ndjson

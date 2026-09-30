@@ -148,6 +148,11 @@ export function resolveIdentityFromChain(input: ResolveIdentityInput): ResolvedI
     }
   }
 
+  // A tenant passed to instrumentServer without a user or device id still
+  // belongs on the event. The branches above only return it when they also
+  // have an id; the anchor and anonymous floors keep it from here.
+  const tenant = input.serverIdentity?.tenant;
+
   // anchor-based identity
   if (input.anchor.type !== 'anonymous') {
     const anchorKey = `${input.anchor.type}:${input.anchor.value}`;
@@ -157,6 +162,7 @@ export function resolveIdentityFromChain(input: ResolveIdentityInput): ResolvedI
         userId: anchorKey,
         deviceId: uuidv5(anchorKey, AMP_MCP_NAMESPACE),
       },
+      tenant,
     };
   }
 
@@ -168,6 +174,7 @@ export function resolveIdentityFromChain(input: ResolveIdentityInput): ResolvedI
       deviceId,
       userId: `anonymous:${deviceId}`,
     },
+    tenant,
   };
 }
 
