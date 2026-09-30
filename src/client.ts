@@ -93,6 +93,13 @@ export interface InstrumentServerOptions {
    */
   resolveClientInfo?: ClientInfoResolver;
   /**
+   * Resolve subject identity per request. The callback receives the request's
+   * MCP `authInfo`; consumers may also consult their own trusted application or
+   * request-local context. This uses the same resolver contract as
+   * `instrumentTool` and wins over the static identity fields above.
+   */
+  resolveIdentity?: IdentityResolver;
+  /**
    * Correlation session id when the host manages sessions itself (e.g. an
    * `Mcp-Session-Id` header validated against an external session store).
    * Becomes the `[MCP] Session ID` anchor for events from this binding;
@@ -484,6 +491,7 @@ export class AmplitudeMCPAnalytics {
     // server's resolver — i.e. the wrong client.
     scope.clientInfoResolver = opts?.resolveClientInfo;
     this._clientInfoResolver = opts?.resolveClientInfo;
+    scope.identityResolver = opts?.resolveIdentity;
 
     // `isConnected()` is only on the high-level McpServer.
     if ('isConnected' in boundServer && boundServer.isConnected()) {
@@ -525,6 +533,7 @@ export class AmplitudeMCPAnalytics {
           if (scope.ctx == null) return;
           const ctx = buildServerContext(scope.ctx, extra, {
             serverIdentity: scope.identity,
+            resolveIdentity: scope.identityResolver,
             resolveClientInfo: scope.clientInfoResolver,
             logger: getLogger(this._amplitude),
           });
@@ -574,6 +583,7 @@ export class AmplitudeMCPAnalytics {
 
           const ctx = buildServerContext(scope.ctx, extra, {
             serverIdentity: scope.identity,
+            resolveIdentity: scope.identityResolver,
             resolveClientInfo: scope.clientInfoResolver,
             logger: getLogger(this._amplitude),
           });
@@ -676,6 +686,7 @@ export class AmplitudeMCPAnalytics {
           { ...extra, sessionId: transportSessionId } as McpExtra,
           {
             serverIdentity: scope.identity,
+            resolveIdentity: scope.identityResolver,
             resolveClientInfo: scope.clientInfoResolver,
             logger: getLogger(this._amplitude),
           },
@@ -720,6 +731,7 @@ export class AmplitudeMCPAnalytics {
               { sessionId } as unknown as McpExtra,
               {
                 serverIdentity: scope.identity,
+                resolveIdentity: scope.identityResolver,
                 resolveClientInfo: scope.clientInfoResolver,
                 logger: getLogger(this._amplitude),
               },
