@@ -10,7 +10,7 @@ A one-line summary of both is printed on stderr. stdout is left for the stdio pr
 The server has two tools:
 
 - `echo` — returns the `message` you pass. If you also pass `rationale`, that text is recorded as `[MCP] Rationale`.
-- `whoami` — returns `playground-user` and sends that as the Amplitude `user_id` for the call. That changes the user id partway through the session. On stdio there is no session id, so the two user ids are two episodes. That is what the tool is for.
+- `whoami` — returns `playground-user` and sends that as the Amplitude `user_id` for the call. `setIdentity` changes the user id partway through the session. On stdio there is no session id, so those two user ids are two episodes rather than one session.
 
 Every event carries an `org id` group. The value is `PLAYGROUND_ORG_ID` when that variable is set, and `0` otherwise. Keep it numeric.
 
