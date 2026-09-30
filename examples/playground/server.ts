@@ -116,7 +116,10 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
       }, { name: 'whoami' }),
     );
 
-    analytics.instrumentServer(server);
+    // Downstream parsers read `org id` as an integer, so the default is numeric.
+    analytics.instrumentServer(server, {
+      tenant: { groupType: 'org id', groupValue: process.env.PLAYGROUND_ORG_ID ?? '0' },
+    });
     return server;
   };
   const server = createServer();

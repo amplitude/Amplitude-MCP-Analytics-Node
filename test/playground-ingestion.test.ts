@@ -21,6 +21,7 @@ interface IngestionBatch {
   events?: Array<{
     event_type?: string;
     user_id?: string;
+    groups?: Record<string, unknown>;
     event_properties?: Record<string, unknown>;
   }>;
 }
@@ -67,10 +68,15 @@ describe('playground ingestion sink', () => {
       entry.events?.some((event) => event.event_type === '[MCP] Tool Call Response'),
     );
     expect(batch?.api_key).toBe(LOCAL_API_KEY);
-    const whoamiEvent = batches
+    const toolCalls = batches
       .flatMap((entry) => entry.events ?? [])
-      .find((event) => event.event_properties?.['[MCP] Tool Name'] === 'whoami');
+      .filter((event) => event.event_type === '[MCP] Tool Call Response');
+    const whoamiEvent = toolCalls.find((event) => event.event_properties?.['[MCP] Tool Name'] === 'whoami');
+    const echoEvent = toolCalls.find((event) => event.event_properties?.['[MCP] Tool Name'] === 'echo');
     expect(whoamiEvent?.user_id).toBe('playground-user');
+    const orgId = process.env.PLAYGROUND_ORG_ID ?? '0';
+    expect(echoEvent?.groups).toEqual({ 'org id': orgId });
+    expect(whoamiEvent?.groups).toEqual({ 'org id': orgId });
     expect(batch?.events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
