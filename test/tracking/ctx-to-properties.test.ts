@@ -215,6 +215,37 @@ describe('ctxToAmplitudeFieldsForTool', () => {
     expect(props['[MCP] Response HTTP Status']).toBe(400);
   });
 
+  it('promotes request correlation only on tool-scope fields', () => {
+    const server = createServerContext({
+      server: { name: 'my-server' },
+      transport: 'streamable-http',
+      correlation: {
+        conversationId: 'conversation-123',
+        runId: 'run-456',
+        turnId: 'turn-7',
+        episodeAnchorType: 'conversation-id',
+        episodeAnchorConfidence: 'high',
+      },
+    });
+    const ctx = createToolContext(server, { name: 'search_docs' });
+
+    const serverProps = reservedFieldsToProperties(
+      ctxToAmplitudeFields(server).event_properties,
+    );
+    const toolProps = reservedFieldsToProperties(
+      ctxToAmplitudeFieldsForTool(ctx).event_properties,
+    );
+
+    expect(serverProps).not.toHaveProperty('[MCP] Conversation ID');
+    expect(toolProps).toMatchObject({
+      '[MCP] Conversation ID': 'conversation-123',
+      '[MCP] Run ID': 'run-456',
+      '[MCP] Turn ID': 'turn-7',
+      '[MCP] Episode Anchor Type': 'conversation-id',
+      '[MCP] Episode Anchor Confidence': 'high',
+    });
+  });
+
   it('omits rationale and response HTTP status when unset', () => {
     const ctx = createToolContext(
       { server: { name: 'my-server' }, transport: 'stdio' },

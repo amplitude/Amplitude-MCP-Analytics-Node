@@ -30,6 +30,7 @@ export function createServerContext(input: CreateServerContextInput): McpServerC
     anchor: input.anchor ?? { type: 'anonymous', value: '' },
     transport: input.transport,
     protocolVersion: input.protocolVersion,
+    correlation: input.correlation,
     client: input.client,
     server: input.server,
     authType: input.authType,

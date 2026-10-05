@@ -194,6 +194,18 @@ describe('resolveIdentityFromChain', () => {
   });
 
   describe('anchor-based identity', () => {
+    it('keeps a tenant from serverIdentity when identity falls through to the anchor', () => {
+      const tenant: McpTenant = { groupType: 'org id', groupValue: '0' };
+      const result = resolveIdentityFromChain({
+        serverIdentity: { tenant },
+        anchor: processAnchor,
+      });
+
+      expect(result.identity.resolvedFrom).toBe('anchor');
+      expect(result.identity.userId).toBe('process:12345');
+      expect(result.tenant).toEqual(tenant);
+    });
+
     it('derives userId and deviceId from a process anchor', () => {
       const result = resolveIdentityFromChain({ anchor: processAnchor });
 

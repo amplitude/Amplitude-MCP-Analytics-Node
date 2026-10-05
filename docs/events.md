@@ -155,6 +155,43 @@ identity floor:
 A session id is never assumed or fabricated — its absence is what selects the
 stateless branch.
 
+### Client-supplied episode correlation
+
+Clients may supply episode identifiers on every request through `_meta`. The
+preferred keys and emitted properties are:
+
+| `_meta` key | Accepted aliases | Event property |
+| -- | -- | -- |
+| `conversation_id` | `conversationId`, `thread_id`, `threadId`, `openai/session` | `[MCP] Conversation ID` |
+| `run_id` | `runId`, `job_id`, `jobId` | `[MCP] Run ID` |
+| `turn_id` | `turnId`, `turn_number`, `turnNumber` | `[MCP] Turn ID` |
+| — | `openai/subject` | `[MCP] Subject ID` |
+
+Identifiers must be non-empty strings. Finite numeric values are accepted and
+normalized to strings, which is useful for turn numbers.
+
+`openai/session` and `openai/subject` are the keys ChatGPT sends on tool calls:
+an anonymized conversation id and an anonymized user id. An unnamespaced
+conversation or thread id wins over `openai/session`. `[MCP] Subject ID` is
+not copied to `user_id`, and a subject alone does not change the episode
+anchor, because one user can have several conversations.
+
+`[MCP] Episode Anchor Type` identifies the strongest boundary available for
+the request, and `[MCP] Episode Anchor Confidence` reports its reliability:
+
+| Priority | Anchor type | Confidence | Source |
+| -- | -- | -- | -- |
+| 1 | `conversation-id` | `high` | Client-supplied conversation/thread id |
+| 2 | `run-id` | `high` | Client-supplied run/job id |
+| 3 | `transport-session` | `high` | Streamable HTTP session id or stdio process lifetime |
+| 4 | `trace` | `medium` | W3C `traceparent` |
+| 5 | `inferred` | `low` | No durable client- or transport-supplied boundary |
+
+These properties are emitted on tool-scope events, including `[MCP] Tool Call
+Response` and custom events sent through `trackToolEvent`. They are separate
+from the transport correlation anchor: client identifiers never overwrite
+`[MCP] Session ID`, change `[MCP] Anchor Type`, or alter identity fallback.
+
 ### Client identity
 
 The MCP protocol carries the client's `clientInfo` (its self-declared name and
@@ -329,6 +366,12 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Tool Owner` | string | when set | `owner` from the tool metadata |
 | `[MCP] Tool Tags` | string[] | when set, non-empty | `tags` from the tool metadata |
 | `[MCP] Tool Category` | string | when set, non-empty | `category` from the tool metadata |
+| `[MCP] Conversation ID` | string | when supplied in request `_meta` | Host conversation/thread identifier |
+| `[MCP] Run ID` | string | when supplied in request `_meta` | Agent run or batch job identifier |
+| `[MCP] Turn ID` | string | when supplied in request `_meta` | Turn identifier or normalized turn number |
+| `[MCP] Subject ID` | string | when ChatGPT sends `openai/subject` | Anonymized ChatGPT user id. Not `user_id`, and not an episode boundary |
+| `[MCP] Episode Anchor Type` | string | always | `conversation-id`, `run-id`, `transport-session`, `trace`, or `inferred` |
+| `[MCP] Episode Anchor Confidence` | string | always | `high`, `medium`, or `low` |
 | `[MCP] Is Error` | boolean | always | `true` on a thrown exception or an in-band `isError` result |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock handler duration, rounded |
 | `[MCP] Request Size` | number (bytes) | schema-taking handlers, when serializable | Serialized byte size of the tool's arguments (the handler's first parameter). Absent for handlers registered without an input schema |
@@ -653,10 +696,13 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Auth Type` | string | All (when configured) |
 | `[MCP] Client Name` | string | All |
 | `[MCP] Client Version` | string | All (when known) |
+| `[MCP] Conversation ID` | string | Tool-scope (when supplied) |
 | `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
 | `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
+| `[MCP] Episode Anchor Confidence` | string | Tool-scope |
+| `[MCP] Episode Anchor Type` | string | Tool-scope |
 | `[MCP] Is Error` | boolean | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Param Count` | number | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
 | `[MCP] Param Fingerprint` | string | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
@@ -670,11 +716,13 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Response Duration` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
 | `[MCP] Response HTTP Status` | number | `Tool Call Rejected` (Streamable HTTP); tool-scope when host-supplied via `ctx.request.responseHttpStatus` |
 | `[MCP] Response Size` | number | `Tools Listed`, `Tool Call Response`, `Tool Call Rejected` |
+| `[MCP] Run ID` | string | Tool-scope (when supplied as a run or job id) |
 | `[MCP] Server Name` | string | All |
 | `[MCP] Server Type` | string | All (when set on the context) |
 | `[MCP] Server Version` | string | All |
 | `[MCP] Session Duration` | number | `Session Ended` |
 | `[MCP] Session ID` | string | All |
+| `[MCP] Subject ID` | string | Tool-scope (when ChatGPT sends `openai/subject`) |
 | `[MCP] Tool Category` | string | Tool-scope (when set) |
 | `[MCP] Tool Count` | number | `Tools Listed` |
 | `[MCP] Tool Name` | string | Tool-scope |
@@ -683,4 +731,5 @@ default events plus custom events emitted through `trackServerEvent` /
 | `[MCP] Tool Owner` | string | Tool-scope (when set) |
 | `[MCP] Tool Tags` | string[] | Tool-scope (when set) |
 | `[MCP] Transport` | string | All |
+| `[MCP] Turn ID` | string | Tool-scope (when supplied as a turn id or number) |
 | `[MCP] User Agent` | string | All |
