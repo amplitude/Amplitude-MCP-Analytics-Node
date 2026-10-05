@@ -9,8 +9,10 @@ name: Release
 #    that test.yml and semantic-pr.yml run. A GITHUB_TOKEN pull request
 #    does not trigger other workflows.
 # 2. A push to main does not open or update that pull request. Merging the
-#    release pull request is the only push that sets releases_created, and
-#    that output is the only gate on npm publish.
+#    release pull request tags the release commit from step 1 (its parent is
+#    main at the time the pull request was opened) and publishes that commit.
+#    A commit that lands on main later is not in the tag. "Update branch" on
+#    the release pull request is rejected; re-run this workflow instead.
 #
 # npm trusted publishing is bound to this filename (publish.yml) and to an
 # empty GitHub environment. Renaming the file, or adding an environment to
@@ -61,17 +63,48 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
+      releases_created: ${{ steps.tag.outputs.releases_created }}
+      sha: ${{ steps.tag.outputs.sha }}
     steps:
-      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
-        id: release
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          # Ordinary pushes must not open a release pull request. A merged
-          # release pull request still produces a tag and GitHub release.
-          skip-github-pull-request: true
+          fetch-depth: 0
+          persist-credentials: true
+
+      # release-please would tag the merge commit on main. That commit
+      # contains whatever landed after the release pull request opened.
+      # Tag the release pull request head instead.
+      - name: Tag the release snapshot
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_JSON=$(gh api --header "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '[.[] | select(.head.ref=="release-please--branches--main")] | .[0] // empty')
+          if [[ -z "$PR_JSON" ]]; then
+            echo "releases_created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NUMBER=$(jq -r .number <<< "$PR_JSON")
+          git fetch origin "pull/${NUMBER}/head"
+          RELEASE_HEAD=$(git rev-parse FETCH_HEAD)
+          SNAPSHOT=$(bash .github/scripts/resolve-release-snapshot.sh "$RELEASE_HEAD" "$GITHUB_SHA")
+          VERSION=$(git show "${SNAPSHOT}:package.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          TAG="v${VERSION}"
+          NOTES=$(jq -r .body <<< "$PR_JSON")
+          printf '%s\n' "$NOTES" > "$RUNNER_TEMP/release-notes.md"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$SNAPSHOT" -m "Release ${TAG}"
+          git push origin "$TAG"
+          gh release create "$TAG" --target "$SNAPSHOT" --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag
+
+          echo "releases_created=true" >> "$GITHUB_OUTPUT"
+          echo "sha=${SNAPSHOT}" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish to npm
@@ -83,6 +116,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
