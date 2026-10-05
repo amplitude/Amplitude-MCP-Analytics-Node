@@ -105,3 +105,16 @@ jobs:
 
       - name: Lint
         run: pnpm run lint
+
+      # Required check, so a stale release pull request cannot be squash-merged.
+      # "Require branches to be up to date" is already on for main. Update branch
+      # makes the branch current without regenerating the changelog; this step
+      # rejects that. Re-run the Release workflow instead.
+      - name: Release pull request is current
+        if: github.event_name == 'pull_request' && github.head_ref == 'release-please--branches--main'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          bash .github/scripts/check-release-pr.sh "$BASE_SHA" "$RUNNER_TEMP/pr-body.md"
