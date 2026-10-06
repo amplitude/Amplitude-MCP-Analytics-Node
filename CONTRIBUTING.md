@@ -21,6 +21,6 @@ The release pull request itself is titled `chore(main): release X.Y.Z`.
 
 ## Cutting a release
 
-Pushes to `main` do not open a release pull request. Run the **Release** workflow on `main` from the Actions tab. It opens or updates one pull request whose version and changelog come from Conventional Commits since the last tag. Squash-merge that pull request. The squash is tagged and published.
+Merging to `main` is the only step. The release-please workflow opens one pull request, or updates the one already open, titled `chore(main): release X.Y.Z`. It bumps `package.json`, prepends `CHANGELOG.md`, and updates `.release-please-manifest.json` from Conventional Commits since the last tag. Later merges to `main` keep updating that same pull request, so it describes the next release. Squash-merging it tags the release and publishes the package to npm.
 
-`main` only accepts a squash merge, and only when the branch is up to date with `main`. If commits land after the release pull request opens, merging stays blocked until the branch is current. Update branch does not satisfy that: Lint fails and tells you to re-run the Release workflow, which rebuilds the changelog from the latest `main`. If nothing since the last tag is releasable, the workflow opens no pull request and publishes nothing.
+If nothing since the last tag is releasable, no release pull request is opened and nothing is published.
