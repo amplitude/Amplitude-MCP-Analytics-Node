@@ -1,31 +1,67 @@
-name: Publish to npm
+name: release-please
+
+# A push to main opens or updates one release pull request from Conventional
+# Commits since the last tag. Further pushes keep updating that same pull
+# request. Merging it is what tags the release and publishes to npm.
+#
+# The release pull request is authored with the AMPLITUDE_DEV_EXP GitHub App
+# so that test.yml and semantic-pr.yml run. A GITHUB_TOKEN pull request does
+# not trigger other workflows.
+#
+# npm trusted publishing is bound to this filename (publish.yml) and to an
+# empty GitHub environment. Renaming the file, or adding an environment to
+# the publish job, requires the same change on the npm trusted publisher.
+#
+# AMPLITUDE_DEV_EXP_APP_ID and AMPLITUDE_DEV_EXP_PRIVATE_KEY are read from
+# the npm-release environment. Those are the same GitHub App credentials
+# used by the other SDK repos. Until that environment and those secrets
+# exist, every push to main fails this workflow. The environment must not
+# require a reviewer, or every push to main waits for approval.
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
 
-permissions:
-  contents: write
-  id-token: write # Required for npm trusted publishing (OIDC)
+permissions: {}
+
+concurrency:
+  group: release-please-main
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish
+  release-please:
     runs-on: ubuntu-latest
-    # Only fire when the merged PR is a release PR opened by release.yml.
-    # Checks both the title prefix and a marker phrase in the body — the
-    # marker is what makes accidental/spoofed matches very unlikely.
-    if: |
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.title, 'chore(release): v') &&
-      contains(github.event.pull_request.body, 'Automated release PR for')
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    environment: npm-release
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+    steps:
+      - uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
+        id: app-token
+        with:
+          app-id: ${{ secrets.AMPLITUDE_DEV_EXP_APP_ID }}
+          private-key: ${{ secrets.AMPLITUDE_DEV_EXP_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: main
-          fetch-depth: 0
-          persist-credentials: true
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
@@ -48,32 +84,7 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Read version from package.json
-        id: pkg
-        run: |
-          VERSION=v$(node -p "require('./package.json').version")
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Configure git
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Create + push tag
-        env:
-          VERSION: ${{ steps.pkg.outputs.version }}
-        run: |
-          git tag -a "$VERSION" -m "Release ${VERSION}"
-          git push origin "$VERSION"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.pkg.outputs.version }}
-        run: gh release create "$VERSION" --generate-notes --verify-tag
-
-      # Authenticates via the GitHub OIDC token exchanged with npm at publish
-      # time; no long-lived NPM_TOKEN secret. Requires a trusted publisher
-      # configured on npm for this repo + workflow file.
       - name: Publish to npm
         run: npm publish --access public
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
