@@ -39,6 +39,16 @@ jobs:
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
+      - name: Require the GitHub App credentials
+        env:
+          APP_ID: ${{ secrets.AMPLITUDE_DEV_EXP_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.AMPLITUDE_DEV_EXP_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$APP_ID" || -z "$PRIVATE_KEY" ]]; then
+            echo "::error::The npm-release environment is missing AMPLITUDE_DEV_EXP_APP_ID or AMPLITUDE_DEV_EXP_PRIVATE_KEY. Copy both from the developer-cli npm-release environment (or the Python repo's pypi-release environment). Without them this job cannot open a release pull request that triggers CI."
+            exit 1
+          fi
+
       - uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
         id: app-token
         with:

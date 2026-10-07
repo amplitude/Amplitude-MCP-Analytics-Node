@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      # build does not cut a release. include: scope yields build(deps)
+      # and build(deps-dev), which the pull request title check accepts.
+      prefix: build
+      prefix-development: build
+      include: scope
