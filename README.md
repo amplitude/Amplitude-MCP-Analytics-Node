@@ -150,6 +150,10 @@ The SDK emits `[MCP] Conversation ID`, `[MCP] Run ID`, and `[MCP] Turn ID`.
 to strings. Camel-case (`conversationId`, `threadId`, `runId`, `jobId`,
 `turnId`, `turnNumber`) is also accepted.
 
+Codex sends the turn id at `_meta["x-codex-turn-metadata"].turn_id`. A
+top-level turn key wins over that nested value. Only `turn_id` is read from
+the nested object.
+
 ChatGPT already sends two of these on tool calls. `_meta["openai/session"]` is
 read as `[MCP] Conversation ID` when no unnamespaced conversation or thread id
 is present. `_meta["openai/subject"]` is emitted as `[MCP] Subject ID`. That

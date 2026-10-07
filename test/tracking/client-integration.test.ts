@@ -172,6 +172,39 @@ describe('AmplitudeMCPAnalytics — custom event API', () => {
     });
   });
 
+  it('emits the Codex nested turn id on the tool response event', async () => {
+    const mock = new MockAmplitudeMCPAnalytics({
+      serverName: 'test-server',
+      serverVersion: '0.0.0',
+    });
+    (mock as unknown as { _serverCtx?: McpServerContext })._serverCtx = createServerContext({
+      server: { name: 'test-server', version: '0.0.0' },
+      transport: 'streamable-http',
+      tenant: { groupType: 'org id', groupValue: '36958' },
+    });
+
+    const wrapped = mock.instrumentTool<[McpExtra], Promise<CallToolResult>>(
+      async () => ok(),
+      { name: 'search_docs' },
+    );
+
+    await wrapped(
+      mkExtra({
+        _meta: {
+          threadId: 'thread-123',
+          'x-codex-turn-metadata': { turn_id: 'turn-nested' },
+        },
+      }),
+    );
+
+    expect(mock.getEvents('[MCP] Tool Call Response')[0]?.event_properties).toMatchObject({
+      '[MCP] Conversation ID': 'thread-123',
+      '[MCP] Turn ID': 'turn-nested',
+      '[MCP] Episode Anchor Type': 'conversation-id',
+      '[MCP] Episode Anchor Confidence': 'high',
+    });
+  });
+
   it('instrumentTool is a no-op passthrough when instrumentServer was not called', async () => {
     const mock = new MockAmplitudeMCPAnalytics({
       serverName: 'test-server',
