@@ -1,0 +1,67 @@
+name: Semantic PR
+
+# Enforces Conventional Commit PR titles (see CONTRIBUTING.md). This is
+# load-bearing for versioning: we squash-merge, so the PR title becomes the
+# commit message on main, and that message is the only input release-please
+# parses to decide the next version and write the changelog. A wrong type is
+# not a style nit — `chore:` on a user-visible fix ships no release at all.
+#
+# Keep the pattern permissive enough for release-please's own Release PR title
+# ("chore(main): release 1.2.3"), which lands here like any other PR because
+# release-please authors it with a GitHub App token.
+#
+# No third-party actions here by design (org policy allows only actions/* and
+# amplitude/*): a single bash step validates the title directly, so there's
+# nothing to pin or audit. The title is attacker-controlled text (anyone can
+# open a PR), so it is passed through env: rather than interpolated into the
+# script body, to avoid shell injection via a crafted title.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  check-title:
+    name: Check PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate conventional-commit title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|chore|docs|test|refactor|perf|ci|build|revert)(\([a-z0-9-]+\))?!?: .+'
+
+          if [[ "$PR_TITLE" =~ $pattern ]]; then
+            echo "PR title is valid: $PR_TITLE"
+            exit 0
+          fi
+
+          echo "::error::PR title does not follow Conventional Commits."
+          cat <<EOF
+
+          Got:      "$PR_TITLE"
+          Expected: <type>(<optional scope>)!: <description>
+
+          Allowed types:
+            feat     - new feature
+            fix      - bug fix
+            chore    - other changes that don't modify src or test files
+            docs     - documentation updates
+            test     - test updates
+            refactor - code change that neither fixes a bug nor adds a feature
+            perf     - performance improvement
+            ci       - CI configuration changes
+            build    - build system or dependency changes
+            revert   - revert a commit
+
+          Examples:
+            feat: add tiered tool parameter capture
+            fix(client): resolve the client name on stateless transport
+            chore(main): release 0.5.3
+
+          See CONTRIBUTING.md for details.
+          EOF
+          exit 1
