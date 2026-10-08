@@ -324,9 +324,12 @@ describe('registerFeedbackTool', () => {
     expect(tracked.some((event) => event.event_type === '[MCP] Tool Call Response')).toBe(false);
 
     tracked.length = 0;
-    await expect(
-      client.callTool({ name: 'submit_feedback', arguments: { helpful: 'yes' } }),
-    ).rejects.toThrow();
-    expect(feedbackEvents(tracked)).toEqual([]);
+    const invalid = await client.callTool({
+      name: 'submit_feedback',
+      arguments: { helpful: 'yes' },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(tracked.map((event) => event.event_type)).not.toContain('[MCP] Feedback Submitted');
+    expect(tracked.map((event) => event.event_type)).not.toContain('[MCP] Tool Call Response');
   });
 });
