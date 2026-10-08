@@ -1,5 +1,25 @@
-export { AmplitudeMCPAnalytics, createMcpAnalytics } from './client.js';
-export type { AmplitudeMCPAnalyticsOptions, InstrumentServerOptions } from './client.js';
+export { AmplitudeMCPAnalytics, createFeedbackToolHandler, createMcpAnalytics } from './client.js';
+export type {
+  AmplitudeMCPAnalyticsOptions,
+  CreateFeedbackToolHandlerOptions,
+  InstrumentServerOptions,
+  RegisterFeedbackToolOptions,
+} from './client.js';
+export {
+  FEEDBACK_REASONS,
+  FEEDBACK_TOOL_DEFINITION,
+  FEEDBACK_TOOL_INSTRUCTIONS,
+  FEEDBACK_TOOL_NAME,
+  feedbackToolDefinition,
+  feedbackToolInstructions,
+} from './core/feedback-tool.js';
+export type {
+  FeedbackInputJsonSchema,
+  FeedbackJsonSchemaProperty,
+  FeedbackReason,
+  FeedbackToolAnnotations,
+  FeedbackToolDefinition,
+} from './core/feedback-tool.js';
 export { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from './config.js';
 export type {
   AutocaptureConfig,
