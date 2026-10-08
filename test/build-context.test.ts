@@ -215,6 +215,76 @@ describe('buildToolContext — client correlation', () => {
     });
   });
 
+  it('reads a Codex nested turn id without using it as the episode anchor', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          'x-codex-turn-metadata': { turn_id: 'turn-nested', model: 'placeholder' },
+        },
+      }),
+    );
+
+    expect(ctx.correlation).toEqual({
+      turnId: 'turn-nested',
+      episodeAnchorType: 'inferred',
+      episodeAnchorConfidence: 'low',
+    });
+  });
+
+  it('normalizes a numeric Codex nested turn id', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({ _meta: { 'x-codex-turn-metadata': { turn_id: 7 } } }),
+    );
+
+    expect(ctx.correlation?.turnId).toBe('7');
+  });
+
+  it('prefers a top-level turn id over the Codex nested value', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          turn_id: 'turn-top',
+          'x-codex-turn-metadata': { turn_id: 'turn-nested' },
+        },
+      }),
+    );
+
+    expect(ctx.correlation?.turnId).toBe('turn-top');
+  });
+
+  it('ignores a malformed Codex turn metadata value', () => {
+    const malformed = ['turn-nested', ['turn-nested'], null, { session_id: 'session-1' }, { turn_id: '' }];
+    for (const value of malformed) {
+      const ctx = toolCtx(
+        'streamable-http',
+        mkExtra({ _meta: { 'x-codex-turn-metadata': value } }),
+      );
+      expect(ctx.correlation?.turnId).toBeUndefined();
+    }
+  });
+
+  it('reads a Codex thread id and nested turn id as one conversation', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          threadId: 'thread-123',
+          'x-codex-turn-metadata': { turn_id: 'turn-nested' },
+        },
+      }),
+    );
+
+    expect(ctx.correlation).toEqual({
+      conversationId: 'thread-123',
+      turnId: 'turn-nested',
+      episodeAnchorType: 'conversation-id',
+      episodeAnchorConfidence: 'high',
+    });
+  });
+
   it('classifies trace and inferred fallbacks without fabricating identifiers', () => {
     const traced = toolCtx(
       'streamable-http',
