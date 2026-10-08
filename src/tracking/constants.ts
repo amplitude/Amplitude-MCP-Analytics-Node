@@ -31,6 +31,18 @@ export const SESSION_INITIALIZED = '[MCP] Session Initialized';
 export const SESSION_ENDED = '[MCP] Session Ended';
 export const TOOLS_LISTED = '[MCP] Tools Listed';
 
+/**
+ * Opt-in feedback event. Emitted only for a tool registered with
+ * `registerFeedbackTool`, and never paired with `[MCP] Tool Call Response`.
+ */
+export const FEEDBACK_SUBMITTED = '[MCP] Feedback Submitted';
+
+/** Cap on `[MCP] Feedback Comment`. Free text the user agreed to share. */
+export const FEEDBACK_COMMENT_MAX = 500;
+
+/** Cap on `[MCP] Feedback Tool Names` after registry filtering. */
+export const FEEDBACK_TOOLS_MAX = 8;
+
 /** Upper bound on `[MCP] Tool Names` emitted on `[MCP] Tools Listed`; larger
  *  lists are truncated to this many names and flagged `[MCP] Tool Names
  *  Truncated` (the `[MCP] Tool Count` always reflects the true total). */
@@ -94,4 +106,11 @@ export const EVENT_PROPERTY_KEYS = {
   toolNames: '[MCP] Tool Names',
   toolNamesTruncated: '[MCP] Tool Names Truncated',
   sessionDuration: '[MCP] Session Duration',
+  // opt-in feedback outcome
+  feedbackHelpful: '[MCP] Feedback Helpful',
+  feedbackReason: '[MCP] Feedback Reason',
+  feedbackSolicited: '[MCP] Feedback Solicited',
+  feedbackToolNames: '[MCP] Feedback Tool Names',
+  feedbackHasComment: '[MCP] Feedback Has Comment',
+  feedbackComment: '[MCP] Feedback Comment',
 } as const;

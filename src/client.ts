@@ -33,6 +33,13 @@ import { installInitializeHook } from './core/initialize-hook.js';
 import { installToolCallHook, wasToolCallDispatched } from './core/tool-call-hook.js';
 import { classifyPreDispatchRejection } from './core/tool-call-rejection.js';
 import { installToolsListHook } from './core/tools-list-hook.js';
+import {
+  createFeedbackHandler,
+  registerFeedbackToolOnServer,
+  type CreateFeedbackToolHandlerOptions,
+  type FeedbackToolDependencies,
+  type RegisterFeedbackToolOptions,
+} from './core/feedback-tool.js';
 import { buildToolError, classifyError, toolErrorResult, type ToolErrorInput } from './errors.js';
 import { ConfigurationError } from './exceptions.js';
 import {
@@ -405,6 +412,59 @@ export class AmplitudeMCPAnalytics {
    * ));
    * ```
    */
+  /**
+   * Dependencies for the opt-in feedback tool. Resolved per call, the same way
+   * {@link instrumentTool} resolves the dispatching server.
+   * @internal
+   */
+  feedbackDependencies(): FeedbackToolDependencies {
+    return {
+      amplitude: this._amplitude,
+      getServerCtx: () => {
+        const scope = currentServerScope();
+        return scope != null ? scope.ctx : this._serverCtx;
+      },
+      getServerIdentity: () => {
+        const scope = currentServerScope();
+        return scope != null ? scope.identity : this._serverIdentity;
+      },
+      getClientInfoResolver: () => {
+        const scope = currentServerScope();
+        return scope != null ? scope.clientInfoResolver : this._clientInfoResolver;
+      },
+      sanitizeErrorMessage: this.config.sanitizeErrorMessage,
+      logger: getLogger(this._amplitude),
+    };
+  }
+
+  /**
+   * Register an opt-in `submit_feedback` tool on a high-level `McpServer`.
+   * The agent calls it when the user reacts to a result from this server, and
+   * the handler emits `[MCP] Feedback Submitted`. `instrumentServer` does not
+   * do this — a server that never calls `registerFeedbackTool` is unchanged.
+   *
+   * The call does not also emit `[MCP] Tool Call Response`. It does show up
+   * in `[MCP] Tools Listed`. Requires `instrumentServer` before `connect` for
+   * the event to be emitted; without it the tool still answers and a one-time
+   * warning is logged.
+   *
+   * On a low-level `Server`, an invalid `name`, or a name that is already
+   * registered, this warns and returns the same server. It does not throw.
+   *
+   * @example
+   * ```typescript
+   * analytics.instrumentServer(server);
+   * analytics.registerFeedbackTool(server);
+   * await server.connect(transport);
+   * ```
+   */
+  registerFeedbackTool<S extends McpServerLike>(
+    server: S,
+    options?: RegisterFeedbackToolOptions,
+  ): S {
+    return registerFeedbackToolOnServer(server, this.feedbackDependencies(), options);
+  }
+
   instrumentTool<Args extends unknown[], R extends ToolResult>(
     handler: ToolHandler<Args, R>,
     meta: McpToolMeta,
@@ -784,4 +844,22 @@ export function createMcpAnalytics(
   options: AmplitudeMCPAnalyticsOptions,
 ): AmplitudeMCPAnalytics {
   return new AmplitudeMCPAnalytics(options);
+}
+
+export type { CreateFeedbackToolHandlerOptions, RegisterFeedbackToolOptions };
+
+/**
+ * Build the `submit_feedback` callback without registering it. Use this when
+ * a framework owns tool registration and you pass the callback in yourself.
+ * Pass the same `server` you register the tool on so `tools` can be checked
+ * against that server's registry.
+ *
+ * Prefer {@link AmplitudeMCPAnalytics.registerFeedbackTool}, which registers
+ * the tool and the callback together.
+ */
+export function createFeedbackToolHandler(
+  analytics: AmplitudeMCPAnalytics,
+  options?: CreateFeedbackToolHandlerOptions,
+): (args: Record<string, unknown>, extra: McpExtra) => CallToolResult {
+  return createFeedbackHandler(analytics.feedbackDependencies(), options);
 }
