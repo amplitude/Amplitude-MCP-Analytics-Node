@@ -32,6 +32,11 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
+          # Case-insensitive type so Dependabot's existing titles
+          # ("Build(deps-dev): ...") pass. release-please only reads lowercase
+          # types, so those merges do not cut a release. New Dependabot titles
+          # are lowercase build(deps) / build(deps-dev) via dependabot.yml.
+          shopt -s nocasematch
           pattern='^(feat|fix|chore|docs|test|refactor|perf|ci|build|revert)(\([a-z0-9-]+\))?!?: .+'
 
           if [[ "$PR_TITLE" =~ $pattern ]]; then
@@ -60,6 +65,7 @@ jobs:
           Examples:
             feat: add tiered tool parameter capture
             fix(client): resolve the client name on stateless transport
+            build(deps-dev): bump @modelcontextprotocol/sdk from 1.30.0 to 1.31.0
             chore(main): release 0.5.3
 
           See CONTRIBUTING.md for details.
