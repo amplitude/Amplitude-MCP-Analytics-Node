@@ -58,7 +58,7 @@
     "rimraf": "5.0.5",
     "tsdown": "0.18.4",
     "typescript": "5.9.3",
-    "vitest": "4.1.11",
+    "vitest": "5.0.3",
     "zod": "3.25.76"
   },
   "peerDependencies": {
