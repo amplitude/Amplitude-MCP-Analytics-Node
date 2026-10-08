@@ -55,6 +55,20 @@ describe('smoke test: all public exports are defined', () => {
     // Instrumentation entry points are part of the public surface.
     expect(typeof mock.instrumentServer).toBe('function');
     expect(typeof mock.instrumentTool).toBe('function');
+    expect(typeof mock.registerFeedbackTool).toBe('function');
     expect(typeof mock.setIdentity).toBe('function');
+  });
+
+  it('exports the opt-in feedback tool', async (): Promise<void> => {
+    const mod = await import('../src/index.js');
+
+    expect(mod.FEEDBACK_TOOL_NAME).toBe('submit_feedback');
+    expect(mod.FEEDBACK_TOOL_DEFINITION.name).toBe('submit_feedback');
+    expect(mod.FEEDBACK_TOOL_DEFINITION.inputSchema.properties).not.toHaveProperty('comment');
+    expect(mod.FEEDBACK_TOOL_INSTRUCTIONS).toContain('submit_feedback');
+    expect(typeof mod.feedbackToolDefinition).toBe('function');
+    expect(typeof mod.feedbackToolInstructions).toBe('function');
+    expect(typeof mod.createFeedbackToolHandler).toBe('function');
+    expect(mod.FEEDBACK_REASONS).toContain('wrong_result');
   });
 });
