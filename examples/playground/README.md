@@ -7,14 +7,15 @@ A local MCP server that uses this SDK, for pointing a real client at it. By defa
 
 A one-line summary of both is printed on stderr. stdout is left for the stdio protocol.
 
-The server has two tools:
+The server has three tools:
 
 - `echo` — returns the `message` you pass. If you also pass `rationale`, that text is recorded as `[MCP] Rationale`.
 - `whoami` — returns `playground-user` and sends that as the Amplitude `user_id` for the call. `setIdentity` changes the user id partway through the session. On stdio there is no session id, so those two user ids are two episodes rather than one session.
+- `submit_feedback` — records whether a result helped. A call emits `[MCP] Feedback Submitted` and does not also emit `[MCP] Tool Call Response`. The server instructions name this tool so the agent knows when to call it.
 
 Every event carries an `org id` group. The value is `PLAYGROUND_ORG_ID` when that variable is set, and `0` otherwise. Keep it numeric.
 
-Connecting is enough to emit `[MCP] Session Initialized` and, once the client lists tools, `[MCP] Tools Listed`. A tool call emits `[MCP] Tool Call Response`. Closing a stdio process, or this HTTP server's session, emits `[MCP] Session Ended`.
+Connecting is enough to emit `[MCP] Session Initialized` and, once the client lists tools, `[MCP] Tools Listed`. A call to `echo` or `whoami` emits `[MCP] Tool Call Response`. A call to `submit_feedback` emits `[MCP] Feedback Submitted`. Closing a stdio process, or this HTTP server's session, emits `[MCP] Session Ended`.
 
 Watch both logs while you use a client:
 
@@ -80,6 +81,30 @@ claude mcp add amplitude-playground -- pnpm playground:stdio
 ```
 
 Then ask the client to call a tool, for example: "Use the echo tool on the amplitude-playground server to echo hello." The session and tools-listed events are already in the log when the client connects.
+
+## Feedback cases
+
+`examples/playground/feedback-cases.ts` is the list of user messages and the `submit_feedback` arguments an agent should send. The playground test applies those arguments and checks the event. It does not run an agent. Point a host at this server to see whether the agent calls the tool on its own.
+
+Start with echo, so the reaction is about a result from this server:
+
+> Use the echo tool on the amplitude-playground server to echo hello.
+
+Then send one message:
+
+| Message | What should happen |
+| -- | -- |
+| thanks, that's it | Calls `submit_feedback` with `helpful: true` and `solicited: false` |
+| perfect | Same, `helpful: true` |
+| that's wrong | `helpful: false`, `reason: "wrong_result"` |
+| this didn't work | `helpful: false`, `reason: "other"` |
+| file feedback | Asks what to record. If you answer "it was wrong", calls with `helpful: false`, `reason: "wrong_result"`, `solicited: true` |
+| can you echo that again? | Does not call `submit_feedback` |
+| what was the message you echoed? (after a feedback call already succeeded) | Does not call it again. The tool result tells the agent not to ask unless you bring feedback up |
+
+For each host, write down three things: whether the call happened, whether an approval dialog appeared, and whether the agent asked "was this helpful?" on its own before you reacted. A missing proactive ask is worth recording. Reactive calls are the ones that have to work.
+
+Hosts: Claude Code, Cursor, Codex, ChatGPT, VS Code.
 
 ## Send to Amplitude instead
 
