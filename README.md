@@ -21,11 +21,13 @@ steps.
 **Option 2 — manual**
 
 ```bash
-pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk
+pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk zod
 ```
 
-`@amplitude/analytics-node` and `@modelcontextprotocol/sdk` are peer
-dependencies — your MCP server already depends on the latter. Any
+`@amplitude/analytics-node`, `@modelcontextprotocol/sdk`, and `zod` are peer
+dependencies — your MCP server already depends on the latter two. `zod` is
+the same range the MCP SDK accepts (`^3.25.0` or `^4.0.0`); the feedback
+tool builds its input schema with it. Any
 `@modelcontextprotocol/sdk` from `1.14.0` up is supported, including versions
 `1.21.0`+, which changed how `McpServer` reports a failed `tools/call`; the
 default events mean the same thing across that whole range.
