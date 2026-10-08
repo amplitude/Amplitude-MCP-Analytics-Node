@@ -324,12 +324,24 @@ describe('registerFeedbackTool', () => {
     expect(tracked.some((event) => event.event_type === '[MCP] Tool Call Response')).toBe(false);
 
     tracked.length = 0;
-    const invalid = await client.callTool({
-      name: 'submit_feedback',
-      arguments: { helpful: 'yes' },
-    });
-    expect(invalid.isError).toBe(true);
-    expect(tracked.map((event) => event.event_type)).not.toContain('[MCP] Feedback Submitted');
-    expect(tracked.map((event) => event.event_type)).not.toContain('[MCP] Tool Call Response');
+    // Through 1.20 a schema failure throws. From 1.21 the SDK returns an
+    // in-band isError result for the same failure. The handler never runs
+    // on either side, so neither feedback nor a tool-call response is emitted.
+    const invalid = await client
+      .callTool({
+        name: 'submit_feedback',
+        arguments: { helpful: 'yes' },
+      })
+      .then(
+        (result) => result,
+        () => undefined,
+      );
+    if (invalid != null) {
+      expect(invalid.isError).toBe(true);
+    }
+    const invalidTypes = tracked.map((event) => event.event_type);
+    expect(invalidTypes).toContain('[MCP] Tool Call Rejected');
+    expect(invalidTypes).not.toContain('[MCP] Feedback Submitted');
+    expect(invalidTypes).not.toContain('[MCP] Tool Call Response');
   });
 });
