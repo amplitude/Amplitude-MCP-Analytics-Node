@@ -2,6 +2,13 @@
 
 Entries through 0.5.2 were backfilled from the GitHub releases. Later entries are generated from Conventional Commits.
 
+## [0.6.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.5.2...v0.6.0) (2026-10-08)
+
+
+### Features
+
+* Read Codex nested turn ids ([#43](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/43)) ([c0a8a25](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/c0a8a251ae0874ca5c930135bd10feadd51fb140))
+
 ## [0.5.2](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.4.2...v0.5.2) (2026-10-05)
 
 ### Features
