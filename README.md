@@ -445,10 +445,18 @@ const analytics = createMcpAnalytics({
 });
 ```
 
-`redactPii: false` turns off the built-in patterns (for example when you
-already redact upstream). Custom patterns, `customRedactionFn`, and
-base64-image replacement still run. A `customRedactionFn` that throws or
-returns a non-string is skipped for that value; the current text is kept.
+`customRedactionPatterns` adds rules. It does not replace the built-in set,
+and there is no switch for one built-in pattern. Set `redactPii: false` to
+turn the built-in patterns off, then list the ones you still want as custom
+patterns. `@amplitude/ai` works the same way.
+
+Custom patterns, `customRedactionFn`, and base64-image replacement still run
+when `redactPii` is `false`. A `customRedactionFn` that throws or returns a
+non-string is skipped for that value; the current text is kept.
+
+The standalone `trackServerEvent` and `trackToolEvent` functions take the same
+three fields on their options argument. `AmplitudeMCPAnalytics` methods always
+use the config passed to the client.
 
 ## Context (`ctx`)
 

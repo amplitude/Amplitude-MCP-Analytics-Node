@@ -73,8 +73,12 @@ describe('redactBase64Content', () => {
 describe('redactPiiPatterns', () => {
   it('redacts emails, phones, SSNs, credit cards, and IP addresses', () => {
     expect(redactPiiPatterns('Contact user@example.com for info')).toBe('Contact [email] for info');
-    expect(redactPiiPatterns('Call (555) 123-4567')).toBe('Call ([phone]');
+    expect(redactPiiPatterns('Call (555) 123-4567')).toBe('Call [phone]');
+    expect(redactPiiPatterns('Call 555-123-4567')).toBe('Call [phone]');
     expect(redactPiiPatterns('Call +14155552671 today')).toBe('Call [phone] today');
+    expect(redactPiiPatterns('Call +44 20 7946 0958 today')).toBe('Call [phone] today');
+    expect(redactPiiPatterns('Call +1 (415) 555-2671 today')).toBe('Call [phone] today');
+    expect(redactPiiPatterns('Call +44-20-7946-0958 today')).toBe('Call [phone] today');
     expect(redactPiiPatterns('SSN: 123-45-6789')).toBe('SSN: [ssn]');
     expect(redactPiiPatterns('SSN: 123 45 6789')).toBe('SSN: [ssn]');
     expect(redactPiiPatterns('Card: 4111 1111 1111 1111')).toBe('Card: [credit_card]');

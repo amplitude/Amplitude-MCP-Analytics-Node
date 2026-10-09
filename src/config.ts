@@ -125,8 +125,10 @@ export interface MCPAnalyticsConfigOptions {
   /**
    * Extra redaction rules applied to free-form content after the built-in PII
    * patterns. A bare string is treated as a regex source replaced with
-   * `[REDACTED]`; an object supplies an explicit replacement. Still runs when
-   * `redactPii` is `false`.
+   * `[REDACTED]`; an object supplies an explicit replacement. These rules are
+   * added to the built-in set — they do not remove one. Set `redactPii` to
+   * `false` to turn every built-in pattern off, then list the patterns you
+   * still want here. Still runs when `redactPii` is `false`.
    */
   customRedactionPatterns?: Array<string | { pattern: string; replacement: string }>;
   /**

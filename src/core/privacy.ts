@@ -14,6 +14,11 @@
 //     (redactText / redactValue) instead of methods that return event-property
 //     dictionaries. Base64-image replacement runs inside redactValue and is
 //     not gated on redactPii, matching upstream sanitizeStructuredContent.
+//   - Phone patterns are adapted from upstream. A parenthesized US number is
+//     matched from the opening `(`, so `(555) 123-4567` is fully replaced.
+//     International numbers allow spaces, dots, dashes, and parentheses
+//     between digits while keeping the 7–15 digit E.164 bound. Upstream only
+//     matches an uninterrupted `+` digit run, which left `+44 20 7946 0958`.
 //   - Logger prefix inherited from the re-labelled src/utils/logger.ts.
 
 import crypto from 'node:crypto';
@@ -23,7 +28,10 @@ import { getLogger } from '../utils/logger.js';
 export const REDACTED_IMAGE_PLACEHOLDER = '[base64 image redacted]';
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
-const PHONE_RE = /\b\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\b/g;
+// `(?<!\w)` rather than `\b`, so an opening `(` is part of the match.
+// `\b` sits between the space and `(`, and the old pattern started at the
+// first digit, leaving `Call ([phone]`.
+const PHONE_RE = /(?<!\w)\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b/g;
 const CREDIT_CARD_RE = /\b(?:\d{4}[-\s]?){3}\d{4}\b/g;
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 const SSN_SPACE_RE = /\b\d{3} \d{2} \d{4}\b/g;
@@ -34,7 +42,9 @@ const IPV4_RE = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
 // preceded by "//" are URL-context IPv6 (RFC 2732, e.g. http://[::1]:8080).
 const IPV6_RE =
   /(?:(?<=\/\/)\[::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}\]|(?<=\/\/)\[::1\]|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|(?<![^\s])::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}\b|(?<![^\s])::1\b)/g;
-const INTL_PHONE_RE = /(?<!\w)\+[1-9]\d{6,14}\b/g;
+// 7–15 digits total (`[1-9]` plus 6–14 more), with spaces, dots, dashes, or
+// parentheses between digits. An uninterrupted `+14155552671` still matches.
+const INTL_PHONE_RE = /(?<!\w)\+[1-9](?:[ \t.\-()]*\d){6,14}\b/g;
 const BASE64_DATA_URL_RE = /^data:([^;]+);base64,/;
 const RAW_BASE64_RE = /^[A-Za-z0-9+/]+=*$/;
 
@@ -95,13 +105,15 @@ export function redactPiiPatterns(text: unknown): string {
   }
   let result = text;
   result = result.replace(EMAIL_RE, '[email]');
+  // International before the domestic pattern, so `+1 (415) 555-2671` is one
+  // token instead of a leftover `+1` plus a domestic match.
+  result = result.replace(INTL_PHONE_RE, '[phone]');
   result = result.replace(PHONE_RE, '[phone]');
   result = result.replace(CREDIT_CARD_RE, '[credit_card]');
   result = result.replace(SSN_RE, '[ssn]');
   result = result.replace(SSN_SPACE_RE, '[ssn]');
   result = result.replace(IPV4_RE, '[ip_address]');
   result = result.replace(IPV6_RE, '[ip_address]');
-  result = result.replace(INTL_PHONE_RE, '[phone]');
   return result;
 }
 

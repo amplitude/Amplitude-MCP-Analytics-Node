@@ -47,7 +47,7 @@ describe('privacy wiring (client → emit seam)', () => {
     expect(props.count).toBe(3);
     expect(props['user email']).toBe('[email]');
     expect(props['org url']).toBe('amplitude');
-    expect(props.profile).toEqual({ phone: 'Call ([phone]' });
+    expect(props.profile).toEqual({ phone: 'Call [phone]' });
   });
 
   it('never redacts typed identity or dimension fields', () => {

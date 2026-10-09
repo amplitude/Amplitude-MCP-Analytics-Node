@@ -66,8 +66,29 @@ export interface TrackEventOptions {
   /** Omit the ctx `extra` bags from this event. Off by default. */
   dropExtraProps?: boolean;
   /**
-   * Redaction policy for free-form event content. Supplied by the client from
-   * `MCPAnalyticsConfig`; when omitted, built-in PII patterns still run.
+   * Built-in PII patterns for this call. Default `true`.
+   *
+   * Applies to the standalone `trackServerEvent` / `trackToolEvent` functions.
+   * `AmplitudeMCPAnalytics.trackServerEvent` and `trackToolEvent` always use
+   * the client's `MCPAnalyticsConfig` instead.
+   * @default true
+   */
+  redactPii?: boolean;
+  /**
+   * Extra redaction rules for this call, applied after the built-in patterns.
+   * Same shape as `MCPAnalyticsConfig.customRedactionPatterns`. Standalone
+   * functions only; the client methods use the client's config.
+   */
+  customRedactionPatterns?: Array<string | { pattern: string; replacement: string }>;
+  /**
+   * Final redaction pass for this call. Standalone functions only; the client
+   * methods use the client's config.
+   */
+  customRedactionFn?: (text: string) => string;
+  /**
+   * Resolved redaction policy. Supplied by the client from
+   * `MCPAnalyticsConfig`. When set, the public redaction fields on this
+   * options object are ignored.
    * @internal
    */
   privacy?: PrivacyConfig;

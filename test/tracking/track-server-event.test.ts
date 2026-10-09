@@ -141,6 +141,24 @@ describe('trackServerEvent', () => {
     expect(tracked[0]?.event_properties?.['user email']).toBe('from-caller [email]');
   });
 
+  it('honors redactPii: false on the standalone function', () => {
+    const { client, tracked } = makeAmplitude();
+    trackServerEvent(client, resolvedCtx(), 'mcp: raw', { note: 'user@x.com' }, { redactPii: false });
+    expect(tracked[0]?.event_properties?.note).toBe('user@x.com');
+  });
+
+  it('applies custom patterns on the standalone function after built-in patterns', () => {
+    const { client, tracked } = makeAmplitude();
+    trackServerEvent(
+      client,
+      resolvedCtx(),
+      'mcp: custom-pattern',
+      { note: 'user@x.com secret-9' },
+      { customRedactionPatterns: ['secret-\\d+'] },
+    );
+    expect(tracked[0]?.event_properties?.note).toBe('[email] [REDACTED]');
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
   });

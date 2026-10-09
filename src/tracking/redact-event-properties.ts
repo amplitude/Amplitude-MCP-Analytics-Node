@@ -8,8 +8,35 @@
  *
  * @internal
  */
-import type { PrivacyConfig } from '../core/privacy.js';
+import { PrivacyConfig } from '../core/privacy.js';
 import { EVENT_PROPERTY_KEYS } from './constants.js';
+import type { TrackEventOptions } from './types.js';
+
+/** Built-in PII patterns, used when a caller does not pass a policy. */
+const DEFAULT_PRIVACY = new PrivacyConfig({ redactPii: true });
+
+/**
+ * Policy for one emit. A client-supplied {@link PrivacyConfig} wins. Otherwise
+ * the standalone redaction fields on `options` are compiled, defaulting to
+ * built-in patterns on.
+ *
+ * @internal
+ */
+export function resolveEventPrivacy(options?: TrackEventOptions): PrivacyConfig {
+  if (options?.privacy != null) return options.privacy;
+  if (
+    options?.redactPii === undefined &&
+    options?.customRedactionPatterns == null &&
+    options?.customRedactionFn == null
+  ) {
+    return DEFAULT_PRIVACY;
+  }
+  return new PrivacyConfig({
+    redactPii: options.redactPii ?? true,
+    customRedactionPatterns: options.customRedactionPatterns,
+    customRedactionFn: options.customRedactionFn,
+  });
+}
 
 const FREE_TEXT_RESERVED = new Set<string>([
   EVENT_PROPERTY_KEYS.rationale,
