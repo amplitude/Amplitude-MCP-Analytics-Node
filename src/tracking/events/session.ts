@@ -12,6 +12,7 @@
  * reporting. Neither fabricates a protocol session: `[MCP] Session ID` stays
  * `no-session` where none exists.
  */
+import type { PrivacyConfig } from '../../core/privacy.js';
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, SESSION_ENDED, SESSION_INITIALIZED } from '../constants.js';
@@ -33,8 +34,9 @@ interface SessionEndedOutcome {
 export function emitSessionInitialized(
   amplitude: AmplitudeClientLike,
   ctx: McpServerContext,
+  privacy?: PrivacyConfig,
 ): void {
-  trackServerEvent(amplitude, ctx, SESSION_INITIALIZED);
+  trackServerEvent(amplitude, ctx, SESSION_INITIALIZED, undefined, { privacy });
 }
 
 /**
@@ -47,10 +49,11 @@ export function emitSessionEnded(
   amplitude: AmplitudeClientLike,
   ctx: McpServerContext,
   outcome?: SessionEndedOutcome,
+  privacy?: PrivacyConfig,
 ): void {
   const properties: Record<string, unknown> = {};
   if (outcome?.durationMs != null) {
     properties[K.sessionDuration] = Math.round(outcome.durationMs);
   }
-  trackServerEvent(amplitude, ctx, SESSION_ENDED, properties);
+  trackServerEvent(amplitude, ctx, SESSION_ENDED, properties, { privacy });
 }

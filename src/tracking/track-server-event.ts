@@ -5,12 +5,14 @@
  * auth, transport, etc.) so the caller only specifies the event-specific delta.
  * Caller-supplied `properties` win on collision; emit failures are swallowed 
  * (best-effort) and logged via the configured logger. Pass `{ dropExtraProps: true }` 
- * to omit the `ctx.extra` bag.
+ * to omit the `ctx.extra` bag. Free-form strings are redacted before delivery;
+ * reserved dimension fields are not.
  */
 import type { McpServerContext } from '../context/types.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
 import { ctxToAmplitudeFields, reservedFieldsToProperties, shouldEmit } from './ctx-to-properties.js';
+import { redactFreeformProperties, resolveEventPrivacy } from './redact-event-properties.js';
 import type { TrackEventOptions } from './types.js';
 
 /**
@@ -31,16 +33,20 @@ export function trackServerEvent(
   try {
     const { user_id, device_id, groups, event_properties, extraProperties } =
       ctxToAmplitudeFields(ctx);
+    const privacy = resolveEventPrivacy(options);
     amplitude.track({
       event_type: eventName,
       user_id,
       device_id,
       groups,
-      event_properties: {
-        ...reservedFieldsToProperties(event_properties),
-        ...(options?.dropExtraProps ? {} : extraProperties),
-        ...properties,
-      },
+      event_properties: redactFreeformProperties(
+        {
+          ...reservedFieldsToProperties(event_properties),
+          ...(options?.dropExtraProps ? {} : extraProperties),
+          ...properties,
+        },
+        privacy,
+      ),
     });
   } catch (err) {
     getLogger(amplitude).warn(

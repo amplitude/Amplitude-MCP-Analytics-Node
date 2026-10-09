@@ -1,5 +1,6 @@
 /** The default rejected-tool-call event — `[MCP] Tool Call Rejected`. */
 import type { ErrorMessageSanitizer } from '../../config.js';
+import type { PrivacyConfig } from '../../core/privacy.js';
 import type { RejectionReason } from '../../core/tool-call-rejection.js';
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
@@ -44,6 +45,7 @@ export function emitToolCallRejected(
   ctx: McpServerContext,
   outcome: ToolCallRejectedOutcome,
   sanitize?: ErrorMessageSanitizer,
+  privacy?: PrivacyConfig,
 ): void {
   const properties: Record<string, unknown> = {
     [K.isError]: true,
@@ -64,5 +66,5 @@ export function emitToolCallRejected(
     properties[K.responseHttpStatus] = outcome.responseHttpStatus;
   }
 
-  trackServerEvent(amplitude, ctx, TOOL_CALL_REJECTED, properties);
+  trackServerEvent(amplitude, ctx, TOOL_CALL_REJECTED, properties, { privacy });
 }

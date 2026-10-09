@@ -12,6 +12,7 @@ import {
   reservedFieldsToProperties,
   shouldEmit,
 } from './ctx-to-properties.js';
+import { redactFreeformProperties, resolveEventPrivacy } from './redact-event-properties.js';
 import type { TrackEventOptions } from './types.js';
 
 /**
@@ -30,16 +31,20 @@ export function trackToolEvent(
   try {
     const { user_id, device_id, groups, event_properties, extraProperties } =
       ctxToAmplitudeFieldsForTool(ctx);
+    const privacy = resolveEventPrivacy(options);
     amplitude.track({
       event_type: eventName,
       user_id,
       device_id,
       groups,
-      event_properties: {
-        ...reservedFieldsToProperties(event_properties),
-        ...(options?.dropExtraProps ? {} : extraProperties),
-        ...properties,
-      },
+      event_properties: redactFreeformProperties(
+        {
+          ...reservedFieldsToProperties(event_properties),
+          ...(options?.dropExtraProps ? {} : extraProperties),
+          ...properties,
+        },
+        privacy,
+      ),
     });
   } catch (err) {
     getLogger(amplitude).warn(

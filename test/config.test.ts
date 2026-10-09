@@ -77,6 +77,40 @@ describe('MCPAnalyticsConfig emitAnonymousEvent', () => {
   });
 });
 
+describe('MCPAnalyticsConfig privacy', () => {
+  it('redacts built-in PII by default and has no custom rules', () => {
+    const config = new MCPAnalyticsConfig();
+    expect(config.redactPii).toBe(true);
+    expect(config.customRedactionPatterns).toEqual([]);
+    expect(config.customRedactionFn).toBeNull();
+  });
+
+  it('honors opt-out, patterns, and a custom function', () => {
+    const fn = (text: string) => text;
+    const patterns = ['secret-\\d+', { pattern: '\\bACME-\\d+\\b', replacement: '[ticket]' }] as const;
+    const config = new MCPAnalyticsConfig({
+      redactPii: false,
+      customRedactionPatterns: [...patterns],
+      customRedactionFn: fn,
+    });
+    expect(config.redactPii).toBe(false);
+    expect(config.customRedactionPatterns).toEqual([...patterns]);
+    expect(config.customRedactionFn).toBe(fn);
+    expect(config.toPrivacyConfig().redactText('user@x.com secret-9 ACME-4')).toBe(
+      'user@x.com [REDACTED] [ticket]',
+    );
+  });
+
+  it('ignores a non-function customRedactionFn and a non-array pattern list', () => {
+    const config = new MCPAnalyticsConfig({
+      customRedactionFn: 'nope' as unknown as (text: string) => string,
+      customRedactionPatterns: 'nope' as unknown as string[],
+    });
+    expect(config.customRedactionFn).toBeNull();
+    expect(config.customRedactionPatterns).toEqual([]);
+  });
+});
+
 describe('MCPAnalyticsConfig parameter capture', () => {
   it('defaults shape on and excludes injected host metadata keys', () => {
     expect(new MCPAnalyticsConfig().paramCapture).toEqual({
