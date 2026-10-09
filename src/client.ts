@@ -6,6 +6,7 @@ import {
 } from './context/index.js';
 import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
 import { buildServerContext, resolveTransport } from './core/build-context.js';
+import type { PrivacyConfig } from './core/privacy.js';
 import {
   TrackingProxy,
   installTrackCounter,
@@ -167,6 +168,10 @@ export class AmplitudeMCPAnalytics {
   readonly serverName: string;
   readonly serverVersion: string;
   readonly config: MCPAnalyticsConfig;
+  /** Redaction policy applied to free-form event content at emit time, derived
+   *  from `config`. Threaded into every track* / default-event emit site.
+   *  @internal */
+  protected _privacy: PrivacyConfig;
   /** @internal */
   protected _amplitude: AmplitudeClientLike;
   /** True when this SDK created the underlying client and must shut it down
@@ -236,6 +241,7 @@ export class AmplitudeMCPAnalytics {
     this.serverName = options.serverName;
     this.serverVersion = options.serverVersion;
     this.config = options.config ?? new MCPAnalyticsConfig();
+    this._privacy = this.config.toPrivacyConfig();
 
     // Wrap the raw client in a mutable proxy (it may be a frozen ES module
     // namespace) and install the delivery hooks. Order matters: the counter
@@ -360,7 +366,10 @@ export class AmplitudeMCPAnalytics {
     properties?: Record<string, unknown>,
     options?: TrackEventOptions,
   ): void {
-    trackServerEvent(this._amplitude, ctx, eventName, properties, options);
+    trackServerEvent(this._amplitude, ctx, eventName, properties, {
+      ...options,
+      privacy: this._privacy,
+    });
   }
 
   /**
@@ -375,7 +384,10 @@ export class AmplitudeMCPAnalytics {
     properties?: Record<string, unknown>,
     options?: TrackEventOptions,
   ): void {
-    trackToolEvent(this._amplitude, ctx, eventName, properties, options);
+    trackToolEvent(this._amplitude, ctx, eventName, properties, {
+      ...options,
+      privacy: this._privacy,
+    });
   }
 
   /**
@@ -433,6 +445,7 @@ export class AmplitudeMCPAnalytics {
         },
         trackToolCalls: this.config.autocapture.toolCalls,
         sanitizeErrorMessage: this.config.sanitizeErrorMessage,
+        privacy: this._privacy,
         captureParamShape: this.config.paramCapture.shape,
         paramNeverKeys: this.config.paramCapture.neverKeys,
         logger: getLogger(this._amplitude),
@@ -547,6 +560,7 @@ export class AmplitudeMCPAnalytics {
               errorType: toolError?.type,
             },
             this.config.sanitizeErrorMessage,
+            this._privacy,
           );
         });
       }
@@ -616,6 +630,7 @@ export class AmplitudeMCPAnalytics {
               responseHttpStatus: ctx.transport === 'streamable-http' ? 200 : undefined,
             },
             this.config.sanitizeErrorMessage,
+            this._privacy,
           );
         });
       }
@@ -630,9 +645,12 @@ export class AmplitudeMCPAnalytics {
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
           if (scope.sessionStartMs != null && scope.ctx != null && scope.transportPersists) {
-            emitSessionEnded(this._amplitude, scope.ctx, {
-              durationMs: performance.now() - scope.sessionStartMs,
-            });
+            emitSessionEnded(
+              this._amplitude,
+              scope.ctx,
+              { durationMs: performance.now() - scope.sessionStartMs },
+              this._privacy,
+            );
           }
           scope.sessionStartMs = undefined;
           existingOnClose?.();
@@ -691,7 +709,7 @@ export class AmplitudeMCPAnalytics {
         scope.ctx = { ...resolved, client: scope.ctx.client };
         this._serverCtx = scope.ctx;
         scope.sessionStartMs = performance.now();
-        emitSessionInitialized(this._amplitude, resolved);
+        emitSessionInitialized(this._amplitude, resolved, this._privacy);
       });
 
       // `oninitialized` fires on the `notifications/initialized` notification,
@@ -728,7 +746,7 @@ export class AmplitudeMCPAnalytics {
             scope.ctx = { ...resolved, client: scope.ctx.client };
             this._serverCtx = scope.ctx;
             scope.sessionStartMs = performance.now();
-            emitSessionInitialized(this._amplitude, resolved);
+            emitSessionInitialized(this._amplitude, resolved, this._privacy);
           }
         }
 

@@ -402,8 +402,53 @@ createMcpAnalytics({
 
 Return `null` to omit the property entirely. `[MCP] Error Code` and
 `[MCP] Error Type` are unaffected, so failures stay segmentable. The text sent to
-the client never changes. See
+the client never changes. Built-in PII redaction still runs on whatever string
+the sanitizer returns. See
 [Redacting `[MCP] Error Message`](docs/events.md#redacting-mcp-error-message).
+
+## Privacy and redaction
+
+By default the SDK redacts personally identifiable information from the
+**free-form content** of every event it emits:
+
+- host enrichment on `extra` (server scope and tool metadata)
+- properties passed to `trackServerEvent` / `trackToolEvent`
+- `[MCP] Rationale`
+- `[MCP] Error Message` (after `sanitizeErrorMessage`, when that hook is set)
+- opt-in derived `[MCP] Param:` values
+
+The built-in patterns cover emails, phone numbers (including international
+`+` numbers), credit cards, SSNs, and IPv4/IPv6 addresses. A value that is
+entirely a base64-encoded image is replaced with `[base64 image redacted]`.
+
+Identity and dimension fields are **never** redacted — user id, device id,
+group, session id, server and tool names, error type, and the rest of the
+reserved `[MCP] ` properties other than rationale and error message. Redacting
+those would corrupt attribution. Raw tool arguments are not sent at all; see
+[Tool parameter capture](#tool-parameter-capture).
+
+```ts
+import { MCPAnalyticsConfig, createMcpAnalytics } from '@amplitude/mcp-analytics';
+
+const analytics = createMcpAnalytics({
+  apiKey: process.env.AMPLITUDE_API_KEY!,
+  serverName: 'my-mcp-server',
+  serverVersion: '1.0.0',
+  config: new MCPAnalyticsConfig({
+    // redactPii: true,                       // built-in PII patterns (default)
+    customRedactionPatterns: [
+      'secret-\\d+',                          // bare string → "[REDACTED]"
+      { pattern: '\\bACME-\\d+\\b', replacement: '[ticket]' },
+    ],
+    customRedactionFn: (text) => text.replace(/internal-\w+/g, '[hidden]'),
+  }),
+});
+```
+
+`redactPii: false` turns off the built-in patterns (for example when you
+already redact upstream). Custom patterns, `customRedactionFn`, and
+base64-image replacement still run. A `customRedactionFn` that throws or
+returns a non-string is skipped for that value; the current text is kept.
 
 ## Context (`ctx`)
 
@@ -479,7 +524,9 @@ pass `{ dropExtraProps: true }`:
 analytics.trackToolEvent(ctx, 'my event', { foo: 'bar' }, { dropExtraProps: true });
 ```
 
-Values are sent as provided — the SDK does not escape or redact them. Apply any
+Free-form strings in `extra` and `properties` are run through
+[PII redaction](#privacy-and-redaction) before they are sent. Reserved
+dimension fields are not. The SDK does not otherwise escape values — apply
 output encoding where the data is rendered.
 
 ## Architecture decisions
@@ -511,8 +558,8 @@ intentionally does not reuse agent vocabulary.
 ### Vendor the core, no hard dependency
 
 A small set of shared, low-level utilities (the delivery proxy + hooks,
-serverless flush accounting) is vendored from `@amplitude/ai` rather than
-taken as a dependency. This keeps the two packages independent at runtime —
+serverless flush accounting, privacy/PII redaction) is vendored from
+`@amplitude/ai` rather than taken as a dependency. This keeps the two packages independent at runtime —
 no shared package, no version coupling — while reusing battle-tested code.
 Contributor notes on the vendoring policy live in `VENDORED.md`.
 

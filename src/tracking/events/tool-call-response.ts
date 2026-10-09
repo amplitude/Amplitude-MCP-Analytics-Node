@@ -1,5 +1,6 @@
 /** The default tool-execution event — `[MCP] Tool Call Response`. */
 import type { ErrorMessageSanitizer } from '../../config.js';
+import type { PrivacyConfig } from '../../core/privacy.js';
 import type { McpToolContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOL_CALL_RESPONSE } from '../constants.js';
@@ -32,6 +33,7 @@ export function emitToolCallResponse(
   ctx: McpToolContext,
   outcome: ToolCallOutcome,
   sanitize?: ErrorMessageSanitizer,
+  privacy?: PrivacyConfig,
 ): void {
   const properties: Record<string, unknown> = {
     [K.isError]: outcome.isToolError,
@@ -56,5 +58,5 @@ export function emitToolCallResponse(
     }
   }
 
-  trackToolEvent(amplitude, ctx, TOOL_CALL_RESPONSE, properties);
+  trackToolEvent(amplitude, ctx, TOOL_CALL_RESPONSE, properties, { privacy });
 }

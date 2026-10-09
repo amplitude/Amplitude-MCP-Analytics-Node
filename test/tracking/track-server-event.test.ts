@@ -124,7 +124,7 @@ describe('trackServerEvent', () => {
 
     const event = tracked[0];
     expect(event?.event_properties?.['org url']).toBe('amplitude');
-    expect(event?.event_properties?.['user email']).toBe('a@b.com');
+    expect(event?.event_properties?.['user email']).toBe('[email]');
   });
 
   it('caller properties win over ctx.extra values (precedence chain: typed < extra < caller)', () => {
@@ -133,11 +133,12 @@ describe('trackServerEvent', () => {
       server: { name: 'my-server' },
       transport: 'streamable-http',
       identity: { userId: 'u1', resolvedFrom: 'explicit' },
-      extra: { 'user email': 'from-extra@x.com' },
+      extra: { 'user email': 'from-extra a@b.com' },
     });
-    trackServerEvent(client, ctx, 'mcp: collision', { 'user email': 'from-caller@x.com' });
+    trackServerEvent(client, ctx, 'mcp: collision', { 'user email': 'from-caller c@d.com' });
 
-    expect(tracked[0]?.event_properties?.['user email']).toBe('from-caller@x.com');
+    // Caller wins, then free-form redaction runs on the merged value.
+    expect(tracked[0]?.event_properties?.['user email']).toBe('from-caller [email]');
   });
 
   beforeEach(() => {

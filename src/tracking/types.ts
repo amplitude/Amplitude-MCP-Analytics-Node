@@ -2,6 +2,7 @@
  * Reserved field types for the event emitters. The wire property names 
  * are produced at emit time by `reservedFieldsToProperties`.
  */
+import type { PrivacyConfig } from '../core/privacy.js';
 import type {
   AnchorType,
   McpEpisodeAnchorConfidence,
@@ -64,4 +65,10 @@ export interface AmplitudeFields<F extends DefaultServerFields> {
 export interface TrackEventOptions {
   /** Omit the ctx `extra` bags from this event. Off by default. */
   dropExtraProps?: boolean;
+  /**
+   * Redaction policy for free-form event content. Supplied by the client from
+   * `MCPAnalyticsConfig`; when omitted, built-in PII patterns still run.
+   * @internal
+   */
+  privacy?: PrivacyConfig;
 }
