@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import * as amplitude from '@amplitude/analytics-node';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { createMcpAnalytics, type AmplitudeMCPAnalytics } from '../../src/client.js';
+import { createMcpAnalytics, FEEDBACK_TOOL_INSTRUCTIONS, type AmplitudeMCPAnalytics } from '../../src/index.js';
 import type { AmplitudeClientLike } from '../../src/types.js';
 import { defaultRequestLogPath, openRequestLog, type RequestLog } from './request-log.js';
 import { startIngestionSink, type IngestionSink } from './sink.js';
@@ -86,8 +86,10 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
     const server = new McpServer(
       { name: PLAYGROUND_SERVER_NAME, version: packageVersion() },
       {
-        instructions:
+        instructions: [
           'Local playground for Amplitude MCP analytics. echo returns the message you pass and, when you include rationale, records why you called it. whoami records a fixed playground user id. Neither tool does any other work.',
+          FEEDBACK_TOOL_INSTRUCTIONS,
+        ].join('\n\n'),
       },
     );
 
@@ -120,6 +122,7 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
     analytics.instrumentServer(server, {
       tenant: { groupType: 'org id', groupValue: process.env.PLAYGROUND_ORG_ID ?? '0' },
     });
+    analytics.registerFeedbackTool(server);
     return server;
   };
   const server = createServer();

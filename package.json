@@ -63,13 +63,17 @@
   },
   "peerDependencies": {
     "@amplitude/analytics-node": ">=1.3.0",
-    "@modelcontextprotocol/sdk": ">=1.14.0"
+    "@modelcontextprotocol/sdk": ">=1.14.0",
+    "zod": "^3.25.0 || ^4.0.0"
   },
   "peerDependenciesMeta": {
     "@amplitude/analytics-node": {
       "optional": false
     },
     "@modelcontextprotocol/sdk": {
+      "optional": false
+    },
+    "zod": {
       "optional": false
     }
   },
