@@ -351,6 +351,8 @@ for your network error class. The Node SDK matches `ECONNREFUSED`,
 | `[MCP] Tool Names` | 100 entries, then set `[MCP] Tool Names Truncated` (`[MCP] Tool Count` still reports the true total) |
 | `[MCP] Attempted Tool Name` | 200 characters |
 | `[MCP] Rationale` | 1000 characters |
+| `[MCP] Feedback Comment` | 500 characters |
+| `[MCP] Feedback Tool Names` | 8 entries, after dropping names that are not registered on the server |
 
 Properties merge in a fixed order. A later source overwrites an earlier one:
 
@@ -387,6 +389,8 @@ MCP SDK error. The MCP SDK has reworded that text across versions.
 Skip this event when your MCP SDK does not expose its registry. Do not guess a
 `[MCP] Rejection Reason`. An implementation that emits only `unrecognized` is a
 valid partial implementation.
+
+**Opt-in feedback.** `[MCP] Feedback Submitted` is not part of autocapture. Emit it only when the server registers the feedback tool, and do not also emit `[MCP] Tool Call Response` for that call. It is tool-scope and follows the same skip rule as every other event. `helpful` is a boolean. `reason`, when present, is one of `wrong_result`, `incomplete`, `too_slow`, `wrong_tool`, `missing_capability`, `other`. The rest of the contract is in [events.md](./events.md#mcp-feedback-submitted).
 
 **Do not emit a default event that you cannot populate honestly.**
 

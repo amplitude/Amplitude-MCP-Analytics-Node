@@ -21,11 +21,13 @@ steps.
 **Option 2 — manual**
 
 ```bash
-pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk
+pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk zod
 ```
 
-`@amplitude/analytics-node` and `@modelcontextprotocol/sdk` are peer
-dependencies — your MCP server already depends on the latter. Any
+`@amplitude/analytics-node`, `@modelcontextprotocol/sdk`, and `zod` are peer
+dependencies — your MCP server already depends on the latter two. `zod` is
+the same range the MCP SDK accepts (`^3.25.0` or `^4.0.0`); the feedback
+tool builds its input schema with it. Any
 `@modelcontextprotocol/sdk` from `1.14.0` up is supported, including versions
 `1.21.0`+, which changed how `McpServer` reports a failed `tools/call`; the
 default events mean the same thing across that whole range.
@@ -101,6 +103,7 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
 | `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, client-supplied conversation/run/turn correlation, content-free `[MCP] Param *` shape metadata, `[MCP] Rationale` (opt-in, see below) |
 | `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
+| `[MCP] Feedback Submitted` | A call to the opt-in `submit_feedback` tool (see below) | `[MCP] Feedback Helpful`, `[MCP] Feedback Reason`, `[MCP] Feedback Solicited`, `[MCP] Feedback Tool Names`, `[MCP] Feedback Has Comment`. Not gated by `autocapture` |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
 same-named events/properties from other Amplitude SDKs on the same project.
@@ -261,6 +264,64 @@ free text, so emitting it is an explicit opt-in, and where it lives is your
 convention. Callable at any depth inside an instrumented handler (like
 `setIdentity`); truncated to 1000 characters; last write wins. Omitted
 entirely when never set.
+
+## Feedback
+
+`registerFeedbackTool(server)` adds a `submit_feedback` tool to a high-level
+`McpServer`. The agent calls it when the user reacts to a result from this
+server ("thanks, that's it", "that's wrong") or asks to give feedback, and the
+SDK emits `[MCP] Feedback Submitted`. `instrumentServer` does not add the tool.
+A server that never opts in is unchanged.
+
+```ts
+analytics.instrumentServer(server);
+analytics.registerFeedbackTool(server);
+
+await server.connect(transport);
+```
+
+The tool description is what tells the agent when to call it. The result text
+tells it not to ask again in the same conversation unless the user brings
+feedback up. The call does not also emit `[MCP] Tool Call Response`.
+
+`helpful` is a boolean. `reason`, when the user gave one, is one of
+`wrong_result`, `incomplete`, `too_slow`, `wrong_tool`, `missing_capability`,
+or `other`. An optional `tools` list is kept only for names registered on that
+server. `solicited` records whether the agent asked or the user volunteered.
+
+Free-text `comment` is off by default, and the field is then absent from the
+schema. Opt in to emit `[MCP] Feedback Comment`, capped at 500 characters and
+passed through `sanitizeErrorMessage`:
+
+```ts
+analytics.registerFeedbackTool(server, { captureComment: true });
+```
+
+A name that is already registered is left alone. Pass `name` to register
+alongside an existing tool of the same name. On a low-level `Server` (no
+`registerTool`) this warns and does nothing.
+
+The event follows the same anonymous-floor rule as every other event: a call
+with no identity, no tenant, and no correlation anchor is dropped unless
+`emitAnonymousEvent` is on. It inherits the request's episode ids, which is
+how feedback joins to a conversation without the SDK sending the conversation.
+
+To name the tool in the server's own instructions (those are fixed when the
+`McpServer` is constructed), append `FEEDBACK_TOOL_INSTRUCTIONS`:
+
+```ts
+import { FEEDBACK_TOOL_INSTRUCTIONS } from '@amplitude/mcp-analytics';
+
+const server = new McpServer(
+  { name: 'my-mcp-server', version: '1.0.0' },
+  { instructions: `Your instructions.\n\n${FEEDBACK_TOOL_INSTRUCTIONS}` },
+);
+```
+
+`feedbackToolInstructions(name)` is the same paragraph for a renamed tool.
+`createFeedbackToolHandler(analytics, options)` is the callback on its own,
+for a framework that registers tools itself. Pass `server` in those options
+so `tools` can be checked against that server's registry.
 
 ## Tool parameter capture
 
