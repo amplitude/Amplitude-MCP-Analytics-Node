@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServerContext } from '../../src/context/index.js';
+import { ConfigurationError } from '../../src/exceptions.js';
 import { trackServerEvent } from '../../src/tracking/track-server-event.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from '../../src/types.js';
 
@@ -124,7 +125,7 @@ describe('trackServerEvent', () => {
 
     const event = tracked[0];
     expect(event?.event_properties?.['org url']).toBe('amplitude');
-    expect(event?.event_properties?.['user email']).toBe('a@b.com');
+    expect(event?.event_properties?.['user email']).toBe('[email]');
   });
 
   it('caller properties win over ctx.extra values (precedence chain: typed < extra < caller)', () => {
@@ -133,11 +134,40 @@ describe('trackServerEvent', () => {
       server: { name: 'my-server' },
       transport: 'streamable-http',
       identity: { userId: 'u1', resolvedFrom: 'explicit' },
-      extra: { 'user email': 'from-extra@x.com' },
+      extra: { 'user email': 'from-extra a@b.com' },
     });
-    trackServerEvent(client, ctx, 'mcp: collision', { 'user email': 'from-caller@x.com' });
+    trackServerEvent(client, ctx, 'mcp: collision', { 'user email': 'from-caller c@d.com' });
 
-    expect(tracked[0]?.event_properties?.['user email']).toBe('from-caller@x.com');
+    // Caller wins, then free-form redaction runs on the merged value.
+    expect(tracked[0]?.event_properties?.['user email']).toBe('from-caller [email]');
+  });
+
+  it('honors redactPii: false on the standalone function', () => {
+    const { client, tracked } = makeAmplitude();
+    trackServerEvent(client, resolvedCtx(), 'mcp: raw', { note: 'user@x.com' }, { redactPii: false });
+    expect(tracked[0]?.event_properties?.note).toBe('user@x.com');
+  });
+
+  it('applies custom patterns on the standalone function after built-in patterns', () => {
+    const { client, tracked } = makeAmplitude();
+    trackServerEvent(
+      client,
+      resolvedCtx(),
+      'mcp: custom-pattern',
+      { note: 'user@x.com secret-9' },
+      { customRedactionPatterns: ['secret-\\d+'] },
+    );
+    expect(tracked[0]?.event_properties?.note).toBe('[email] [REDACTED]');
+  });
+
+  it('throws ConfigurationError for an invalid standalone pattern instead of dropping the event', () => {
+    const { client, tracked } = makeAmplitude();
+    expect(() =>
+      trackServerEvent(client, resolvedCtx(), 'mcp: typo', { note: 'x' }, {
+        customRedactionPatterns: ['('],
+      }),
+    ).toThrow(ConfigurationError);
+    expect(tracked).toHaveLength(0);
   });
 
   beforeEach(() => {

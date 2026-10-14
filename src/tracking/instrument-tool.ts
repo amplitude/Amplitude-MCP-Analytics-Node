@@ -25,6 +25,7 @@
  * only to event emission, not to the handler's return value.
  */
 import { DEFAULT_PARAM_NEVER_KEYS, type ErrorMessageSanitizer } from '../config.js';
+import type { PrivacyConfig } from '../core/privacy.js';
 import { runWithContext } from '../context/als.js';
 import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpToolContext, McpToolMeta } from '../context/types.js';
 import { buildToolContext } from '../core/build-context.js';
@@ -80,6 +81,8 @@ export interface InstrumentToolDependencies {
   trackToolCalls: boolean;
   /** Rewrites/drops `[MCP] Error Message`, from `config.sanitizeErrorMessage`. */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Redaction policy applied to free-form event content at emit time. */
+  privacy?: PrivacyConfig;
   /** Whether content-free parameter shape capture is enabled. */
   captureParamShape?: boolean;
   /** Global parameter keys excluded from capture. */
@@ -165,6 +168,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
         callArgs,
         track: trackToolCalls,
         sanitize: deps.sanitizeErrorMessage,
+        privacy: deps.privacy,
         capture,
         captureDisabled: captureResolution.disabled,
         captureShape: deps.captureParamShape ?? true,
@@ -187,6 +191,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             callArgs,
             track: trackToolCalls,
             sanitize: deps.sanitizeErrorMessage,
+            privacy: deps.privacy,
             capture,
             captureDisabled: captureResolution.disabled,
             captureShape: deps.captureParamShape ?? true,
@@ -204,6 +209,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
             callArgs,
             track: trackToolCalls,
             sanitize: deps.sanitizeErrorMessage,
+            privacy: deps.privacy,
             capture,
             captureDisabled: captureResolution.disabled,
             captureShape: deps.captureParamShape ?? true,
@@ -224,6 +230,7 @@ export function instrumentTool<Args extends unknown[], R extends ToolResult>(
       callArgs,
       track: trackToolCalls,
       sanitize: deps.sanitizeErrorMessage,
+      privacy: deps.privacy,
       capture,
       captureDisabled: captureResolution.disabled,
       captureShape: deps.captureParamShape ?? true,
@@ -264,6 +271,11 @@ function recordToolCall<Args extends unknown[]>(params: {
    * compiler catches that omission instead of a reviewer.
    */
   sanitize: ErrorMessageSanitizer | undefined;
+  /**
+   * Redaction policy forwarded to the emitter. Required rather than optional so
+   * each of the four call sites has to pass it, the same way `sanitize` is.
+   */
+  privacy: PrivacyConfig | undefined;
   capture: ResolvedToolParamCapture | undefined;
   captureDisabled: boolean;
   captureShape: boolean;
@@ -327,5 +339,6 @@ function recordToolCall<Args extends unknown[]>(params: {
       paramProperties,
     },
     params.sanitize,
+    params.privacy,
   );
 }

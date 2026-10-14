@@ -521,7 +521,7 @@ reserved key that per-tool dashboards slice on.
 | `[MCP] Attempted Tool Name` | string | always | `params.name` as sent by the client — unvalidated input, capped at **200** characters |
 | `[MCP] Rejection Reason` | string | always | Why the call was rejected: `unknown_tool`, `disabled_tool`, `schema_validation`, or `unrecognized` — see [Telling rejections apart](#telling-rejections-apart) |
 | `[MCP] Is Error` | boolean | always | Always `true` — every rejection is a failure |
-| `[MCP] Error Message` | string | unless dropped by [`sanitizeErrorMessage`](#redacting-mcp-error-message) | Message of the classified error, as the client saw it (e.g. `MCP error -32602: Tool foo not found`) |
+| `[MCP] Error Message` | string | unless dropped by [`sanitizeErrorMessage`](#redacting-mcp-error-message) | Message of the classified error, as the client saw it (e.g. `MCP error -32602: Tool foo not found`), then passed through [built-in PII redaction](#redacting-mcp-error-message) |
 | `[MCP] Error Code` | string | when recoverable | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found). SDKs >= 1.21 discard the numeric code and keep it only in the message text, so it is parsed back out from there; absent when neither source yields one |
 | `[MCP] Error Type` | string | always | Always `protocol_error` — see [Error classification](#error-classification) |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
@@ -689,11 +689,21 @@ failures segmentable with no message text in the event stream. `[MCP] Feedback
 Has Comment` stays set when the comment text is dropped, so the existence of a
 comment is still visible.
 
+The sanitizer runs first and sees the raw message. Built-in PII redaction
+(`redactPii`, on by default) then runs on whatever string it returns, so an
+email left in the rewritten message is still replaced. Returning `null` omits
+the property before redaction. With no sanitizer configured, the raw message
+is still passed through the built-in patterns. See
+[Privacy and redaction](../README.md#privacy-and-redaction) for the patterns,
+custom rules, and which fields are exempt.
+
 Two deliberate behaviors: the sanitizer never sees a successful call, and it
 **fails closed**. A sanitizer that throws (or returns anything other than a
 string) omits the property rather than falling back to the raw message — the
 value it exists to suppress is never emitted because the function was buggy. The
 rest of the event is unaffected, and the tool response never breaks.
+`customRedactionFn` also fails closed, but replaces the value with
+`[content redacted]` instead of omitting the property.
 
 The message reaching the client is never modified; this affects telemetry only.
 To control the client-facing text as well, build the result with
@@ -731,9 +741,14 @@ reserved (SDK-derived)  <  extra (context bag)  <  properties (per call)
 All reserved names carry the `[MCP] ` prefix — keep it out of your own keys
 and collisions never arise.
 
-Values are sent exactly as provided; the SDK does not escape, truncate, or
-redact `extra` or `properties` values. Apply output encoding where the data is
-rendered, and keep sensitive values out.
+Free-form strings in `extra` and per-call `properties` are redacted before
+delivery. Reserved dimension fields — user id, device id, group, session id,
+server and tool names, error type, and the other `[MCP] ` properties except
+`[MCP] Rationale` and `[MCP] Error Message` — are not. `[MCP] Rationale`,
+`[MCP] Error Message`, and opt-in `[MCP] Param:` values are redacted. The SDK
+does not otherwise escape or truncate those strings. Apply output encoding
+where the data is rendered. See
+[Privacy and redaction](../README.md#privacy-and-redaction).
 
 ## Measurement conventions
 

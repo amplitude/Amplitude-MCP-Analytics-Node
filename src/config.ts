@@ -1,3 +1,5 @@
+import { PrivacyConfig } from './core/privacy.js';
+
 /** Per-family toggles for the SDK's auto-captured (default) events — the events
  *  emitted automatically by `instrumentServer` / `instrumentTool` without an
  *  explicit `track*` call. */
@@ -111,6 +113,35 @@ export interface MCPAnalyticsConfigOptions {
    * @see ErrorMessageSanitizer
    */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /**
+   * Apply the built-in PII patterns (email, phone, SSN, credit card, IPv4/IPv6)
+   * to free-form event content: `extra`, properties passed to `trackServerEvent`
+   * / `trackToolEvent`, `[MCP] Rationale`, `[MCP] Error Message`, and derived
+   * `[MCP] Param:` values. Base64-encoded images in those values are redacted
+   * regardless. On by default. Identity and dimension fields (user id, session
+   * id, server name, tool name, …) are never redacted.
+   * @default true
+   */
+  redactPii?: boolean;
+  /**
+   * Extra redaction rules applied to free-form content after the built-in PII
+   * patterns. A bare string is treated as a regex source replaced with
+   * `[REDACTED]`; an object supplies an explicit replacement. These rules are
+   * added to the built-in set — they do not remove one. Set `redactPii` to
+   * `false` to turn every built-in pattern off, then list the patterns you
+   * still want here. Still runs when `redactPii` is `false`. An invalid
+   * regex or a malformed entry throws a `ConfigurationError` when the config
+   * is constructed.
+   */
+  customRedactionPatterns?: Array<string | { pattern: string; replacement: string }>;
+  /**
+   * Final redaction pass applied to free-form content after every pattern.
+   * Still runs when `redactPii` is `false`. A function that throws, or that
+   * returns a non-string, replaces that value with `[content redacted]`.
+   * A non-function value throws a `ConfigurationError` when the config is
+   * constructed.
+   */
+  customRedactionFn?: (text: string) => string;
   /** Global controls for tool-parameter capture. */
   paramCapture?: ParamCaptureConfig;
 }
@@ -148,9 +179,8 @@ function resolveAutocapture(
 /**
  * Configuration for the Amplitude MCP Analytics SDK.
  *
- * Intentionally minimal in v0 — additional knobs (privacy, content modes,
- * event-validation, onEvent hooks) will be added as the features that need
- * them land.
+ * Additional knobs (content modes, event-validation, onEvent hooks) will be
+ * added as the features that need them land.
  *
  * @example
  * ```typescript
@@ -173,6 +203,14 @@ export class MCPAnalyticsConfig {
   readonly emitAnonymousEvent: boolean;
   /** Rewrites/drops `[MCP] Error Message`, when supplied. @see ErrorMessageSanitizer */
   readonly sanitizeErrorMessage?: ErrorMessageSanitizer;
+  /** Built-in PII patterns on free-form event content. @default true */
+  readonly redactPii: boolean;
+  /** Extra pattern rules applied after the built-in PII patterns. */
+  readonly customRedactionPatterns: Array<string | { pattern: string; replacement: string }>;
+  /** Final custom redaction pass, when supplied. */
+  readonly customRedactionFn: ((text: string) => string) | null;
+  /** Compiled redaction policy. @internal */
+  private readonly _privacy: PrivacyConfig;
   /** Resolved global parameter-capture controls. */
   readonly paramCapture: {
     readonly shape: boolean;
@@ -187,6 +225,16 @@ export class MCPAnalyticsConfig {
     if (typeof options.sanitizeErrorMessage === 'function') {
       this.sanitizeErrorMessage = options.sanitizeErrorMessage;
     }
+    this.redactPii = options.redactPii ?? true;
+    this.customRedactionPatterns = options.customRedactionPatterns ?? [];
+    this.customRedactionFn = options.customRedactionFn ?? null;
+    // Compiled here so an invalid pattern or a non-function customRedactionFn
+    // throws a ConfigurationError at construction, not on the first event.
+    this._privacy = new PrivacyConfig({
+      redactPii: this.redactPii,
+      customRedactionPatterns: this.customRedactionPatterns,
+      customRedactionFn: this.customRedactionFn ?? undefined,
+    });
     this.paramCapture = {
       shape: options.paramCapture?.shape ?? true,
       neverKeys: Array.isArray(options.paramCapture?.neverKeys)
@@ -195,5 +243,15 @@ export class MCPAnalyticsConfig {
           )
         : DEFAULT_PARAM_NEVER_KEYS,
     };
+  }
+
+  /**
+   * Build the redaction policy applied to free-form event content at emit time.
+   * The client constructs this once and threads it through every emit site.
+   *
+   * @internal Not part of the public package surface.
+   */
+  toPrivacyConfig(): PrivacyConfig {
+    return this._privacy;
   }
 }

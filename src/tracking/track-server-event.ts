@@ -5,12 +5,14 @@
  * auth, transport, etc.) so the caller only specifies the event-specific delta.
  * Caller-supplied `properties` win on collision; emit failures are swallowed 
  * (best-effort) and logged via the configured logger. Pass `{ dropExtraProps: true }` 
- * to omit the `ctx.extra` bag.
+ * to omit the `ctx.extra` bag. Free-form strings are redacted before delivery;
+ * reserved dimension fields are not.
  */
 import type { McpServerContext } from '../context/types.js';
 import type { AmplitudeClientLike } from '../types.js';
 import { getLogger } from '../utils/logger.js';
 import { ctxToAmplitudeFields, reservedFieldsToProperties, shouldEmit } from './ctx-to-properties.js';
+import { redactFreeformProperties, resolveEventPrivacy } from './redact-event-properties.js';
 import type { TrackEventOptions } from './types.js';
 
 /**
@@ -18,6 +20,9 @@ import type { TrackEventOptions } from './types.js';
  * Property precedence (last wins): reserved < `ctx.extra` < caller `properties`.
  * Drops silently under the identity/tenant skip rule and on client error
  * (best-effort). Pass `{ dropExtraProps: true }` to omit the `ctx.extra` bag.
+ *
+ * @throws {ConfigurationError} when `options.customRedactionPatterns` holds an
+ * invalid entry or `options.customRedactionFn` is not a function.
  */
 export function trackServerEvent(
   amplitude: AmplitudeClientLike,
@@ -26,6 +31,9 @@ export function trackServerEvent(
   properties?: Record<string, unknown>,
   options?: TrackEventOptions,
 ): void {
+  // Outside the best-effort `try`: an invalid redaction option is a caller
+  // configuration error, not a delivery failure to log and drop.
+  const privacy = resolveEventPrivacy(options);
   if (!shouldEmit(ctx)) return;
 
   try {
@@ -36,11 +44,14 @@ export function trackServerEvent(
       user_id,
       device_id,
       groups,
-      event_properties: {
-        ...reservedFieldsToProperties(event_properties),
-        ...(options?.dropExtraProps ? {} : extraProperties),
-        ...properties,
-      },
+      event_properties: redactFreeformProperties(
+        {
+          ...reservedFieldsToProperties(event_properties),
+          ...(options?.dropExtraProps ? {} : extraProperties),
+          ...properties,
+        },
+        privacy,
+      ),
     });
   } catch (err) {
     getLogger(amplitude).warn(

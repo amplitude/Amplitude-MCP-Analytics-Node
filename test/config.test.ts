@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from '../src/config.js';
+import { ConfigurationError } from '../src/exceptions.js';
 
 describe('MCPAnalyticsConfig autocapture normalization', () => {
   it('defaults every family on when unset', () => {
@@ -74,6 +75,52 @@ describe('MCPAnalyticsConfig emitAnonymousEvent', () => {
 
   it('honors an explicit true', () => {
     expect(new MCPAnalyticsConfig({ emitAnonymousEvent: true }).emitAnonymousEvent).toBe(true);
+  });
+});
+
+describe('MCPAnalyticsConfig privacy', () => {
+  it('redacts built-in PII by default and has no custom rules', () => {
+    const config = new MCPAnalyticsConfig();
+    expect(config.redactPii).toBe(true);
+    expect(config.customRedactionPatterns).toEqual([]);
+    expect(config.customRedactionFn).toBeNull();
+  });
+
+  it('honors opt-out, patterns, and a custom function', () => {
+    const fn = (text: string) => text;
+    const patterns = ['secret-\\d+', { pattern: '\\bACME-\\d+\\b', replacement: '[ticket]' }] as const;
+    const config = new MCPAnalyticsConfig({
+      redactPii: false,
+      customRedactionPatterns: [...patterns],
+      customRedactionFn: fn,
+    });
+    expect(config.redactPii).toBe(false);
+    expect(config.customRedactionPatterns).toEqual([...patterns]);
+    expect(config.customRedactionFn).toBe(fn);
+    expect(config.toPrivacyConfig().redactText('user@x.com secret-9 ACME-4')).toBe(
+      'user@x.com [REDACTED] [ticket]',
+    );
+  });
+
+  it('throws ConfigurationError for a non-function customRedactionFn', () => {
+    expect(
+      () =>
+        new MCPAnalyticsConfig({
+          customRedactionFn: 'nope' as unknown as (text: string) => string,
+        }),
+    ).toThrow(ConfigurationError);
+  });
+
+  it('throws ConfigurationError for a non-array pattern list', () => {
+    expect(
+      () => new MCPAnalyticsConfig({ customRedactionPatterns: 'nope' as unknown as string[] }),
+    ).toThrow(ConfigurationError);
+  });
+
+  it('throws ConfigurationError for an invalid custom regex, naming its index', () => {
+    expect(() => new MCPAnalyticsConfig({ customRedactionPatterns: ['ok', '('] })).toThrow(
+      /customRedactionPatterns\[1\] is not a valid regular expression/,
+    );
   });
 });
 

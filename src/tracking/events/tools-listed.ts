@@ -1,5 +1,6 @@
 /** The default server-capability event — `[MCP] Tools Listed`. */
 import type { ErrorMessageSanitizer } from '../../config.js';
+import type { PrivacyConfig } from '../../core/privacy.js';
 import type { McpServerContext } from '../../context/types.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOLS_LISTED, TOOL_NAMES_MAX } from '../constants.js';
@@ -35,6 +36,7 @@ export function emitToolsListed(
   ctx: McpServerContext,
   outcome: ToolsListedOutcome,
   sanitize?: ErrorMessageSanitizer,
+  privacy?: PrivacyConfig,
 ): void {
   const properties: Record<string, unknown> = {
     [K.isError]: outcome.isError,
@@ -57,5 +59,5 @@ export function emitToolsListed(
   if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;
 
-  trackServerEvent(amplitude, ctx, TOOLS_LISTED, properties);
+  trackServerEvent(amplitude, ctx, TOOLS_LISTED, properties, { privacy });
 }

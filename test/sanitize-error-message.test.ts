@@ -106,9 +106,11 @@ async function callFailingTool(config?: MCPAnalyticsConfig): Promise<AmplitudeEv
 }
 
 describe('sanitizeErrorMessage — [MCP] Tool Call Response', () => {
-  it('emits the raw result text by default (documented v0 behavior)', async () => {
+  it('redacts built-in PII in the result text when no sanitizer is set', async () => {
     const event = await callFailingTool();
-    expect(event?.event_properties?.['[MCP] Error Message']).toBe(PII);
+    expect(event?.event_properties?.['[MCP] Error Message']).toBe(
+      'No subscriber found for "[email]"',
+    );
   });
 
   it('emits the sanitizer’s rewrite instead of the result text', async () => {

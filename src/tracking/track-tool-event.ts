@@ -12,11 +12,15 @@ import {
   reservedFieldsToProperties,
   shouldEmit,
 } from './ctx-to-properties.js';
+import { redactFreeformProperties, resolveEventPrivacy } from './redact-event-properties.js';
 import type { TrackEventOptions } from './types.js';
 
 /**
  * Emit a tool-scope custom event — same contract as {@link trackServerEvent}
  * plus the tool metadata and `extra`.
+ *
+ * @throws {ConfigurationError} when `options.customRedactionPatterns` holds an
+ * invalid entry or `options.customRedactionFn` is not a function.
  */
 export function trackToolEvent(
   amplitude: AmplitudeClientLike,
@@ -25,6 +29,9 @@ export function trackToolEvent(
   properties?: Record<string, unknown>,
   options?: TrackEventOptions,
 ): void {
+  // Outside the best-effort `try`: an invalid redaction option is a caller
+  // configuration error, not a delivery failure to log and drop.
+  const privacy = resolveEventPrivacy(options);
   if (!shouldEmit(ctx)) return;
 
   try {
@@ -35,11 +42,14 @@ export function trackToolEvent(
       user_id,
       device_id,
       groups,
-      event_properties: {
-        ...reservedFieldsToProperties(event_properties),
-        ...(options?.dropExtraProps ? {} : extraProperties),
-        ...properties,
-      },
+      event_properties: redactFreeformProperties(
+        {
+          ...reservedFieldsToProperties(event_properties),
+          ...(options?.dropExtraProps ? {} : extraProperties),
+          ...properties,
+        },
+        privacy,
+      ),
     });
   } catch (err) {
     getLogger(amplitude).warn(
