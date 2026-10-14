@@ -18,6 +18,9 @@ import type { TrackEventOptions } from './types.js';
 /**
  * Emit a tool-scope custom event — same contract as {@link trackServerEvent}
  * plus the tool metadata and `extra`.
+ *
+ * @throws {ConfigurationError} when `options.customRedactionPatterns` holds an
+ * invalid entry or `options.customRedactionFn` is not a function.
  */
 export function trackToolEvent(
   amplitude: AmplitudeClientLike,
@@ -26,12 +29,14 @@ export function trackToolEvent(
   properties?: Record<string, unknown>,
   options?: TrackEventOptions,
 ): void {
+  // Outside the best-effort `try`: an invalid redaction option is a caller
+  // configuration error, not a delivery failure to log and drop.
+  const privacy = resolveEventPrivacy(options);
   if (!shouldEmit(ctx)) return;
 
   try {
     const { user_id, device_id, groups, event_properties, extraProperties } =
       ctxToAmplitudeFieldsForTool(ctx);
-    const privacy = resolveEventPrivacy(options);
     amplitude.track({
       event_type: eventName,
       user_id,

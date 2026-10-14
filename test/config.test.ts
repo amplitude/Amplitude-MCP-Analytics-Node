@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAM_NEVER_KEYS, MCPAnalyticsConfig } from '../src/config.js';
+import { ConfigurationError } from '../src/exceptions.js';
 
 describe('MCPAnalyticsConfig autocapture normalization', () => {
   it('defaults every family on when unset', () => {
@@ -101,13 +102,25 @@ describe('MCPAnalyticsConfig privacy', () => {
     );
   });
 
-  it('ignores a non-function customRedactionFn and a non-array pattern list', () => {
-    const config = new MCPAnalyticsConfig({
-      customRedactionFn: 'nope' as unknown as (text: string) => string,
-      customRedactionPatterns: 'nope' as unknown as string[],
-    });
-    expect(config.customRedactionFn).toBeNull();
-    expect(config.customRedactionPatterns).toEqual([]);
+  it('throws ConfigurationError for a non-function customRedactionFn', () => {
+    expect(
+      () =>
+        new MCPAnalyticsConfig({
+          customRedactionFn: 'nope' as unknown as (text: string) => string,
+        }),
+    ).toThrow(ConfigurationError);
+  });
+
+  it('throws ConfigurationError for a non-array pattern list', () => {
+    expect(
+      () => new MCPAnalyticsConfig({ customRedactionPatterns: 'nope' as unknown as string[] }),
+    ).toThrow(ConfigurationError);
+  });
+
+  it('throws ConfigurationError for an invalid custom regex, naming its index', () => {
+    expect(() => new MCPAnalyticsConfig({ customRedactionPatterns: ['ok', '('] })).toThrow(
+      /customRedactionPatterns\[1\] is not a valid regular expression/,
+    );
   });
 });
 

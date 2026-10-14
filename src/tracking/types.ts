@@ -76,13 +76,15 @@ export interface TrackEventOptions {
   redactPii?: boolean;
   /**
    * Extra redaction rules for this call, applied after the built-in patterns.
-   * Same shape as `MCPAnalyticsConfig.customRedactionPatterns`. Standalone
+   * Same shape and validation as `MCPAnalyticsConfig.customRedactionPatterns`:
+   * an invalid entry throws a `ConfigurationError` from the call. Standalone
    * functions only; the client methods use the client's config.
    */
   customRedactionPatterns?: Array<string | { pattern: string; replacement: string }>;
   /**
-   * Final redaction pass for this call. Standalone functions only; the client
-   * methods use the client's config.
+   * Final redaction pass for this call. A throw or a non-string return
+   * replaces that value with `[content redacted]`. Standalone functions only;
+   * the client methods use the client's config.
    */
   customRedactionFn?: (text: string) => string;
   /**

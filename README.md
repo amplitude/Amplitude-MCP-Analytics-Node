@@ -451,8 +451,14 @@ turn the built-in patterns off, then list the ones you still want as custom
 patterns. `@amplitude/ai` works the same way.
 
 Custom patterns, `customRedactionFn`, and base64-image replacement still run
-when `redactPii` is `false`. A `customRedactionFn` that throws or returns a
-non-string is skipped for that value; the current text is kept.
+when `redactPii` is `false`.
+
+Custom redaction fails closed. If `customRedactionFn` throws or returns a
+non-string, or a custom pattern fails while running, that value is sent as
+`[content redacted]`. The first failure is logged with the error type only,
+never the message, which might echo the input. An invalid custom pattern, or a
+`customRedactionFn` that is not a function, throws a `ConfigurationError` when
+`MCPAnalyticsConfig` is constructed.
 
 The standalone `trackServerEvent` and `trackToolEvent` functions take the same
 three fields on their options argument. `AmplitudeMCPAnalytics` methods always

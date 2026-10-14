@@ -20,6 +20,9 @@ import type { TrackEventOptions } from './types.js';
  * Property precedence (last wins): reserved < `ctx.extra` < caller `properties`.
  * Drops silently under the identity/tenant skip rule and on client error
  * (best-effort). Pass `{ dropExtraProps: true }` to omit the `ctx.extra` bag.
+ *
+ * @throws {ConfigurationError} when `options.customRedactionPatterns` holds an
+ * invalid entry or `options.customRedactionFn` is not a function.
  */
 export function trackServerEvent(
   amplitude: AmplitudeClientLike,
@@ -28,12 +31,14 @@ export function trackServerEvent(
   properties?: Record<string, unknown>,
   options?: TrackEventOptions,
 ): void {
+  // Outside the best-effort `try`: an invalid redaction option is a caller
+  // configuration error, not a delivery failure to log and drop.
+  const privacy = resolveEventPrivacy(options);
   if (!shouldEmit(ctx)) return;
 
   try {
     const { user_id, device_id, groups, event_properties, extraProperties } =
       ctxToAmplitudeFields(ctx);
-    const privacy = resolveEventPrivacy(options);
     amplitude.track({
       event_type: eventName,
       user_id,

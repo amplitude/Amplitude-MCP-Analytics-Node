@@ -1,10 +1,11 @@
-// Vendored from amplitude/Amplitude-AI-Node @ c8ab2be38178b88bf136706ea3ff9a9973fe62bf
+// Vendored from amplitude/Amplitude-AI-Node @ 792806e27f7a163cd44255863f25f6d2b751a5dc (v0.22.0)
 // Source: src/core/privacy.ts
 // Adaptations:
-//   - Kept the domain-agnostic redaction primitives verbatim: the PII regex
-//     patterns + redactPiiPatterns, the base64-image detection/redaction
-//     (isBase64DataUrl, isValidUrl, isRawBase64, redactBase64Content), and the
-//     content hash (createContentHash).
+//   - Kept the domain-agnostic redaction primitives verbatim: the email
+//     pattern, SSN / credit-card / IP patterns, base64-image detection and
+//     redaction (isBase64DataUrl, isValidUrl, isRawBase64,
+//     redactBase64Content), the content hash (createContentHash),
+//     compileCustomRedactionPatterns, and fail-closed custom redaction.
 //   - Dropped the agent/LLM-domain surface: $llm_message chunking, contentMode
 //     tiers, privacyMode, sanitizeSystemPrompt, sanitizeReasoningContent,
 //     sanitizeToolDefinitions, and normalizeToolDefinitions. Those key off
@@ -14,7 +15,8 @@
 //     (redactText / redactValue) instead of methods that return event-property
 //     dictionaries. Base64-image replacement runs inside redactValue and is
 //     not gated on redactPii, matching upstream sanitizeStructuredContent.
-//   - Phone patterns are adapted from upstream. A parenthesized US number is
+//   - Phone patterns are still adapted from upstream (v0.22.0 has not picked
+//     these up). A parenthesized US number is
 //     matched from the opening `(`, so `(555) 123-4567` is fully replaced.
 //     International numbers allow spaces, dots, dashes, and parentheses
 //     between digits while keeping the 7–15 digit E.164 bound. Upstream only
@@ -22,12 +24,27 @@
 //   - Logger prefix inherited from the re-labelled src/utils/logger.ts.
 
 import crypto from 'node:crypto';
+import { ConfigurationError } from '../exceptions.js';
 import { getLogger } from '../utils/logger.js';
 
 /** @internal */
 export const REDACTED_IMAGE_PLACEHOLDER = '[base64 image redacted]';
+/** Replaces a value when custom redaction fails. @internal */
+export const REDACTED_CONTENT_PLACEHOLDER = '[content redacted]';
 
-const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+// Email: every quantifier is bounded and a match may only start where the
+// preceding character can't belong to a local part, so matching is linear
+// in input length (an unbounded `[...]+@` is quadratic on long runs such as
+// "a.a.a..."). Latin/Greek/Cyrillic letters are accepted so local parts like
+// "josé" match; Han/Kana/Hangul are excluded so CJK text written without
+// spaces before an address isn't swallowed into the match.
+const EMAIL_LETTER = '\\p{Script=Latin}\\p{Script=Greek}\\p{Script=Cyrillic}';
+const EMAIL_LOCAL = `${EMAIL_LETTER}\\p{M}\\p{N}._%+\\-`;
+const EMAIL_LABEL = `${EMAIL_LETTER}\\p{M}\\p{N}\\-`;
+const EMAIL_RE = new RegExp(
+  `(?<![${EMAIL_LOCAL}])[${EMAIL_LOCAL}]{1,64}@(?:[${EMAIL_LABEL}]{1,63}\\.){1,8}[${EMAIL_LETTER}]{2,63}(?![${EMAIL_LETTER}\\p{M}\\p{N}_])`,
+  'gu',
+);
 // `(?<!\w)` rather than `\b`, so an opening `(` is part of the match.
 // `\b` sits between the space and `(`, and the old pattern started at the
 // first digit, leaving `Call ([phone]`.
@@ -45,7 +62,9 @@ const IPV6_RE =
 // 7–15 digits total (`[1-9]` plus 6–14 more), with spaces, dots, dashes, or
 // parentheses between digits. An uninterrupted `+14155552671` still matches.
 const INTL_PHONE_RE = /(?<!\w)\+[1-9](?:[ \t.\-()]*\d){6,14}\b/g;
-const BASE64_DATA_URL_RE = /^data:([^;]+);base64,/;
+// MIME type may be omitted (`data:;base64,`) and may carry parameters
+// (`data:image/png;charset=utf-8;base64,`).
+const BASE64_DATA_URL_RE = /^data:[^;,]*(?:;[^;,]+)*?;base64,/;
 const RAW_BASE64_RE = /^[A-Za-z0-9+/]+=*$/;
 
 /** @internal */
@@ -120,6 +139,45 @@ export function redactPiiPatterns(text: unknown): string {
 /** @internal */
 export type RedactionPattern = string | { pattern: string; replacement: string };
 
+/**
+ * Compile caller-supplied redaction patterns. Throws `ConfigurationError` on
+ * an invalid entry so a typo is caught at configuration time instead of
+ * silently disabling that rule.
+ *
+ * @internal
+ */
+export function compileCustomRedactionPatterns(
+  patterns: readonly RedactionPattern[],
+): Array<{ regex: RegExp; replacement: string }> {
+  if (!Array.isArray(patterns)) {
+    throw new ConfigurationError(
+      'customRedactionPatterns must be an array of strings or { pattern, replacement } objects',
+    );
+  }
+  return patterns.map((entry, index) => {
+    const isObject = entry != null && typeof entry === 'object';
+    const source = isObject ? (entry as { pattern: unknown }).pattern : (entry as unknown);
+    const replacement = isObject
+      ? (entry as { replacement: unknown }).replacement
+      : '[REDACTED]';
+    if (
+      (typeof source !== 'string' && !(source instanceof RegExp)) ||
+      typeof replacement !== 'string'
+    ) {
+      throw new ConfigurationError(
+        `customRedactionPatterns[${index}] must be a string or { pattern: string, replacement: string }`,
+      );
+    }
+    try {
+      return { regex: new RegExp(source, 'g'), replacement };
+    } catch (e) {
+      throw new ConfigurationError(
+        `customRedactionPatterns[${index}] is not a valid regular expression: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  });
+}
+
 /** @internal */
 export interface PrivacyConfigOptions {
   redactPii?: boolean;
@@ -133,6 +191,10 @@ export interface PrivacyConfigOptions {
  * class this carries no agent/LLM event-property shaping — it returns redacted
  * values, and the MCP taxonomy decides how they are emitted.
  *
+ * Custom redaction fails closed: when `customRedactionFn` throws or returns a
+ * non-string, or a custom pattern fails at runtime, the value becomes
+ * {@link REDACTED_CONTENT_PLACEHOLDER}. Only the first failure is logged.
+ *
  * @internal Not part of the public package surface.
  */
 export class PrivacyConfig {
@@ -140,40 +202,18 @@ export class PrivacyConfig {
   readonly customPatterns: Array<RedactionPattern>;
   private readonly _compiledCustomPatterns: Array<{ regex: RegExp; replacement: string }>;
   private readonly _customRedactionFn: ((text: string) => string) | null;
+  private _warnedCustomRedactionFailure = false;
 
+  /** @throws {ConfigurationError} on an invalid custom pattern or a non-function `customRedactionFn`. */
   constructor(options: PrivacyConfigOptions = {}) {
     this.redactPii = options.redactPii ?? true;
     this.customPatterns = options.customRedactionPatterns ?? [];
-    this._compiledCustomPatterns = [];
-    this._customRedactionFn = options.customRedactionFn ?? null;
-
-    for (const pattern of this.customPatterns) {
-      try {
-        if (typeof pattern === 'string') {
-          this._compiledCustomPatterns.push({
-            regex: new RegExp(pattern, 'g'),
-            replacement: '[REDACTED]',
-          });
-        } else if (
-          pattern != null &&
-          typeof pattern === 'object' &&
-          typeof pattern.pattern === 'string' &&
-          typeof pattern.replacement === 'string'
-        ) {
-          this._compiledCustomPatterns.push({
-            regex: new RegExp(pattern.pattern, 'g'),
-            replacement: pattern.replacement,
-          });
-        } else {
-          getLogger().warn('Skipping custom redaction pattern that is not a string or { pattern, replacement }');
-        }
-      } catch (e) {
-        const raw = typeof pattern === 'string' ? pattern : pattern.pattern;
-        getLogger().warn(
-          `Invalid custom redaction regex "${raw}": ${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
+    this._compiledCustomPatterns = compileCustomRedactionPatterns(this.customPatterns);
+    const fn = options.customRedactionFn ?? null;
+    if (fn != null && typeof fn !== 'function') {
+      throw new ConfigurationError('customRedactionFn must be a function');
     }
+    this._customRedactionFn = fn;
   }
 
   /**
@@ -225,9 +265,10 @@ export class PrivacyConfig {
       try {
         result = result.replace(regex, replacement);
       } catch (e) {
-        getLogger().warn(
-          `Custom redaction regex "${regex.source}" failed: ${e instanceof Error ? e.message : String(e)}`,
+        this._warnCustomRedactionFailure(
+          `customRedactionPatterns /${regex.source}/ failed (${e instanceof Error ? e.name : typeof e})`,
         );
+        return REDACTED_CONTENT_PLACEHOLDER;
       }
     }
     return result;
@@ -237,17 +278,24 @@ export class PrivacyConfig {
     if (this._customRedactionFn == null || typeof text !== 'string') {
       return text;
     }
+    let detail: string;
     try {
       const result = this._customRedactionFn(text);
       if (typeof result === 'string') return result;
-      getLogger().error(
-        `customRedactionFn returned ${typeof result} instead of string; skipping — PII may not be fully redacted for this event`,
-      );
+      detail = `customRedactionFn returned ${typeof result} instead of string`;
     } catch (e) {
-      getLogger().error(
-        `customRedactionFn raised an exception: ${e instanceof Error ? e.message : String(e)} — PII may not be fully redacted for this event`,
-      );
+      // The exception message may echo the input, so only its type is logged.
+      detail = `customRedactionFn threw ${e instanceof Error ? e.name : typeof e}`;
     }
-    return text;
+    this._warnCustomRedactionFailure(detail);
+    return REDACTED_CONTENT_PLACEHOLDER;
+  }
+
+  private _warnCustomRedactionFailure(detail: string): void {
+    if (this._warnedCustomRedactionFailure) return;
+    this._warnedCustomRedactionFailure = true;
+    getLogger().error(
+      `${detail}; content replaced with "${REDACTED_CONTENT_PLACEHOLDER}". Further failures from this config are not logged.`,
+    );
   }
 }

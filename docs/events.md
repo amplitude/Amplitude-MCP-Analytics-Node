@@ -644,8 +644,9 @@ Two deliberate behaviors: the sanitizer never sees a successful call, and it
 **fails closed**. A sanitizer that throws (or returns anything other than a
 string) omits the property rather than falling back to the raw message — the
 value it exists to suppress is never emitted because the function was buggy. The
-rest of the event is unaffected, and the tool response never breaks. `customRedactionFn`
-is a different hook: a throw there keeps the current text.
+rest of the event is unaffected, and the tool response never breaks.
+`customRedactionFn` also fails closed, but replaces the value with
+`[content redacted]` instead of omitting the property.
 
 The message reaching the client is never modified; this affects telemetry only.
 To control the client-facing text as well, build the result with

@@ -128,14 +128,17 @@ export interface MCPAnalyticsConfigOptions {
    * `[REDACTED]`; an object supplies an explicit replacement. These rules are
    * added to the built-in set — they do not remove one. Set `redactPii` to
    * `false` to turn every built-in pattern off, then list the patterns you
-   * still want here. Still runs when `redactPii` is `false`.
+   * still want here. Still runs when `redactPii` is `false`. An invalid
+   * regex or a malformed entry throws a `ConfigurationError` when the config
+   * is constructed.
    */
   customRedactionPatterns?: Array<string | { pattern: string; replacement: string }>;
   /**
    * Final redaction pass applied to free-form content after every pattern.
    * Still runs when `redactPii` is `false`. A function that throws, or that
-   * returns a non-string, is skipped for that value and the current text is
-   * kept.
+   * returns a non-string, replaces that value with `[content redacted]`.
+   * A non-function value throws a `ConfigurationError` when the config is
+   * constructed.
    */
   customRedactionFn?: (text: string) => string;
   /** Global controls for tool-parameter capture. */
@@ -205,6 +208,8 @@ export class MCPAnalyticsConfig {
   readonly customRedactionPatterns: Array<string | { pattern: string; replacement: string }>;
   /** Final custom redaction pass, when supplied. */
   readonly customRedactionFn: ((text: string) => string) | null;
+  /** Compiled redaction policy. @internal */
+  private readonly _privacy: PrivacyConfig;
   /** Resolved global parameter-capture controls. */
   readonly paramCapture: {
     readonly shape: boolean;
@@ -220,11 +225,15 @@ export class MCPAnalyticsConfig {
       this.sanitizeErrorMessage = options.sanitizeErrorMessage;
     }
     this.redactPii = options.redactPii ?? true;
-    this.customRedactionPatterns = Array.isArray(options.customRedactionPatterns)
-      ? options.customRedactionPatterns
-      : [];
-    this.customRedactionFn =
-      typeof options.customRedactionFn === 'function' ? options.customRedactionFn : null;
+    this.customRedactionPatterns = options.customRedactionPatterns ?? [];
+    this.customRedactionFn = options.customRedactionFn ?? null;
+    // Compiled here so an invalid pattern or a non-function customRedactionFn
+    // throws a ConfigurationError at construction, not on the first event.
+    this._privacy = new PrivacyConfig({
+      redactPii: this.redactPii,
+      customRedactionPatterns: this.customRedactionPatterns,
+      customRedactionFn: this.customRedactionFn ?? undefined,
+    });
     this.paramCapture = {
       shape: options.paramCapture?.shape ?? true,
       neverKeys: Array.isArray(options.paramCapture?.neverKeys)
@@ -242,10 +251,6 @@ export class MCPAnalyticsConfig {
    * @internal Not part of the public package surface.
    */
   toPrivacyConfig(): PrivacyConfig {
-    return new PrivacyConfig({
-      redactPii: this.redactPii,
-      customRedactionPatterns: this.customRedactionPatterns,
-      customRedactionFn: this.customRedactionFn ?? undefined,
-    });
+    return this._privacy;
   }
 }

@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  compileCustomRedactionPatterns,
   createContentHash,
   isBase64DataUrl,
   isRawBase64,
   isValidUrl,
   PrivacyConfig,
+  REDACTED_CONTENT_PLACEHOLDER,
   REDACTED_IMAGE_PLACEHOLDER,
   redactBase64Content,
   redactPiiPatterns,
 } from '../../src/core/privacy.js';
+import { ConfigurationError } from '../../src/exceptions.js';
 
 const PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
@@ -21,6 +24,12 @@ describe('isBase64DataUrl', () => {
   it('detects base64 data URLs', () => {
     expect(isBase64DataUrl('data:image/png;base64,iVBOR...')).toBe(true);
     expect(isBase64DataUrl('https://example.com')).toBe(false);
+  });
+
+  it('detects data URLs with MIME parameters or an omitted MIME type', () => {
+    expect(isBase64DataUrl('data:image/png;charset=utf-8;base64,AAA=')).toBe(true);
+    expect(isBase64DataUrl('data:;base64,AAA=')).toBe(true);
+    expect(isBase64DataUrl('data:text/plain,hello')).toBe(false);
   });
 });
 
@@ -94,6 +103,19 @@ describe('redactPiiPatterns', () => {
     expect(redactPiiPatterns('std::vector and a[::2]')).toBe('std::vector and a[::2]');
   });
 
+  it('redacts Unicode email local parts and domains', () => {
+    expect(redactPiiPatterns('write josé@example.com')).toBe('write [email]');
+    expect(redactPiiPatterns('write δοκιμή@example.com')).toBe('write [email]');
+    expect(redactPiiPatterns('write test@пример.рф')).toBe('write [email]');
+  });
+
+  it('matches emails in linear time on long local-part-like runs', () => {
+    const run = `${'a.'.repeat(50_000)}`;
+    const start = performance.now();
+    expect(redactPiiPatterns(run)).toBe(run);
+    expect(performance.now() - start).toBeLessThan(1_000);
+  });
+
   it('redacts repeatedly — global patterns do not skip later calls', () => {
     expect(redactPiiPatterns('a@b.com')).toBe('[email]');
     expect(redactPiiPatterns('c@d.com')).toBe('[email]');
@@ -134,14 +156,21 @@ describe('PrivacyConfig', () => {
     );
   });
 
-  it('skips an invalid custom regex and still applies the valid ones', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const privacy = new PrivacyConfig({
-      redactPii: false,
-      customRedactionPatterns: ['(', 'secret-\\d+'],
-    });
-    expect(privacy.redactText('token secret-99')).toBe('token [REDACTED]');
-    expect(warn).toHaveBeenCalled();
+  it('throws ConfigurationError for an invalid custom regex', () => {
+    expect(
+      () => new PrivacyConfig({ redactPii: false, customRedactionPatterns: ['(', 'secret-\\d+'] }),
+    ).toThrow(ConfigurationError);
+  });
+
+  it('throws ConfigurationError for a malformed pattern entry or non-function fn', () => {
+    expect(() =>
+      compileCustomRedactionPatterns([
+        { pattern: 'x' } as unknown as { pattern: string; replacement: string },
+      ]),
+    ).toThrow(/customRedactionPatterns\[0\] must be a string/);
+    expect(
+      () => new PrivacyConfig({ customRedactionFn: 42 as unknown as (text: string) => string }),
+    ).toThrow(ConfigurationError);
   });
 
   it('applies a pattern object replacement after built-in patterns', () => {
@@ -151,21 +180,30 @@ describe('PrivacyConfig', () => {
     expect(privacy.redactText('user@x.com filed ACME-12')).toBe('[email] filed [ticket]');
   });
 
-  it('keeps the current text when customRedactionFn throws or returns a non-string', () => {
+  it('replaces content when customRedactionFn throws, and logs only the error type once', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const throwing = new PrivacyConfig({
       redactPii: false,
-      customRedactionFn: () => {
-        throw new Error('redactor bug');
+      customRedactionFn: (text) => {
+        throw new TypeError(`cannot handle ${text}`);
       },
     });
-    expect(throwing.redactText('keep me')).toBe('keep me');
+    expect(throwing.redactText('secret jane@example.com')).toBe(REDACTED_CONTENT_PLACEHOLDER);
+    expect(throwing.redactText('second value')).toBe(REDACTED_CONTENT_PLACEHOLDER);
 
+    expect(error).toHaveBeenCalledTimes(1);
+    const logged = String(error.mock.calls[0]?.[0]);
+    expect(logged).toContain('TypeError');
+    expect(logged).not.toContain('jane@example.com');
+    expect(logged).not.toContain('cannot handle');
+  });
+
+  it('replaces content when customRedactionFn returns a non-string', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const wrongType = new PrivacyConfig({
       redactPii: false,
       customRedactionFn: () => 42 as unknown as string,
     });
-    expect(wrongType.redactText('keep me')).toBe('keep me');
-    expect(error).toHaveBeenCalled();
+    expect(wrongType.redactText('keep me')).toBe(REDACTED_CONTENT_PLACEHOLDER);
   });
 });
