@@ -2,6 +2,16 @@
 
 Entries through 0.5.2 were backfilled from the GitHub releases. Later entries are generated from Conventional Commits.
 
+## [0.6.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.5.2...v0.6.0) (2026-10-14)
+
+
+### Features
+
+* opt-in submit_feedback tool ([#55](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/55)) ([4898c97](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/4898c974a437b598f9a3cbe1ad0f148df702c064))
+* Read Codex nested turn ids ([#43](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/43)) ([c0a8a25](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/c0a8a251ae0874ca5c930135bd10feadd51fb140))
+* redact PII from free-form event content by default ([#58](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/58)) ([f2f0f24](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/f2f0f243ef1ec8e43bbc6b70b23599e77226993f))
+* register submit_feedback on the playground ([#56](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/56)) ([bf94b9c](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/bf94b9ce8d49e90e6fee22b3baaee2060f78c85e))
+
 ## [0.5.2](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.4.2...v0.5.2) (2026-10-05)
 
 ### Features
