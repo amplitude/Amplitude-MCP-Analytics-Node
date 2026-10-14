@@ -21,6 +21,13 @@
 //     International numbers allow spaces, dots, dashes, and parentheses
 //     between digits while keeping the 7–15 digit E.164 bound. Upstream only
 //     matches an uninterrupted `+` digit run, which left `+44 20 7946 0958`.
+//   - IPv6 matching accepts compressed forms (`2001:db8::`, `2001:db8::1:2`)
+//     that upstream's regex splits or misses. Scope operators (`std::vector`,
+//     `a[::2]`) stay excluded, and a bare `::` is still not an address.
+//   - Raw JPEG base64 (`/9j/...`) is recognized before the leading-`/` URL
+//     exemption, which otherwise treats the payload as a relative path.
+//   - `Date` values pass through `redactValue` unchanged. Walking them as
+//     objects yields `{}` because a Date has no enumerable properties.
 //   - Logger prefix inherited from the re-labelled src/utils/logger.ts.
 
 import crypto from 'node:crypto';
@@ -53,12 +60,9 @@ const CREDIT_CARD_RE = /\b(?:\d{4}[-\s]?){3}\d{4}\b/g;
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 const SSN_SPACE_RE = /\b\d{3} \d{2} \d{4}\b/g;
 const IPV4_RE = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g;
-// Bare "::" is omitted; free-standing "::" abbreviations require whitespace/
-// start-of-string to avoid false positives on scope-resolution operators
-// (C++ std::vector, Ruby ::Module, Python a[::2]).  Bracket-enclosed forms
-// preceded by "//" are URL-context IPv6 (RFC 2732, e.g. http://[::1]:8080).
-const IPV6_RE =
-  /(?:(?<=\/\/)\[::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}\]|(?<=\/\/)\[::1\]|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|(?<![^\s])::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}\b|(?<![^\s])::1\b)/g;
+// URL-bracket form first so `http://[::1]:8080` keeps a single pair of
+// brackets. A bare candidate is everything else made of hex and colons.
+const IPV6_CANDIDATE_RE = /\/\/\[[0-9a-fA-F:]+\]|[0-9a-fA-F:]{2,}/g;
 // 7–15 digits total (`[1-9]` plus 6–14 more), with spaces, dots, dashes, or
 // parentheses between digits. An uninterrupted `+14155552671` still matches.
 const INTL_PHONE_RE = /(?<!\w)\+[1-9](?:[ \t.\-()]*\d){6,14}\b/g;
@@ -66,6 +70,9 @@ const INTL_PHONE_RE = /(?<!\w)\+[1-9](?:[ \t.\-()]*\d){6,14}\b/g;
 // (`data:image/png;charset=utf-8;base64,`).
 const BASE64_DATA_URL_RE = /^data:[^;,]*(?:;[^;,]+)*?;base64,/;
 const RAW_BASE64_RE = /^[A-Za-z0-9+/]+=*$/;
+// JPEG base64 starts with `/9j/`. `isValidUrl` treats every leading `/` as a
+// relative path, which would hide the payload from image redaction.
+const IMAGE_BASE64_PREFIXES = ['/9j/', 'iVBORw0KGgo', 'R0lGOD', 'UklGR'];
 
 /** @internal */
 export function isBase64DataUrl(text: string): boolean {
@@ -87,7 +94,8 @@ export function isValidUrl(text: string): boolean {
 
 /** @internal */
 export function isRawBase64(text: string): boolean {
-  if (isValidUrl(text)) return false;
+  const imagePayload = IMAGE_BASE64_PREFIXES.some((prefix) => text.startsWith(prefix));
+  if (!imagePayload && isValidUrl(text)) return false;
   // Standard base64 is always padded to a multiple of 4, and any payload
   // longer than a few bytes of high-entropy data (i.e. anything image-sized)
   // will contain `+`, `/`, or `=`. Requiring one of those characters keeps
@@ -132,8 +140,51 @@ export function redactPiiPatterns(text: unknown): string {
   result = result.replace(SSN_RE, '[ssn]');
   result = result.replace(SSN_SPACE_RE, '[ssn]');
   result = result.replace(IPV4_RE, '[ip_address]');
-  result = result.replace(IPV6_RE, '[ip_address]');
+  result = redactIpv6(result);
   return result;
+}
+
+const HEX_GROUP = /^[0-9a-fA-F]{1,4}$/;
+
+/** A full 8-group address, or one `::` compression standing in for the rest. */
+function isIpv6Address(token: string): boolean {
+  if (!token.includes(':') || token === '::' || token.includes(':::')) return false;
+  const halves = token.split('::');
+  if (halves.length > 2) return false;
+  const groupsOf = (side: string): string[] | undefined => {
+    if (side === '') return [];
+    const groups = side.split(':');
+    return groups.every((group) => HEX_GROUP.test(group)) ? groups : undefined;
+  };
+  if (halves.length === 1) {
+    const groups = groupsOf(token);
+    return groups != null && groups.length === 8;
+  }
+  const left = groupsOf(halves[0] ?? '');
+  const right = groupsOf(halves[1] ?? '');
+  // `::` replaces at least one group, so the explicit groups are at most 7.
+  return left != null && right != null && left.length + right.length <= 7;
+}
+
+/**
+ * Colon-leading forms (`::1`) must be free-standing. A letter or `[` before
+ * them is a scope operator (`std::vector`, `a[::2]`), not an address.
+ * Hex-leading forms must not continue an identifier.
+ */
+function isFreeStandingIpv6(text: string, offset: number): boolean {
+  const before = offset > 0 ? text[offset - 1] : '';
+  if (text[offset] === ':') return before === '' || /\s/.test(before ?? '');
+  return before === '' || !/\w/.test(before ?? '');
+}
+
+function redactIpv6(text: string): string {
+  return text.replace(IPV6_CANDIDATE_RE, (match, offset: number) => {
+    if (match.startsWith('//[')) {
+      return isIpv6Address(match.slice(3, -1)) ? '//[ip_address]' : match;
+    }
+    if (!isIpv6Address(match) || !isFreeStandingIpv6(text, offset)) return match;
+    return '[ip_address]';
+  });
 }
 
 /** @internal */
@@ -239,6 +290,9 @@ export class PrivacyConfig {
     if (typeof value === 'string') {
       return redactBase64Content(this.redactText(value));
     }
+    // A Date has no enumerable properties, so the object walk below would
+    // replace the timestamp with {}.
+    if (value instanceof Date) return value;
 
     if (value != null && typeof value === 'object' && !Array.isArray(value)) {
       const dict = value as Record<string, unknown>;

@@ -72,6 +72,12 @@ describe('redactBase64Content', () => {
     expect(redactBase64Content(PNG_BASE64)).toBe(REDACTED_IMAGE_PLACEHOLDER);
   });
 
+  it('redacts a raw JPEG payload even though it starts with /', () => {
+    const jpeg = `/9j/${'A'.repeat(18)}==`;
+    expect(redactBase64Content(jpeg)).toBe(REDACTED_IMAGE_PLACEHOLDER);
+    expect(redactBase64Content('/images/photo.jpg')).toBe('/images/photo.jpg');
+  });
+
   it('leaves non-strings unchanged', () => {
     expect(redactBase64Content(42)).toBe(42);
     expect(redactBase64Content(null)).toBe(null);
@@ -97,6 +103,10 @@ describe('redactPiiPatterns', () => {
     );
     expect(redactPiiPatterns('loopback ::1')).toBe('loopback [ip_address]');
     expect(redactPiiPatterns('see http://[::1]:8080/health')).toBe('see http://[ip_address]:8080/health');
+    expect(redactPiiPatterns('addr 2001:db8:: is trailing')).toBe('addr [ip_address] is trailing');
+    expect(redactPiiPatterns('addr 2001:db8::1:2 is compressed')).toBe(
+      'addr [ip_address] is compressed',
+    );
   });
 
   it('does not treat scope-resolution operators as IPv6', () => {
@@ -146,6 +156,13 @@ describe('PrivacyConfig', () => {
       nested: { email: '[email]' },
       list: ['[email]', 1],
     });
+  });
+
+  it('preserves Date values instead of walking them into empty objects', () => {
+    const when = new Date('2026-10-14T00:00:00.000Z');
+    const privacy = new PrivacyConfig({ redactPii: false });
+    expect(privacy.redactValue({ when })).toEqual({ when });
+    expect(privacy.redactValue(when)).toBe(when);
   });
 
   it('replaces a value that is entirely a base64 image', () => {
