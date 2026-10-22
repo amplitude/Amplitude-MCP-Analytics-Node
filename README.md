@@ -1,4 +1,5 @@
 # @amplitude/mcp-analytics
+[![npm version](https://img.shields.io/npm/v/@amplitude/mcp-analytics?style=flat&logo=npm&color=blue)](https://www.npmjs.com/package/@amplitude/mcp-analytics)
 
 Amplitude MCP Analytics SDK — Model Context Protocol server usage tracking for Amplitude Analytics.
 
