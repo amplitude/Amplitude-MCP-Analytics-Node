@@ -88,6 +88,35 @@ on. See `VENDORED.md` for the full policy and inventory. Rules:
 - **Package manager:** `pnpm` (version pinned in `package.json` `packageManager`).
 - **PRs:** link the ticket, reference related PRs, and explicitly call out what is
   intentionally out of scope or stubbed.
+- **Peer dependencies (`@modelcontextprotocol/sdk`, `@amplitude/analytics-node`):**
+  keep the peer range wide so consumers use whatever version their server already
+  has. The MCP SDK floor is **1.14.0** — the earliest release exposing both
+  `RequestHandlerExtra._meta` and `.requestInfo` (the fields we read; `requestInfo`
+  is the later addition and sets the floor). The **dev-dependency is pinned to the
+  exact floor** (not `^`, not latest) so the compiler fails if we ever use a newer
+  SDK API a floor consumer wouldn't have — the dev-dep is our floor guard, since it
+  does not otherwise enforce the peer range. Raising the floor is a deliberate,
+  documented change (it shrinks the set of servers that can adopt the SDK).
+
+## mcp-server migration (stateless transport)
+
+> For the team migrating Amplitude's own MCP server. The transport seam is
+> "legacy-complete, stateless-ready" — the legacy path is live; the stateless
+> (`2026-07-28+`) path is coded and fixture-tested but disabled until the SDK
+> speaks it. Shed these assumptions before enabling it:
+
+- **No `Mcp-Session-Id`** — don't read or require it. Use the SDK-derived anchor
+  (a `session-id` only when present, else a trace, else an anonymous floor) and
+  treat it as opaque.
+- **No `initialize` handshake** — `clientInfo` / `protocolVersion` ride `_meta`
+  per request on the stateless path; the legacy handshake capture is
+  per-connection.
+- **No sticky routing / session store** — any request may hit any instance;
+  correlation comes from `traceparent` in `_meta`, not server-held state.
+- **No `session ended`** — flush on shutdown (stdio) and a best-effort timer (HTTP).
+- **Product consequence** — stateless per-user/session analysis needs a
+  customer-supplied `userId` or propagated trace context; absent both, metrics
+  are aggregate-only (no fabricated users).
 
 ## Verify before you finish
 
