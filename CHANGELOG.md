@@ -2,6 +2,13 @@
 
 Entries through 0.5.2 were backfilled from the GitHub releases. Later entries are generated from Conventional Commits.
 
+## [0.7.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.6.0...v0.7.0) (2026-10-27)
+
+
+### Features
+
+* add resolveIdentity to instrumentServer ([#37](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/37)) ([a5cf734](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/a5cf7345c4896216d99273a4af78f549eae9dc90))
+
 ## [0.6.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.5.2...v0.6.0) (2026-10-14)
 
 
