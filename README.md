@@ -218,11 +218,31 @@ analytics.instrumentTool(async (args, extra) => {
   return doWork(args);
 }, { name: 'search' });
 
-// 3. Opt-in, derived from the request's authInfo (you map the claims).
+// 3. Opt-in, resolved per request (you map the claims).
+const resolveIdentity = (authInfo: Record<string, unknown> | undefined) => ({
+  userId: authInfo?.sub as string,
+});
+
+// Configure the resolver for server-scope events.
+analytics.instrumentServer(server, { resolveIdentity });
+
+// Configure it separately for each instrumented tool.
 analytics.instrumentTool(handler, { name: 'search' }, {
-  resolveIdentity: (authInfo) => ({ userId: authInfo?.sub as string }),
+  resolveIdentity,
 });
 ```
+
+`instrumentServer({ resolveIdentity })` applies to server-scope events such as
+`[MCP] Tools Listed` and `[MCP] Tool Call Rejected`. Instrumented tools do not
+inherit this resolver: pass `resolveIdentity` to `instrumentTool` as well to
+resolve identity for tool responses and tool-scope custom events. You can reuse
+the same callback, as shown above, or supply a different resolver for a tool.
+
+Both options use the same resolver contract: the callback receives the
+request's MCP `authInfo`, the common source for verified OAuth claims. Your
+resolver may also consult trusted application-owned or request-local context
+(for example, an async-local authenticated principal). The SDK does not treat
+arbitrary request headers as trusted identity.
 
 Resolution order (first match wins): `setIdentity()` → `resolveIdentity()` →
 `instrumentServer` options → correlation anchor → an anonymous floor. When no
