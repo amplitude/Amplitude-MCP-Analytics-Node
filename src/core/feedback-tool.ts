@@ -6,15 +6,13 @@
  * It is not wrapped in `instrumentTool`, so the call does not also emit
  * `[MCP] Tool Call Response`.
  */
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { ErrorMessageSanitizer } from '../config.js';
 import { runWithContext } from '../context/als.js';
 import type { ClientInfoResolver, McpServerContext } from '../context/types.js';
 import type { ServerIdentity } from './identity.js';
 import { buildToolContext } from './build-context.js';
-import { lookupRegisteredTool, type McpExtra, type McpServerLike } from './mcp.js';
+import { lookupRegisteredTool, type CallToolResult, type McpExtra, type McpServerLike } from './mcp.js';
 import { markToolCallDispatched } from './tool-call-hook.js';
 import type { AmplitudeClientLike } from '../types.js';
 import type { Logger } from '../utils/logger.js';
@@ -356,7 +354,7 @@ export function createFeedbackHandler(
     }
 
     try {
-      const ctx = buildToolContext(serverCtx, { name: tool.name }, extra ?? ({} as McpExtra), {
+      const ctx = buildToolContext(serverCtx, { name: tool.name }, extra ?? {}, {
         resolveClientInfo: deps.getClientInfoResolver(),
         serverIdentity: deps.getServerIdentity(),
         logger,
@@ -385,9 +383,22 @@ export function createFeedbackHandler(
   };
 }
 
-function asHighLevelServer(server: McpServerLike): McpServer | undefined {
-  const candidate = server as McpServer;
-  return typeof candidate.registerTool === 'function' ? candidate : undefined;
+interface HighLevelServer {
+  registerTool(
+    name: string,
+    config: {
+      title?: string;
+      description?: string;
+      inputSchema?: object;
+      annotations?: FeedbackToolAnnotations;
+    },
+    handler: (args: Record<string, unknown>, extra: McpExtra) => CallToolResult,
+  ): unknown;
+}
+
+function asHighLevelServer(server: McpServerLike): HighLevelServer | undefined {
+  if (typeof server.registerTool !== 'function') return undefined;
+  return server as unknown as HighLevelServer;
 }
 
 /**

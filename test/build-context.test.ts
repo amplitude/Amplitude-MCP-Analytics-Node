@@ -103,6 +103,17 @@ describe('buildToolContext — protocolVersion', () => {
     expect(ctx.protocolVersion).toBe('2025-11-25');
   });
 
+  it('keeps an empty protocol-version header instead of falling through to _meta', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        requestInfo: { headers: { 'MCP-Protocol-Version': '' } },
+        _meta: { protocolVersion: '2026-07-28' },
+      }),
+    );
+    expect(ctx.protocolVersion).toBe('');
+  });
+
   it('falls back to _meta.protocolVersion (stateless path)', () => {
     const ctx = toolCtx('streamable-http', mkExtra({ _meta: { protocolVersion: '2026-07-28' } }));
     expect(ctx.protocolVersion).toBe('2026-07-28');
@@ -325,5 +336,83 @@ describe('buildToolContext — client info', () => {
   it('reads the User-Agent header (Streamable HTTP)', () => {
     const ctx = toolCtx('streamable-http', mkExtra({ requestInfo: { headers: { 'user-agent': 'cursor/1.2.3' } } }));
     expect(ctx.client?.userAgent).toBe('cursor/1.2.3');
+  });
+});
+
+describe('buildToolContext — v2 request context', () => {
+  const CLIENT = 'io.modelcontextprotocol/clientInfo';
+  const PROTOCOL = 'io.modelcontextprotocol/protocolVersion';
+
+  /** A v2 `ctx`. `mcpReq` is what marks the object as v2. */
+  function v2Ctx(partial: Record<string, unknown> = {}): McpExtra {
+    return { mcpReq: {}, ...partial } as unknown as McpExtra;
+  }
+
+  it('prefers the envelope over _meta for client info and protocol version', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      v2Ctx({
+        mcpReq: {
+          id: 'req-1',
+          _meta: {
+            clientInfo: { name: 'plain', version: '0' },
+            [CLIENT]: { name: 'from-meta', version: '1' },
+            [PROTOCOL]: '2025-11-25',
+          },
+          envelope: {
+            [CLIENT]: { name: 'from-envelope', version: '9' },
+            [PROTOCOL]: '2026-07-28',
+          },
+        },
+      }),
+    );
+    expect(ctx.client).toMatchObject({ name: 'from-envelope', version: '9' });
+    expect(ctx.protocolVersion).toBe('2026-07-28');
+  });
+
+  it('reads auth, headers, and the session id from the v2 ctx', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      v2Ctx({
+        sessionId: 'sess-v2',
+        mcpReq: { id: 7 },
+        http: {
+          authInfo: { clientId: 'oauth-client', token: 't', scopes: [] },
+          req: { headers: new Headers({ 'User-Agent': 'v2-host/4' }) },
+        },
+      }),
+    );
+    expect(ctx.anchor).toEqual({ type: 'session-id', value: 'sess-v2' });
+    expect(ctx.client?.oauthClientId).toBe('oauth-client');
+    expect(ctx.client?.userAgent).toBe('v2-host/4');
+    expect(ctx.transport).toBe('streamable-http');
+  });
+
+  it('treats a per-request HTTP context as streamable HTTP, never a process anchor', () => {
+    // connect() saw a transport with no handleRequest, so the server scope says
+    // stdio. The request itself carries `http`, which is the v2 stateless shape.
+    const ctx = toolCtx(
+      'stdio',
+      v2Ctx({
+        mcpReq: {
+          envelope: {
+            [CLIENT]: { name: 'stateless-host', version: '1' },
+            [PROTOCOL]: '2026-07-28',
+            traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+          },
+        },
+        http: { req: { headers: new Headers() } },
+      }),
+    );
+    expect(ctx.transport).toBe('streamable-http');
+    expect(ctx.anchor).toEqual({ type: 'trace', value: '4bf92f3577b34da6a3ce929d0e0e4736' });
+    expect(ctx.client).toMatchObject({ name: 'stateless-host', version: '1' });
+    expect(ctx.protocolVersion).toBe('2026-07-28');
+  });
+
+  it('keeps a v2 context with no HTTP evidence on the connect-time transport', () => {
+    const ctx = toolCtx('stdio', v2Ctx({ sessionId: 'ignored-without-http' }));
+    expect(ctx.transport).toBe('stdio');
+    expect(ctx.anchor.type).toBe('process');
   });
 });

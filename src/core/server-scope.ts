@@ -21,7 +21,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ClientInfoResolver, IdentityResolver, McpServerContext } from '../context/types.js';
 import type { ServerIdentity } from './identity.js';
-import { getRequestHandlers, type Server } from './mcp.js';
+import { getRequestHandlers, type McpServerLike } from './mcp.js';
 
 /** Marks a handler map already dispatch-wrapped, to stay idempotent. */
 const SCOPE_WRAPPED = Symbol.for('amplitude.mcp.serverScopeWrapped');
@@ -76,7 +76,7 @@ export function currentServerScope(): ServerScope | undefined {
  *
  * @internal
  */
-export function installServerScopeDispatch(server: Server, scope: ServerScope): void {
+export function installServerScopeDispatch(server: McpServerLike, scope: ServerScope): void {
   const handlers = getRequestHandlers(server);
   if (handlers == null) return;
 

@@ -27,7 +27,7 @@
  * Anything else is treated as a tool's own error and left alone.
  */
 import { classifyError, errorMessageFromResult, isErrorResult } from '../errors.js';
-import type { RegisteredToolState, ServerResult } from './mcp.js';
+import type { RegisteredToolState } from './mcp.js';
 
 /**
  * The `McpError` message format (`MCP error -32602: Tool x not found`). Matching
@@ -153,7 +153,7 @@ function readMcpErrorCode(text: string | undefined): number | undefined {
  */
 export function classifyPreDispatchRejection(input: {
   error?: unknown;
-  result?: ServerResult;
+  result?: unknown;
   /** The attempted name's state in the server's registry, when readable. */
   registryState?: RegisteredToolState;
 }): PreDispatchRejection | undefined {
