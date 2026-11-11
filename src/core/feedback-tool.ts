@@ -12,7 +12,14 @@ import { runWithContext } from '../context/als.js';
 import type { ClientInfoResolver, McpServerContext } from '../context/types.js';
 import type { ServerIdentity } from './identity.js';
 import { buildToolContext } from './build-context.js';
-import { lookupRegisteredTool, type CallToolResult, type McpExtra, type McpServerLike } from './mcp.js';
+import {
+  detectServerLine,
+  lookupRegisteredTool,
+  type CallToolResult,
+  type McpExtra,
+  type McpServerLike,
+} from './mcp.js';
+import { tryRequire } from '../utils/resolve-module.js';
 import { markToolCallDispatched } from './tool-call-hook.js';
 import type { AmplitudeClientLike } from '../types.js';
 import type { Logger } from '../utils/logger.js';
@@ -197,7 +204,21 @@ function inputJsonSchema(captureComment: boolean): FeedbackInputJsonSchema {
   };
 }
 
-/** Zod raw shape accepted by `McpServer.registerTool`. Not part of the published definition, which stays JSON Schema. */
+/**
+ * Input schema for `registerTool`. v1 takes a zod 3 raw shape. v2 rejects
+ * that shape, so it gets the published JSON Schema wrapped by the v2
+ * package's `fromJsonSchema`. The helper is loaded at registration time
+ * because that package is an optional peer.
+ */
+function feedbackRegistrationSchema(server: object, captureComment: boolean): object | undefined {
+  if (detectServerLine(server) !== 'v2') return feedbackInputShape(captureComment);
+
+  const fromJsonSchema = tryRequire('@modelcontextprotocol/server')?.fromJsonSchema;
+  if (typeof fromJsonSchema !== 'function') return undefined;
+  return fromJsonSchema(inputJsonSchema(captureComment)) as object;
+}
+
+/** Zod raw shape accepted by v1 `McpServer.registerTool`. The published definition stays JSON Schema. */
 function feedbackInputShape(captureComment: boolean): Record<string, z.ZodTypeAny> {
   return {
     helpful: z.boolean().describe(HELPFUL_DESCRIPTION),
@@ -446,6 +467,14 @@ export function registerFeedbackToolOnServer<S extends McpServerLike>(
     );
   }
 
+  const inputSchema = feedbackRegistrationSchema(server, resolved.captureComment);
+  if (inputSchema == null) {
+    logger.warn(
+      `AmplitudeMCPAnalytics: registerFeedbackTool() could not register '${resolved.name}' because @modelcontextprotocol/server did not provide fromJsonSchema. Install that package to register the feedback tool on a v2 server.`,
+    );
+    return server;
+  }
+
   const handler = createFeedbackHandler(deps, { ...options, name: resolved.name, server });
   try {
     highLevel.registerTool(
@@ -453,7 +482,7 @@ export function registerFeedbackToolOnServer<S extends McpServerLike>(
       {
         title: resolved.definition.title,
         description: resolved.description,
-        inputSchema: feedbackInputShape(resolved.captureComment),
+        inputSchema,
         annotations: { ...FEEDBACK_TOOL_ANNOTATIONS },
       },
       handler,

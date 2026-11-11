@@ -191,6 +191,37 @@ describe('classifyPreDispatchRejection — post-dispatch failures are not reject
     ).toBeUndefined();
   });
 
+  it('claims v2 schema wording on a live tool when the message has no error prefix', () => {
+    const out = classifyPreDispatchRejection({
+      result: errorResult(
+        'Input validation error: Invalid arguments for tool echo: data/text must be string',
+      ),
+      registryState: 'enabled',
+    });
+    expect(out).toEqual({
+      message: 'Input validation error: Invalid arguments for tool echo: data/text must be string',
+      jsonRpcCode: -32602,
+      reason: 'schema_validation',
+    });
+  });
+
+  it('does not treat that wording as a rejection when the registry cannot be read', () => {
+    expect(
+      classifyPreDispatchRejection({
+        result: errorResult('Input validation error: Invalid arguments for tool echo'),
+      }),
+    ).toBeUndefined();
+  });
+
+  it('still declines output validation on a live tool when the prefix is absent', () => {
+    expect(
+      classifyPreDispatchRejection({
+        result: errorResult('Output validation error: Invalid structured content for tool x'),
+        registryState: 'enabled',
+      }),
+    ).toBeUndefined();
+  });
+
   it('still claims INPUT validation, which is genuinely pre-dispatch', () => {
     const input = classifyPreDispatchRejection({
       result: errorResult('MCP error -32602: Input validation error: Invalid arguments for tool x'),

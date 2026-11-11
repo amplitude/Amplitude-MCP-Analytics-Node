@@ -83,6 +83,27 @@ export interface McpServerLike {
   registerTool?: unknown;
 }
 
+/**
+ * Which server package this object comes from. v2 has no `.tool()` and its
+ * low-level server exposes `buildContext`. Anything else, including a server
+ * we cannot classify, stays on the v1 path.
+ * @internal
+ */
+export type ServerLine = 'v1' | 'v2';
+
+/**
+ * Tell a v1 server from a v2 server without importing either package.
+ * Handler hooks do not branch on this — they still wrap the private
+ * request-handler map, which both lines keep.
+ * @internal
+ */
+export function detectServerLine(server: object): ServerLine {
+  if (typeof (server as { tool?: unknown }).tool === 'function') return 'v1';
+  const nested = (server as { server?: unknown }).server;
+  const lowLevel = nested != null && typeof nested === 'object' ? nested : server;
+  return typeof (lowLevel as { buildContext?: unknown }).buildContext === 'function' ? 'v2' : 'v1';
+}
+
 /** A request handler as stored on the low-level server. @internal */
 export type ServerRequestHandler = (request: unknown, extra: McpExtra) => unknown;
 

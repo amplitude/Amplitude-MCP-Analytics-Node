@@ -88,29 +88,36 @@ on. See `VENDORED.md` for the full policy and inventory. Rules:
 - **Package manager:** `pnpm` (version pinned in `package.json` `packageManager`).
 - **PRs:** link the ticket, reference related PRs, and explicitly call out what is
   intentionally out of scope or stubbed.
-- **Peer dependencies (`@modelcontextprotocol/sdk`, `@amplitude/analytics-node`):**
-  keep the peer range wide so consumers use whatever version their server already
-  has. The MCP SDK floor is **1.14.0** — the earliest release exposing both
-  `RequestHandlerExtra._meta` and `.requestInfo` (the fields we read; `requestInfo`
-  is the later addition and sets the floor). The **dev-dependency is pinned to the
-  exact floor** (not `^`, not latest) so the compiler fails if we ever use a newer
-  SDK API a floor consumer wouldn't have — the dev-dep is our floor guard, since it
-  does not otherwise enforce the peer range. Raising the floor is a deliberate,
-  documented change (it shrinks the set of servers that can adopt the SDK).
+- **Peer dependencies:** `@amplitude/analytics-node` (`>=1.3.0`) and `zod`
+  (`^3.25.0 || ^4.0.0`) are required. `@modelcontextprotocol/sdk` (`>=1.14.0`)
+  and `@modelcontextprotocol/server` (`>=2.0.0`) are both **optional** — a
+  server installs the line it already uses, and a required peer on either
+  package would make the other line fail to install. The v1 floor is
+  **1.14.0**, the earliest release exposing both `RequestHandlerExtra._meta`
+  and `.requestInfo`. The v1 **dev dependency is pinned to 1.31.0**, not that
+  floor; the `sdk-compat` job is what installs the floor and typechecks
+  against it. The v2 dev dependencies (`server` and `client`) are pinned to
+  **2.4.0**. Zod 4 is the `zod4` alias (`npm:zod@^4.2.0`); the `zod` dev
+  dependency stays on 3.25.76 so the v1 tests keep their schema library.
+  Raising either floor is a deliberate, documented change.
 
 ## mcp-server migration (stateless transport)
 
-> For the team migrating Amplitude's own MCP server. The transport seam is
-> "legacy-complete, stateless-ready" — the legacy path is live; the stateless
-> (`2026-07-28+`) path is coded and fixture-tested but disabled until the SDK
-> speaks it. Shed these assumptions before enabling it:
+> For the team migrating Amplitude's own MCP server onto
+> `@modelcontextprotocol/server`, which speaks protocol `2026-07-28`. The
+> legacy (2025-11-25) path is unchanged. On the stateless path this SDK
+> already behaves as follows:
 
 - **No `Mcp-Session-Id`** — don't read or require it. Use the SDK-derived anchor
   (a `session-id` only when present, else a trace, else an anonymous floor) and
   treat it as opaque.
-- **No `initialize` handshake** — `clientInfo` / `protocolVersion` ride `_meta`
-  per request on the stateless path; the legacy handshake capture is
-  per-connection.
+- **No `initialize` handshake** — client name and protocol version ride the
+  request envelope (`io.modelcontextprotocol/clientInfo`,
+  `io.modelcontextprotocol/protocolVersion`). v1 leaves those keys in `_meta`
+  when a host sends them. The legacy handshake capture is per-connection.
+- **Per-request HTTP** — v2 connects each request to a transport with no
+  `handleRequest`. A request that carries HTTP context is reported as
+  `streamable-http`. It is not attributed to a process user.
 - **No sticky routing / session store** — any request may hit any instance;
   correlation comes from `traceparent` in `_meta`, not server-held state.
 - **No `session ended`** — flush on shutdown (stdio) and a best-effort timer (HTTP).

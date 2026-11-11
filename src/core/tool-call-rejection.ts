@@ -36,6 +36,9 @@ import type { RegisteredToolState } from './mcp.js';
  */
 const MCP_ERROR_PREFIX = /^MCP error (-?\d+):/;
 
+/** JSON-RPC invalid-params code. Schema rejections use this when the message carries no code. */
+const JSON_RPC_INVALID_PARAMS = -32602;
+
 /** JSON-RPC internal-error code, the fallback when no code is recoverable. */
 const JSON_RPC_INTERNAL_ERROR = -32603;
 
@@ -194,10 +197,21 @@ export function classifyPreDispatchRejection(input: {
     };
   }
 
-  // Registered and live: a rejection here is schema validation, identifiable
-  // only by the McpError prefix. Without it, assume the tool ran and failed on
-  // its own — `[MCP] Tool Call Response` owns that (or nothing does, when the
-  // tool is uninstrumented).
+  // Registered and live. v1 stamps `MCP error -32602:` on a schema rejection.
+  // v2 returns the same validation wording as an `isError` result and leaves
+  // that prefix off, so the wording is the signal and the code is the
+  // invalid-params code the prefix used to carry. Any other live-tool
+  // `isError` is the tool's own failure and is left alone — `[MCP] Tool Call
+  // Response` owns it when the tool was instrumented, and nothing does when
+  // it was not.
+  if (input.registryState === 'enabled' && text != null && VALIDATION_WORDING.test(text)) {
+    return {
+      message: text,
+      jsonRpcCode: readMcpErrorCode(text) ?? JSON_RPC_INVALID_PARAMS,
+      reason: 'schema_validation',
+    };
+  }
+
   const jsonRpcCode = readMcpErrorCode(text);
   if (jsonRpcCode == null || text == null) return undefined;
 
