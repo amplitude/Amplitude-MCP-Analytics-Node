@@ -36,6 +36,7 @@ describe('classifyPreDispatchRejection — thrown (SDK <= 1.20)', () => {
       message: 'MCP error -32602: Tool nope not found',
       jsonRpcCode: -32602,
       reason: 'unknown_tool',
+      fingerprint: expect.stringMatching(/^[0-9a-f]{12}$/),
     });
   });
 
@@ -55,6 +56,7 @@ describe('classifyPreDispatchRejection — thrown (SDK <= 1.20)', () => {
     const out = classifyPreDispatchRejection({ error: new Error('something broke') });
     expect(out).toEqual({
       message: 'something broke',
+      fingerprint: expect.stringMatching(/^[0-9a-f]{12}$/),
       jsonRpcCode: undefined,
       reason: 'unrecognized',
     });

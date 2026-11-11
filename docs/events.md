@@ -526,6 +526,7 @@ reserved key that per-tool dashboards slice on.
 | `[MCP] Error Message` | string | unless dropped by [`sanitizeErrorMessage`](#redacting-mcp-error-message) | Message of the classified error, as the client saw it (e.g. `MCP error -32602: Tool foo not found`), then passed through [built-in PII redaction](#redacting-mcp-error-message) |
 | `[MCP] Error Code` | string | when recoverable | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found). SDKs >= 1.21 discard the numeric code and keep it only in the message text, so it is parsed back out from there; absent when neither source yields one |
 | `[MCP] Error Type` | string | always | Always `protocol_error` — see [Error classification](#error-classification) |
+| `[MCP] Error Fingerprint` | string | when rejection arrived as a thrown error | Existing classified fingerprint; absent for in-band rejections |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
 | `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the response the client received — the `isError` result on SDKs >= 1.21, the JSON-RPC error envelope on earlier ones |
 | `[MCP] Response HTTP Status` | number | Streamable HTTP only | `200` — protocol-level rejections answer HTTP 200 with the error in the JSON-RPC body. Absent over stdio, which has no HTTP status |
@@ -666,8 +667,12 @@ stable grouping value for overrides, not raw message text or personal data.
 The fingerprint is computed before message sanitization and is still emitted
 when `sanitizeErrorMessage` drops the message. It is a dimension, not free text,
 so built-in and custom content redaction do not rewrite it.
-`[MCP] Tool Call Rejected` builds protocol-rejection fields without a structured
-error fingerprint, so it does not emit this property.
+`[MCP] Tool Call Rejected` also forwards the existing classified fingerprint
+when a rejection arrived as a thrown error (SDKs <= 1.20 and surviving throw
+paths on newer SDKs). This fingerprint retains the original classified type,
+even though the event's `[MCP] Error Type` is `protocol_error`. In-band
+rejections on SDKs >= 1.21 build protocol-rejection fields without a fingerprint;
+the SDK does not invent one for those paths.
 
 ### Redacting `[MCP] Error Message`
 
@@ -790,7 +795,7 @@ events.
 | `[MCP] Client Version` | string | All (when known) |
 | `[MCP] Conversation ID` | string | Tool-scope (when supplied) |
 | `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
-| `[MCP] Error Fingerprint` | string | `Tools Listed`, `Tool Call Response` — when a non-empty structured error fingerprint is available |
+| `[MCP] Error Fingerprint` | string | `Tools Listed`, `Tool Call Response`, thrown `Tool Call Rejected` — when a non-empty structured error fingerprint is available |
 | `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |

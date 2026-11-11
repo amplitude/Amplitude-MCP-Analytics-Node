@@ -495,6 +495,8 @@ normalized message (UUIDs, numbers, and quoted strings normalized). It is
 computed before sanitization, so grouping still works when messages are dropped.
 Override it with `analytics.toolError(ctx, { code, message, fingerprint, ... })` using
 a stable, non-sensitive grouping key; fingerprint values are not content-redacted.
+Rejected tool calls also forward an existing fingerprint when the rejection
+arrived as a thrown error; in-band rejections have no fingerprint to emit.
 
 ## Privacy and redaction
 
