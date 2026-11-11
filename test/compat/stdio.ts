@@ -8,7 +8,8 @@ import { StdioClientTransport as V2Stdio } from '@modelcontextprotocol/client/st
 import type { AmplitudeEvent } from '../../src/types.js';
 
 const FIXTURE = join(import.meta.dirname, 'fixtures', 'stdio-server.ts');
-const REGISTER_TS = join(import.meta.dirname, '../../examples/playground/register-ts.mjs');
+const REGISTER = join(import.meta.dirname, 'stdio-register.mjs');
+const ENTRY = join(import.meta.dirname, 'stdio-entry.mjs');
 
 export type StdioLine = 'v1' | 'v2';
 
@@ -54,16 +55,11 @@ export async function connectStdio(line: StdioLine): Promise<StdioSession> {
   const eventsFile = join(dir, 'events.ndjson');
   const parameters = {
     command: process.execPath,
-    args: [
-      '--disable-warning=ExperimentalWarning',
-      '--experimental-strip-types',
-      '--import',
-      REGISTER_TS,
-      FIXTURE,
-    ],
+    args: ['--disable-warning=ExperimentalWarning', '--import', REGISTER, ENTRY],
     env: {
       PATH: process.env.PATH ?? '',
       MCP_SDK_LINE: line,
+      MCP_STDIO_FIXTURE: FIXTURE,
       MCP_EVENTS_FILE: eventsFile,
     },
     stderr: 'pipe' as const,
