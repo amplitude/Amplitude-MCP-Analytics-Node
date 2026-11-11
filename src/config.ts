@@ -41,7 +41,8 @@ export interface AutocaptureConfig {
  * tool result that is the result's own text, which is caller- or end-user-derived
  * and may carry personal data the server author never chose to send. Return a
  * replacement string, or `null` to omit the property entirely (`[MCP] Error Code`
- * and `[MCP] Error Type` are unaffected either way).
+ * and `[MCP] Error Type` are unaffected either way, as is `[MCP] Error Fingerprint`
+ * when available).
  *
  * Applied to every event that carries the property: `[MCP] Tools Listed`,
  * `[MCP] Tool Call Response`, and `[MCP] Tool Call Rejected`. The same

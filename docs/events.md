@@ -347,6 +347,7 @@ call time (tools added or removed after `connect()` are reflected).
 | `[MCP] Error Message` | string | on failure | Message of the classified error |
 | `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — see [Error classification](#error-classification) |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
+| `[MCP] Error Fingerprint` | string | when the classified error has a non-empty fingerprint | Stable error grouping key — see [Error classification](#error-classification) |
 
 ## `[MCP] Tool Call Response`
 
@@ -392,6 +393,7 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Error Message` | string | on failure | Message of the classified error |
 | `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — the host's `code` from `analytics.toolError()`, or a thrown error's own `err.code`. Absent for a bare thrown exception with no code |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
+| `[MCP] Error Fingerprint` | string | when `ctx.error.fingerprint` is non-empty | Stable error grouping key, even when the message is dropped — see [Error classification](#error-classification) |
 
 The tool-scope `extra` bag (from the tool metadata) and the server-scope bag
 both ride along as additional properties. The bag is read at emit time, so a
@@ -652,8 +654,20 @@ message unless [`sanitizeErrorMessage`](#redacting-mcp-error-message) drops it).
 `err.code`, or a JSON-RPC code.
 It is omitted for a bare thrown exception rather than echoing the type, so its
 presence means "there is a specific known reason." The rest of the structured
-error (`recoverable`, `fingerprint`, privacy-safe `stackHash`, …) stays on
+error (`recoverable`, privacy-safe `stackHash`, …) stays on
 `ctx.error`, where a custom event can pick it up.
+
+`[MCP] Error Fingerprint` groups repeated failures on `[MCP] Tool Call Response`
+and `[MCP] Tools Listed`. By default it is the first 12 hex characters of the
+SHA-256 hash of `type:normalizedMessage`: UUIDs, numbers, and quoted strings
+are normalized before hashing. Hosts can override it with
+`analytics.toolError(ctx, { code, message, fingerprint, ... })`. Use a non-sensitive,
+stable grouping value for overrides, not raw message text or personal data.
+The fingerprint is computed before message sanitization and is still emitted
+when `sanitizeErrorMessage` drops the message. It is a dimension, not free text,
+so built-in and custom content redaction do not rewrite it.
+`[MCP] Tool Call Rejected` builds protocol-rejection fields without a structured
+error fingerprint, so it does not emit this property.
 
 ### Redacting `[MCP] Error Message`
 
@@ -684,7 +698,8 @@ new MCPAnalyticsConfig({
 It applies to every event that carries the property — `[MCP] Tools Listed`,
 `[MCP] Tool Call Response`, and `[MCP] Tool Call Rejected` — so no code path can
 bypass it. The same function redacts `[MCP] Feedback Comment` when comment
-capture is on. `[MCP] Error Code` and `[MCP] Error Type` are untouched, which keeps
+capture is on. `[MCP] Error Code`, `[MCP] Error Type`, and any available
+`[MCP] Error Fingerprint` are untouched, which keeps
 failures segmentable with no message text in the event stream. `[MCP] Feedback
 Has Comment` stays set when the comment text is dropped, so the existence of a
 comment is still visible.
@@ -775,6 +790,7 @@ events.
 | `[MCP] Client Version` | string | All (when known) |
 | `[MCP] Conversation ID` | string | Tool-scope (when supplied) |
 | `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
+| `[MCP] Error Fingerprint` | string | `Tools Listed`, `Tool Call Response` — when a non-empty structured error fingerprint is available |
 | `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |

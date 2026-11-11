@@ -105,6 +105,13 @@ describe('emitToolsListed', () => {
       '[MCP] Error Message': 'boom',
       '[MCP] Error Type': 'thrown_exception',
     });
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error Fingerprint');
+  });
+
+  it('omits an empty error fingerprint', () => {
+    const { client, tracked } = makeAmplitude();
+    emitToolsListed(client, serverCtx(), { isError: true, toolCount: 0, errorFingerprint: '' });
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error Fingerprint');
   });
 
   it('truncates tool names past the cap and flags it, keeping the true count', () => {

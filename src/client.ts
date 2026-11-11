@@ -627,6 +627,7 @@ export class AmplitudeMCPAnalytics {
               errorMessage: toolError?.message,
               errorCode: toolError?.code,
               errorType: toolError?.type,
+              errorFingerprint: toolError?.fingerprint,
             },
             this.config.sanitizeErrorMessage,
             this._privacy,

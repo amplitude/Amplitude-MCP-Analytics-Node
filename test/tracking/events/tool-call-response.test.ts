@@ -25,6 +25,31 @@ function makeAmplitude(): { client: AmplitudeClientLike; tracked: AmplitudeEvent
 const okOutcome = { isToolError: false, durationMs: 12.7 };
 
 describe('emitToolCallResponse', () => {
+  it('emits the computed fingerprint even when the message is dropped', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.error = buildToolError({ code: 'missing_record', message: 'Record 123 not found' });
+    emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 }, () => null);
+    expect(tracked[0]?.event_properties?.['[MCP] Error Fingerprint']).toBe(ctx.error.fingerprint);
+    expect(ctx.error.fingerprint).toMatch(/^[0-9a-f]{12}$/);
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error Message');
+  });
+
+  it('emits a caller-supplied fingerprint unchanged', () => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.error = buildToolError({ code: 'missing_record', message: 'Record not found', fingerprint: 'missing-record' });
+    emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
+    expect(tracked[0]?.event_properties?.['[MCP] Error Fingerprint']).toBe('missing-record');
+  });
+
+  it.each([undefined, ''])('omits an absent or empty fingerprint (%s)', (fingerprint) => {
+    const { client, tracked } = makeAmplitude();
+    const ctx = toolCtx();
+    ctx.error = { message: 'boom', type: 'thrown_exception', fingerprint };
+    emitToolCallResponse(client, ctx, { isToolError: true, durationMs: 1 });
+    expect(tracked[0]?.event_properties).not.toHaveProperty('[MCP] Error Fingerprint');
+  });
   it('emits the canonical outcome props plus the ctx-derived properties', () => {
     const { client, tracked } = makeAmplitude();
     emitToolCallResponse(client, toolCtx(), okOutcome);
