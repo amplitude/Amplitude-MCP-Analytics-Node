@@ -5,6 +5,7 @@ import { PrivacyConfig } from '../../../src/core/privacy.js';
 import { emitToolCallResponse } from '../../../src/tracking/events/tool-call-response.js';
 import { emitToolCallRejected } from '../../../src/tracking/events/tool-call-rejected.js';
 import { emitToolsListed } from '../../../src/tracking/events/tools-listed.js';
+import { redactFreeformProperties } from '../../../src/tracking/redact-event-properties.js';
 import type { AmplitudeClientLike, AmplitudeEvent } from '../../../src/types.js';
 
 describe.each(['response', 'listed', 'rejected'] as const)('normalized error message: %s', (kind) => {
@@ -68,6 +69,23 @@ describe.each(['response', 'listed', 'rejected'] as const)('normalized error mes
     expect(JSON.stringify(properties)).not.toContain('sensitive original');
   });
 
+  it('normalizes only after context-dependent custom patterns redact the message', () => {
+    const properties = emit('Password for user 42: example-password', undefined, new PrivacyConfig({
+      customRedactionPatterns: ['Password for user \\d+: \\S+'],
+    }));
+    expect(properties?.['[MCP] Error Message']).not.toContain('example-password');
+    expect(properties?.['[MCP] Error Message Normalized']).toBe(properties?.['[MCP] Error Message']);
+    expect(JSON.stringify(properties)).not.toContain('example-password');
+  });
+
+  it('omits normalized text when custom redaction empties the sanitized message', () => {
+    const properties = emit('raw message', () => 'Password for user 42: example-password', new PrivacyConfig({
+      customRedactionFn: (text) => text.replace(/Password for user \d+: \S+/g, ''),
+    }));
+    expect(properties?.['[MCP] Error Message']).toBe('');
+    expect(properties).not.toHaveProperty('[MCP] Error Message Normalized');
+  });
+
   it('applies built-in and custom content redaction to normalized text', () => {
     const properties = emit('Email jane@example.com secret', undefined, new PrivacyConfig({
       customRedactionFn: (text) => text.replace(/secret/g, '[hidden]'),
@@ -77,5 +95,25 @@ describe.each(['response', 'listed', 'rejected'] as const)('normalized error mes
     expect(normalized).not.toContain('secret');
     expect(normalized).toContain('[hidden]');
     expect(properties?.['[MCP] Error Fingerprint']).toBe('existing-hash');
+  });
+});
+
+describe('normalized message redaction boundary', () => {
+  it('replaces caller-supplied normalized text after redacting the message once', () => {
+    const redact = vi.fn(() => 'Safe replacement 42');
+    const properties = redactFreeformProperties({
+      '[MCP] Error Message Normalized': 'unredacted caller value',
+      '[MCP] Error Message': 'original message',
+    }, new PrivacyConfig({ customRedactionFn: redact }));
+    expect(redact).toHaveBeenCalledExactlyOnceWith('original message');
+    expect(properties['[MCP] Error Message Normalized']).toBe('Safe replacement <n>');
+  });
+
+  it.each([undefined, '', 42])('drops caller-supplied normalized text without a non-empty string message (%s)', (message) => {
+    const properties = redactFreeformProperties({
+      '[MCP] Error Message': message,
+      '[MCP] Error Message Normalized': 'unredacted caller value',
+    }, new PrivacyConfig());
+    expect(properties).not.toHaveProperty('[MCP] Error Message Normalized');
   });
 });

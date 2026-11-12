@@ -469,7 +469,7 @@ are unaffected.
 own message, or the MCP SDK's input-validation text, which quotes the rejected
 argument value. Either may contain end-user data. `sanitizeErrorMessage` rewrites
 or drops it before emission, on every event that carries it. These events also
-emit `[MCP] Error Message Normalized` when the sanitized message is non-empty:
+emit `[MCP] Error Message Normalized` when the sanitized and content-redacted message is non-empty:
 
 ```ts
 createMcpAnalytics({
@@ -502,10 +502,10 @@ arrived as a thrown error; in-band rejections have no fingerprint to emit.
 Tool responses, failed tool listings, and rejected calls also emit
 `[MCP] Error Message Normalized`: UUIDs become `<uuid>`, numbers become `<n>`,
 and quoted strings become `"<str>"` or `'<str>'`. It is computed at emission
-time from the **sanitized** message, not stored on `ctx.error`. A dropped or
-empty sanitized message omits the normalized property. Both message properties
-then pass through built-in and custom content redaction; normalization alone
-does not guarantee privacy. Fingerprints still use the original message, so
+time from the **sanitized and content-redacted** message, not stored on `ctx.error`.
+The sanitizer runs first, followed by built-in and custom content redaction,
+then normalization. A dropped or empty message omits the normalized property.
+Normalization alone does not guarantee privacy. Fingerprints still use the original message, so
 sanitized normalized text may differ from the text used for hashing.
 
 ## Privacy and redaction
@@ -517,7 +517,7 @@ By default the SDK redacts personally identifiable information from the
 - properties passed to `trackServerEvent` / `trackToolEvent`
 - `[MCP] Rationale`
 - `[MCP] Error Message` (after `sanitizeErrorMessage`, when that hook is set)
-- `[MCP] Error Message Normalized` (derived from the sanitized message)
+- `[MCP] Error Message Normalized` (derived from the sanitized and content-redacted message)
 - opt-in derived `[MCP] Param:` values
 
 The built-in patterns cover emails, phone numbers (including international

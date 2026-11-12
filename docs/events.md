@@ -348,7 +348,7 @@ call time (tools added or removed after `connect()` are reflected).
 | `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — see [Error classification](#error-classification) |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
 | `[MCP] Error Fingerprint` | string | when the classified error has a non-empty fingerprint | Stable error grouping key — see [Error classification](#error-classification) |
-| `[MCP] Error Message Normalized` | string | when the sanitized message is non-empty | Normalized sanitized text, then content-redacted — see [Error classification](#error-classification) |
+| `[MCP] Error Message Normalized` | string | when the sanitized and content-redacted message is non-empty | Normalization of the redacted message — see [Error classification](#error-classification) |
 
 ## `[MCP] Tool Call Response`
 
@@ -395,7 +395,7 @@ The default tool-execution event — one per call of a handler wrapped with
 | `[MCP] Error Code` | string | on failure, when a specific code is known | Machine-readable error identifier — the host's `code` from `analytics.toolError()`, or a thrown error's own `err.code`. Absent for a bare thrown exception with no code |
 | `[MCP] Error Type` | string | on failure | Error category — see [Error classification](#error-classification) |
 | `[MCP] Error Fingerprint` | string | when `ctx.error.fingerprint` is non-empty | Stable error grouping key, even when the message is dropped — see [Error classification](#error-classification) |
-| `[MCP] Error Message Normalized` | string | when the sanitized message is non-empty | Normalized sanitized text, then content-redacted — see [Error classification](#error-classification) |
+| `[MCP] Error Message Normalized` | string | when the sanitized and content-redacted message is non-empty | Normalization of the redacted message — see [Error classification](#error-classification) |
 
 The tool-scope `extra` bag (from the tool metadata) and the server-scope bag
 both ride along as additional properties. The bag is read at emit time, so a
@@ -529,7 +529,7 @@ reserved key that per-tool dashboards slice on.
 | `[MCP] Error Code` | string | when recoverable | The JSON-RPC error code the client received (e.g. `-32602` invalid params, `-32601` method not found). SDKs >= 1.21 discard the numeric code and keep it only in the message text, so it is parsed back out from there; absent when neither source yields one |
 | `[MCP] Error Type` | string | always | Always `protocol_error` — see [Error classification](#error-classification) |
 | `[MCP] Error Fingerprint` | string | when rejection arrived as a thrown error | Existing classified fingerprint; absent for in-band rejections |
-| `[MCP] Error Message Normalized` | string | when the sanitized message is non-empty | Normalized sanitized rejection text, then content-redacted; available for thrown and in-band rejections |
+| `[MCP] Error Message Normalized` | string | when the sanitized and content-redacted message is non-empty | Normalization of the redacted rejection message; available for thrown and in-band rejections |
 | `[MCP] Response Duration` | number (ms, integer) | always | Wall-clock duration of the `tools/call` handler |
 | `[MCP] Response Size` | number (bytes) | when serializable | Serialized byte size of the response the client received — the `isError` result on SDKs >= 1.21, the JSON-RPC error envelope on earlier ones |
 | `[MCP] Response HTTP Status` | number | Streamable HTTP only | `200` — protocol-level rejections answer HTTP 200 with the error in the JSON-RPC body. Absent over stdio, which has no HTTP status |
@@ -679,14 +679,15 @@ the SDK does not invent one for those paths.
 
 `[MCP] Error Message Normalized` is a readable grouping value on tool responses,
 failed tool listings, and rejected tool calls. It is computed at emission time
-from the **sanitized** message using the same normalization as fingerprints:
+from the **sanitized and content-redacted** message using the same normalization as fingerprints:
 UUIDs become `<uuid>`, numbers become `<n>`, and quoted strings become
 `"<str>"` or `'<str>'`. For example, `Record 550e8400-e29b-41d4-a716-446655440000 retry 42`
 becomes `Record <uuid> retry <n>`. Empty or dropped messages omit this property.
-Both message properties pass through built-in and custom content redaction;
-normalization itself is not a privacy guarantee. The normalized message is not
+Built-in and custom content redaction run on the sanitized message before
+normalization, so context-dependent redaction rules see the original message structure.
+Normalization itself is not a privacy guarantee. The normalized message is not
 stored on `ctx.error`, so the original structured error and fingerprint remain
-unchanged. Because sanitization happens before normalization, this text may
+unchanged. Because sanitization and content redaction happen before normalization, this text may
 differ from the normalized raw message used to compute the fingerprint.
 
 ### Redacting `[MCP] Error Message`
@@ -697,7 +698,7 @@ a rejection on SDKs >= 1.21 it is the MCP SDK's validation text, which quotes th
 offending argument value. Either can contain end-user data that no server code
 deliberately sent — `No subscriber found for "jane@example.com"`.
 
-`[MCP] Error Message Normalized` is derived from that text after sanitization.
+`[MCP] Error Message Normalized` is derived from that text after sanitization and content redaction.
 `sanitizeErrorMessage` rewrites or drops the message before either property is emitted.
 Return a replacement string, or `null` to omit it entirely:
 
@@ -727,11 +728,12 @@ comment is still visible.
 
 The sanitizer runs first and sees the raw message. Built-in PII redaction
 (`redactPii`, on by default) then runs on whatever string it returns, so an
-email left in the rewritten message is still replaced. The normalized property
-is derived from the sanitizer's output, then content-redacted too. Returning
-`null` omits both properties before redaction; an empty string omits the
-normalized property. With no sanitizer configured, the message is normalized
-directly and both properties still pass through the built-in patterns. See
+email left in the rewritten message is still replaced. Custom patterns and the
+custom redaction function run next. Only then is the normalized property derived
+from the redacted message; it is never independently redacted from raw normalized text.
+Returning `null` omits both properties before redaction; an empty string after
+sanitization or redaction omits the normalized property. With no sanitizer configured,
+content redaction still runs before normalization. See
 [Privacy and redaction](../README.md#privacy-and-redaction) for the patterns,
 custom rules, and which fields are exempt.
 
@@ -816,7 +818,7 @@ events.
 | `[MCP] Error Fingerprint` | string | `Tools Listed`, `Tool Call Response`, thrown `Tool Call Rejected` — when a non-empty structured error fingerprint is available |
 | `[MCP] Error HTTP Status` | number | `Tool Call Response` (when the failure carried an HTTP status — the tool's, not the transport's) |
 | `[MCP] Error Message` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
-| `[MCP] Error Message Normalized` | string | Same error events, when the sanitized message is non-empty; normalized and content-redacted |
+| `[MCP] Error Message Normalized` | string | Same error events, when the sanitized and content-redacted message is non-empty; normalization of the redacted message |
 | `[MCP] Error Type` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` |
 | `[MCP] Episode Anchor Confidence` | string | Tool-scope |
 | `[MCP] Episode Anchor Type` | string | Tool-scope |

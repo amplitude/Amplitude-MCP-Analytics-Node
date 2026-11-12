@@ -2,7 +2,6 @@
 import type { ErrorMessageSanitizer } from '../../config.js';
 import type { PrivacyConfig } from '../../core/privacy.js';
 import type { McpToolContext } from '../../context/types.js';
-import { normalizeMessage } from '../../errors.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import { EVENT_PROPERTY_KEYS as K, TOOL_CALL_RESPONSE } from '../constants.js';
 import { sanitizeErrorMessage } from '../sanitize-error-message.js';
@@ -50,7 +49,6 @@ export function emitToolCallResponse(
   if (ctx.error != null) {
     const message = sanitizeErrorMessage(ctx.error.message, sanitize);
     if (message != null) properties[K.errorMessage] = message;
-    if (message) properties[K.errorMessageNormalized] = normalizeMessage(message);
     if (ctx.error.code != null) properties[K.errorCode] = ctx.error.code;
     properties[K.errorType] = ctx.error.type;
     if (ctx.error.fingerprint) properties[K.errorFingerprint] = ctx.error.fingerprint;
