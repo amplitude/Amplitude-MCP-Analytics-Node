@@ -2,13 +2,15 @@
  * Apply a {@link PrivacyConfig} to a merged event-property bag.
  *
  * Dimension keys (everything in {@link EVENT_PROPERTY_KEYS} except rationale
- * and error message) pass through unchanged so attribution stays intact.
+ * and error messages) pass through unchanged so attribution stays intact.
  * Every other value — `extra`, caller properties, `[MCP] Rationale`,
- * `[MCP] Error Message`, and `[MCP] Param:` derived strings — is redacted.
+ * `[MCP] Error Message` and `[MCP] Param:` derived strings — is redacted.
+ * `[MCP] Error Message Normalized` is derived only from the redacted message.
  *
  * @internal
  */
 import { PrivacyConfig } from '../core/privacy.js';
+import { normalizeMessage } from '../errors.js';
 import { EVENT_PROPERTY_KEYS } from './constants.js';
 import type { TrackEventOptions } from './types.js';
 
@@ -41,6 +43,7 @@ export function resolveEventPrivacy(options?: TrackEventOptions): PrivacyConfig 
 const FREE_TEXT_RESERVED = new Set<string>([
   EVENT_PROPERTY_KEYS.rationale,
   EVENT_PROPERTY_KEYS.errorMessage,
+  EVENT_PROPERTY_KEYS.errorMessageNormalized,
 ]);
 
 const DIMENSION_KEYS = new Set<string>(
@@ -54,7 +57,12 @@ export function redactFreeformProperties(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
+    if (key === EVENT_PROPERTY_KEYS.errorMessageNormalized) continue;
     out[key] = DIMENSION_KEYS.has(key) ? value : privacy.redactValue(value);
+  }
+  const message = out[EVENT_PROPERTY_KEYS.errorMessage];
+  if (typeof message === 'string' && message) {
+    out[EVENT_PROPERTY_KEYS.errorMessageNormalized] = normalizeMessage(message);
   }
   return out;
 }

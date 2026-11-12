@@ -627,6 +627,7 @@ export class AmplitudeMCPAnalytics {
               errorMessage: toolError?.message,
               errorCode: toolError?.code,
               errorType: toolError?.type,
+              errorFingerprint: toolError?.fingerprint,
             },
             this.config.sanitizeErrorMessage,
             this._privacy,
@@ -692,6 +693,7 @@ export class AmplitudeMCPAnalytics {
               // `[MCP] Error Type` as the segmentation key.
               errorCode: rejection.jsonRpcCode != null ? String(rejection.jsonRpcCode) : undefined,
               errorType: 'protocol_error',
+              errorFingerprint: rejection.fingerprint,
               durationMs,
               responseSizeBytes,
               // Protocol-level rejections still answer HTTP 200 over Streamable

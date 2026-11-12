@@ -51,6 +51,7 @@ export function emitToolCallResponse(
     if (message != null) properties[K.errorMessage] = message;
     if (ctx.error.code != null) properties[K.errorCode] = ctx.error.code;
     properties[K.errorType] = ctx.error.type;
+    if (ctx.error.fingerprint) properties[K.errorFingerprint] = ctx.error.fingerprint;
     // HTTP status attached to the tool's failure (upstream response /
     // HTTP-shaped thrown error) — NOT the MCP transport status.
     if (ctx.error.httpStatus != null) {

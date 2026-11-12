@@ -63,6 +63,8 @@ export type RejectionReason =
 
 /** A `tools/call` request rejected before any tool callback ran. */
 export interface PreDispatchRejection {
+  /** Existing classified fingerprint, when the request failed with a throw. */
+  fingerprint?: string;
   /** Message as the client saw it, prefix included (stable across SDK versions). */
   message: string;
   /** JSON-RPC code, when the SDK still carried it or the prefix yielded it. */
@@ -168,6 +170,7 @@ export function classifyPreDispatchRejection(input: {
     const code = (input.error as { code?: unknown }).code;
     return {
       message: classified.message,
+      fingerprint: classified.fingerprint,
       jsonRpcCode:
         typeof code === 'number' && Number.isSafeInteger(code)
           ? code
