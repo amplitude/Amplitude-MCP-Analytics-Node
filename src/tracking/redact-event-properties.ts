@@ -2,9 +2,10 @@
  * Apply a {@link PrivacyConfig} to a merged event-property bag.
  *
  * Dimension keys (everything in {@link EVENT_PROPERTY_KEYS} except rationale
- * and error message) pass through unchanged so attribution stays intact.
+ * and error messages) pass through unchanged so attribution stays intact.
  * Every other value — `extra`, caller properties, `[MCP] Rationale`,
- * `[MCP] Error Message`, and `[MCP] Param:` derived strings — is redacted.
+ * `[MCP] Error Message`, `[MCP] Error Message Normalized`, and `[MCP] Param:`
+ * derived strings — is redacted.
  *
  * @internal
  */
@@ -41,6 +42,7 @@ export function resolveEventPrivacy(options?: TrackEventOptions): PrivacyConfig 
 const FREE_TEXT_RESERVED = new Set<string>([
   EVENT_PROPERTY_KEYS.rationale,
   EVENT_PROPERTY_KEYS.errorMessage,
+  EVENT_PROPERTY_KEYS.errorMessageNormalized,
 ]);
 
 const DIMENSION_KEYS = new Set<string>(

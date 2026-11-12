@@ -3,6 +3,7 @@ import type { ErrorMessageSanitizer } from '../../config.js';
 import type { PrivacyConfig } from '../../core/privacy.js';
 import type { RejectionReason } from '../../core/tool-call-rejection.js';
 import type { McpServerContext } from '../../context/types.js';
+import { normalizeMessage } from '../../errors.js';
 import type { AmplitudeClientLike } from '../../types.js';
 import {
   ATTEMPTED_TOOL_NAME_MAX,
@@ -58,6 +59,7 @@ export function emitToolCallRejected(
   if (outcome.errorMessage != null) {
     const message = sanitizeErrorMessage(outcome.errorMessage, sanitize);
     if (message != null) properties[K.errorMessage] = message;
+    if (message) properties[K.errorMessageNormalized] = normalizeMessage(message);
   }
   if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;

@@ -90,6 +90,7 @@ export const EVENT_PROPERTY_KEYS = {
   rejectionReason: '[MCP] Rejection Reason',
   isError: '[MCP] Is Error',
   errorMessage: '[MCP] Error Message',
+  errorMessageNormalized: '[MCP] Error Message Normalized',
   errorCode: '[MCP] Error Code',
   errorType: '[MCP] Error Type',
   errorFingerprint: '[MCP] Error Fingerprint',

@@ -43,6 +43,9 @@ export interface AutocaptureConfig {
  * replacement string, or `null` to omit the property entirely (`[MCP] Error Code`
  * and `[MCP] Error Type` are unaffected either way, as is `[MCP] Error Fingerprint`
  * when available).
+ * `[MCP] Error Message Normalized` is derived from the replacement string,
+ * never the raw message. It is omitted when the replacement is empty or dropped.
+ * Both message properties then pass through content redaction.
  *
  * Applied to every event that carries the property: `[MCP] Tools Listed`,
  * `[MCP] Tool Call Response`, and `[MCP] Tool Call Rejected`. The same
@@ -111,13 +114,15 @@ export interface MCPAnalyticsConfigOptions {
   /**
    * Rewrite or drop `[MCP] Error Message` before it is emitted. Left undefined,
    * the message is sent as-is (the v0 default).
+   * The normalized message is derived afterward and omitted if empty or dropped.
    * @see ErrorMessageSanitizer
    */
   sanitizeErrorMessage?: ErrorMessageSanitizer;
   /**
    * Apply the built-in PII patterns (email, phone, SSN, credit card, IPv4/IPv6)
    * to free-form event content: `extra`, properties passed to `trackServerEvent`
-   * / `trackToolEvent`, `[MCP] Rationale`, `[MCP] Error Message`, and derived
+   * / `trackToolEvent`, `[MCP] Rationale`, `[MCP] Error Message`,
+   * `[MCP] Error Message Normalized`, and derived
    * `[MCP] Param:` values. Base64-encoded images in those values are redacted
    * regardless. On by default. Identity and dimension fields (user id, session
    * id, server name, tool name, …) are never redacted.
