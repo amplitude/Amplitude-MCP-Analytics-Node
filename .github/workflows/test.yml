@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sdk-version: ['1.14.0', '1.20.0', '1.21.0']
+        sdk-version: ['1.14.0', '1.20.0', '1.21.0', '1.32.2']
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -86,6 +86,73 @@ jobs:
 
       - name: Run tests
         run: pnpm run test -- --run
+
+  # `@modelcontextprotocol/server` and `@modelcontextprotocol/client` are optional
+  # peers at >=2.0.0. The devDependencies pin the latest 2.x we have exercised;
+  # this job re-runs the suite on the 2.0.0 floor and on that pin so a private
+  # SDK change between them fails here instead of in a customer's install.
+  v2-compat:
+    name: SDK compat (@modelcontextprotocol/server ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['2.0.0', '2.4.0']
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Overrides the pinned devDependencies for this job's checkout only.
+      - name: Override MCP server and client to ${{ matrix.version }}
+        run: |
+          pnpm add -D "@modelcontextprotocol/server@${{ matrix.version }}" "@modelcontextprotocol/client@${{ matrix.version }}"
+
+      - name: Verify resolved versions
+        run: |
+          for pkg in server client; do
+            resolved=$(node -e "console.log(JSON.parse(require('fs').readFileSync('node_modules/@modelcontextprotocol/' + process.argv[1] + '/package.json','utf8')).version)" "$pkg")
+            echo "resolved @modelcontextprotocol/$pkg@$resolved"
+            test "$resolved" = "${{ matrix.version }}"
+          done
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Type check
+        run: pnpm run test:typescript
+
+      - name: Run tests
+        run: pnpm run test -- --run
+
+  # The unit suite aliases this package to src, so it never installs the
+  # published tarball or checks that a v2-only project can omit the v1 SDK.
+  consumer-smoke:
+    name: Packed consumer (v1, v2, both)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Pack and install into strict-peer consumers
+        run: pnpm test:consumer
 
   lint:
     name: Lint
