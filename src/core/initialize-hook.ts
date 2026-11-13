@@ -23,13 +23,18 @@
  * serverless hosts too.
  */
 import { isPromise } from '../utils/common.js';
-import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import {
   getRequestHandlers,
   type McpExtra,
-  type Server,
+  type McpServerLike,
   type ServerRequestHandler,
 } from './mcp.js';
+
+/** Client identity carried on an `initialize` request. */
+interface HandshakeClient {
+  name?: string;
+  version?: string;
+}
 
 /** Marks a wrapped handler so a second install is a no-op. */
 const WRAPPED = Symbol.for('amplitude.mcp.initializeWrapped');
@@ -47,8 +52,8 @@ const WRAPPED = Symbol.for('amplitude.mcp.initializeWrapped');
  * @internal
  */
 export function installInitializeHook(
-  server: Server,
-  onInitialize: (clientInfo: Implementation | undefined, extra: McpExtra) => void,
+  server: McpServerLike,
+  onInitialize: (clientInfo: HandshakeClient | undefined, extra: McpExtra) => void,
 ): boolean {
   const handlers = getRequestHandlers(server);
   if (handlers == null) return false;
@@ -63,7 +68,7 @@ export function installInitializeHook(
     const params = (request as { params?: { clientInfo?: unknown } }).params;
     const info = params?.clientInfo;
     const clientInfo = info != null && typeof info === 'object'
-      ? (info as Implementation)
+      ? (info as HandshakeClient)
       : undefined;
 
     const report = (): void => {

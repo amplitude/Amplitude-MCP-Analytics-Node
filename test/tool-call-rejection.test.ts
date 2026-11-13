@@ -13,7 +13,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { classifyPreDispatchRejection } from '../src/core/tool-call-rejection.js';
-import type { ServerResult } from '../src/core/mcp.js';
+
+/** The in-band result shape this module reads. */
+interface ServerResult {
+  content: Array<{ type: 'text'; text: string }>;
+  isError?: boolean;
+}
 
 /** An `McpError`-shaped throw, as the SDK raises for pre-dispatch failures. */
 function mcpError(code: number, message: string): Error & { code: number } {
@@ -22,7 +27,7 @@ function mcpError(code: number, message: string): Error & { code: number } {
 
 /** An in-band error result, as SDKs >= 1.21 return for the same failures. */
 function errorResult(text: string): ServerResult {
-  return { content: [{ type: 'text', text }], isError: true } as unknown as ServerResult;
+  return { content: [{ type: 'text', text }], isError: true };
 }
 
 describe('classifyPreDispatchRejection — thrown (SDK <= 1.20)', () => {

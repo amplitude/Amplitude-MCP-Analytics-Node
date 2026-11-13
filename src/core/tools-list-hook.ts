@@ -9,20 +9,19 @@
  * added or removed later.
  */
 import { isPromise } from '../utils/common.js';
-import {
-  getRequestHandlers,
-  type ListToolsResult,
-  type McpExtra,
-  type Server,
-  type ServerRequestHandler,
-} from './mcp.js';
+import { getRequestHandlers, type McpExtra, type McpServerLike, type ServerRequestHandler } from './mcp.js';
+
+/** The `tools` slice of a `tools/list` result. The rest of the payload is ignored. */
+interface ListedTools {
+  tools?: Array<{ name?: string }>;
+}
 
 /** Marks a wrapped handler so a second install is a no-op. */
 const WRAPPED = Symbol.for('amplitude.mcp.toolsListWrapped');
 
 /** What one `tools/list` request produced — its result, or the error it threw. */
 export interface ToolsListOutcome {
-  result?: ListToolsResult;
+  result?: ListedTools;
   error?: unknown;
   durationMs: number;
 }
@@ -37,7 +36,7 @@ export interface ToolsListOutcome {
  * @internal
  */
 export function installToolsListHook(
-  server: Server,
+  server: McpServerLike,
   onListed: (outcome: ToolsListOutcome, extra: McpExtra) => void,
 ): void {
   const handlers = getRequestHandlers(server);
@@ -50,7 +49,7 @@ export function installToolsListHook(
 
   const wrapped: ServerRequestHandler = (request, extra) => {
     const start = performance.now();
-    const report = (outcome: { result?: ListToolsResult; error?: unknown }): void => {
+    const report = (outcome: { result?: ListedTools; error?: unknown }): void => {
       try {
         onListed({ ...outcome, durationMs: performance.now() - start }, extra);
       } catch {
@@ -68,7 +67,7 @@ export function installToolsListHook(
     if (isPromise(out)) {
       return out.then(
         (res) => {
-          report({ result: res as ListToolsResult });
+          report({ result: res as ListedTools });
           return res;
         },
         (error) => {
@@ -77,7 +76,7 @@ export function installToolsListHook(
         },
       );
     }
-    report({ result: out as ListToolsResult });
+    report({ result: out as ListedTools });
     return out;
   };
   (wrapped as ServerRequestHandler & { [WRAPPED]?: boolean })[WRAPPED] = true;

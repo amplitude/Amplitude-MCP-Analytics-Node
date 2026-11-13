@@ -15,13 +15,7 @@
  * both `[MCP] Tool Call Response` and `[MCP] Tool Call Rejected`.
  */
 import { isPromise } from '../utils/common.js';
-import {
-  getRequestHandlers,
-  type McpExtra,
-  type Server,
-  type ServerRequestHandler,
-  type ServerResult,
-} from './mcp.js';
+import { getRequestHandlers, type McpExtra, type McpServerLike, type ServerRequestHandler } from './mcp.js';
 
 /** Marks a wrapped handler so a second install is a no-op. */
 const WRAPPED = Symbol.for('amplitude.mcp.toolCallWrapped');
@@ -51,7 +45,7 @@ export function wasToolCallDispatched(extra: unknown): boolean {
 export interface ToolCallHookOutcome {
   /** The attempted tool name from the request params — unvalidated caller input. */
   toolName?: string;
-  result?: ServerResult;
+  result?: unknown;
   error?: unknown;
   durationMs: number;
 }
@@ -72,7 +66,7 @@ function readToolName(request: unknown): string | undefined {
  * @internal
  */
 export function installToolCallHook(
-  server: Server,
+  server: McpServerLike,
   onSettled: (outcome: ToolCallHookOutcome, extra: McpExtra) => void,
 ): void {
   const handlers = getRequestHandlers(server);
@@ -86,7 +80,7 @@ export function installToolCallHook(
   const wrapped: ServerRequestHandler = (request, extra) => {
     const start = performance.now();
     const toolName = readToolName(request);
-    const report = (outcome: { result?: ServerResult; error?: unknown }): void => {
+    const report = (outcome: { result?: unknown; error?: unknown }): void => {
       try {
         onSettled({ toolName, ...outcome, durationMs: performance.now() - start }, extra);
       } catch {
