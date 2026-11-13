@@ -43,10 +43,9 @@ carries its own protocol version and client identity in `_meta`
 `2026-07-28` is the **current** protocol revision, and SDK support splits by
 package line:
 
-- **`@modelcontextprotocol/sdk` 1.x** (the monolithic v1 package, this SDK's
-  peer dependency) tops out at `2025-11-25` and does not implement the
-  revision. On v1 the per-request `_meta` source below therefore reads as
-  absent.
+- **`@modelcontextprotocol/sdk` 1.x** (the monolithic v1 package, an optional
+  peer) tops out at `2025-11-25` and does not implement the revision. On v1
+  the per-request source below therefore reads as absent.
 - **The v2 package set** (`@modelcontextprotocol/{core,server,client,…}` 2.0.0)
   **does** implement it: `server/discover`, the per-request `_meta` envelope,
   `subscriptions/listen`, `UnsupportedProtocolVersionError` and the rest. Its
@@ -214,7 +213,7 @@ first:
 | Source | Available on | Notes |
 | -- | -- | -- |
 | `instrumentServer({ resolveClientInfo })` | every request | Host callback, given the request's `authInfo` and headers. The only source that can name the client on a per-request server |
-| `_meta` per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. Populated by the v2 SDK package set; absent on `@modelcontextprotocol/sdk` 1.x, which does not implement the revision. Only a SHOULD, so a client may omit it. The unnamespaced `clientInfo` is accepted as a secondary spelling |
+| Per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. v2 carries the reserved key on the request envelope; a host that still puts it in `_meta` is read from there. Absent on `@modelcontextprotocol/sdk` 1.x, which does not implement the revision. Only a SHOULD, so a client may omit it. The unnamespaced `clientInfo` is accepted as a secondary spelling |
 | The `initialize` handshake | the whole connection, when one server instance serves it | Captured off the `initialize` request and cached on the server scope. Unreachable when each request gets a fresh server |
 | `instrumentServer({ client })` | this binding | Fixed for the binding's lifetime |
 | `User-Agent` header | Streamable HTTP | Fills `[MCP] User Agent` only, never the name |
@@ -499,10 +498,12 @@ reserved key that per-tool dashboards slice on.
   instead, so one request never lands on both.
 - **Not emitted for** a tool that is registered but not wrapped with
   `instrumentTool` and returns its own `isError` result. On SDKs >= 1.21 that is
-  shaped identically to a rejection, so the SDK requires positive evidence — the
-  name being absent or disabled in the tool registry, or the SDK's own
-  `MCP error <code>:` message prefix — before reporting one. An uninstrumented
-  tool's failure is left unreported rather than misfiled as `protocol_error`.
+  shaped identically to a rejection, so the SDK requires positive evidence
+  before reporting one: the name is absent or disabled in the tool registry,
+  the message carries the SDK's `MCP error <code>:` prefix, or a registered
+  enabled tool failed with input-validation wording (v2 reports that wording
+  without the prefix). An uninstrumented tool's own failure is left
+  unreported rather than misfiled as `protocol_error`.
 - **Not emitted for output-schema failures**, which happen *after* the callback
   returns. An instrumented tool is covered by the dispatch marker, but an
   uninstrumented one's callback runs unobserved, so output-validation wording is

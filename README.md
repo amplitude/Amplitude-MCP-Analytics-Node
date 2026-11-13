@@ -25,13 +25,21 @@ steps.
 pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk zod
 ```
 
-`@amplitude/analytics-node`, `@modelcontextprotocol/sdk`, and `zod` are peer
-dependencies — your MCP server already depends on the latter two. `zod` is
-the same range the MCP SDK accepts (`^3.25.0` or `^4.0.0`); the feedback
-tool builds its input schema with it. Any
-`@modelcontextprotocol/sdk` from `1.14.0` up is supported, including versions
-`1.21.0`+, which changed how `McpServer` reports a failed `tools/call`; the
-default events mean the same thing across that whole range.
+`@amplitude/analytics-node` and `zod` are required peers. The MCP package is
+optional: install the one your server already uses, not both.
+
+- `@modelcontextprotocol/sdk` `>=1.14.0` — a v1 server (`server.tool`).
+  `1.21.0` and later report a failed `tools/call` differently; the default
+  events mean the same thing across that range.
+- `@modelcontextprotocol/server` `>=2.0.0` — a v2 server (`registerTool`,
+  `createMcpHandler`).
+
+```bash
+pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/server zod
+```
+
+`zod` accepts `^3.25.0` or `^4.0.0`. On v1 the feedback tool builds its input
+schema with zod. On v2 it uses the server package's JSON Schema helper.
 
 ## Quick start
 
@@ -59,6 +67,39 @@ server.tool(
 
 await server.connect(transport);
 ```
+
+### TypeScript SDK v2
+
+`createMcpHandler` builds a fresh server for each request and connects it
+after the factory returns. Call `instrumentServer` inside the factory, before
+that connection.
+
+```ts
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { createMcpAnalytics } from '@amplitude/mcp-analytics';
+
+const analytics = createMcpAnalytics({
+  apiKey: process.env.AMPLITUDE_API_KEY!,
+  serverName: 'my-mcp-server',
+  serverVersion: '1.0.0',
+});
+
+const handler = createMcpHandler(() => {
+  const server = new McpServer({ name: 'my-mcp-server', version: '1.0.0' });
+  analytics.instrumentServer(server);
+
+  server.registerTool(
+    'search_docs',
+    { description: 'Search the docs' },
+    analytics.instrumentTool(async (args) => doSearch(args), { name: 'search_docs' }),
+  );
+
+  return server;
+});
+```
+
+`instrumentTool` still wraps your existing callback. v2 passes the request
+context as the callback's last argument, the same place v1 passes `extra`.
 
 To reuse an Amplitude client you already own, pass it instead of `apiKey`:
 
