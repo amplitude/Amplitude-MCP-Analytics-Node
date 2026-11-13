@@ -2,6 +2,13 @@
 
 Entries through 0.5.2 were backfilled from the GitHub releases. Later entries are generated from Conventional Commits.
 
+## [0.8.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.7.0...v0.8.0) (2026-11-12)
+
+
+### Features
+
+* emit error fingerprints and normalized error messages on default events ([#67](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/67)) ([21da0e9](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/21da0e9dd25185ef4aea589cb31fb12841cb8afc))
+
 ## [0.7.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.6.0...v0.7.0) (2026-10-27)
 
 
