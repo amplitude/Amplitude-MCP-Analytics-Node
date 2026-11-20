@@ -30,6 +30,7 @@ const ok = { content: [{ type: 'text' as const, text: 'ok' }] };
 const failed = { content: [{ type: 'text' as const, text: 'upstream 500' }], isError: true };
 
 interface Harness {
+  server: McpServer;
   client: Client;
   tracked: AmplitudeEvent[];
   events: (type: string) => AmplitudeEvent[];
@@ -61,9 +62,12 @@ async function harness(config?: MCPAnalyticsConfig): Promise<Harness> {
     {},
     analytics.instrumentTool(async () => failed, { name: 'fails' }),
   );
-  // Registered but NOT wrapped: its callback runs unseen, so an `isError` from
-  // it reaches the hook unmarked — the false positive the classifier must dodge.
+  // Registered but NOT wrapped: no response telemetry is enabled.
   server.tool('uninstrumented', {}, async () => failed);
+  server.tool('validation_like', { text: z.string() }, async () => ({
+    isError: true,
+    content: [{ type: 'text' as const, text: 'Invalid arguments: unsupported search operator' }],
+  }));
   server.tool('off', {}, analytics.instrumentTool(async () => ok, { name: 'off' })).disable();
 
   analytics.instrumentServer(server, { userId: 'user-1' });
@@ -73,6 +77,7 @@ async function harness(config?: MCPAnalyticsConfig): Promise<Harness> {
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
   return {
+    server,
     client,
     tracked,
     events: (type) => tracked.filter((e) => e.event_type === type),
@@ -91,6 +96,28 @@ describe('[MCP] Tool Call Rejected — real McpServer', () => {
   let h: Harness;
   beforeEach(async () => {
     h = await harness();
+  });
+
+  it.each(['validation_like', 'registered_late'])('observes unwrapped callback dispatch: %s', async (name) => {
+    let ran = false;
+    if (name === 'registered_late') {
+      h.server.tool(name, { text: z.string() }, async () => {
+        ran = true;
+        return { isError: true, content: [{ type: 'text' as const, text: 'Invalid arguments: unsupported search operator' }] };
+      });
+    }
+    await call(h, name, { text: 'valid' });
+    if (name === 'registered_late') expect(ran).toBe(true);
+    expect(h.events(REJECTED)).toHaveLength(0);
+    expect(h.events(RESPONSE)).toHaveLength(0);
+
+    await call(h, name, { text: 123 });
+    expect(h.events(REJECTED)).toHaveLength(1);
+    expect(h.events(REJECTED)[0]?.event_properties).toMatchObject({
+      '[MCP] Rejection Reason': 'schema_validation',
+      '[MCP] Error Code': '-32602',
+    });
+    expect(h.events(RESPONSE)).toHaveLength(0);
   });
 
   it('emits for an unknown tool name', async () => {

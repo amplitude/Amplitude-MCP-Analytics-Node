@@ -11,17 +11,18 @@
  *
  * Dispatched calls are excluded via {@link markToolCallDispatched} /
  * {@link wasToolCallDispatched}: `instrumentTool` marks every dispatch it
- * sees, and the emit site skips marked requests, so a request never lands on
+ * sees, as do registered callbacks observed here. The emit site skips marked
+ * requests, so a request never lands on
  * both `[MCP] Tool Call Response` and `[MCP] Tool Call Rejected`.
  */
 import { isPromise } from '../utils/common.js';
-import { getRequestHandlers, type McpExtra, type McpServerLike, type ServerRequestHandler } from './mcp.js';
+import { getRequestHandlers, observeRegisteredToolDispatch, type McpExtra, type McpServerLike, type ServerRequestHandler } from './mcp.js';
 
 /** Marks a wrapped handler so a second install is a no-op. */
 const WRAPPED = Symbol.for('amplitude.mcp.toolCallWrapped');
 
 /**
- * Requests that reached an `instrumentTool`-wrapped callback, keyed on the
+ * Requests that reached a tool callback, keyed on the
  * per-request `extra` object (the MCP SDK passes the same object to the
  * request handler and the tool callback, and it carries `requestId`). Object
  * identity is the collision-proof form of a requestId key — concurrent
@@ -68,6 +69,7 @@ function readToolName(request: unknown): string | undefined {
 export function installToolCallHook(
   server: McpServerLike,
   onSettled: (outcome: ToolCallHookOutcome, extra: McpExtra) => void,
+  registeredServer: object = server,
 ): void {
   const handlers = getRequestHandlers(server);
   if (handlers == null) return;
@@ -80,6 +82,8 @@ export function installToolCallHook(
   const wrapped: ServerRequestHandler = (request, extra) => {
     const start = performance.now();
     const toolName = readToolName(request);
+    // Resolve the live registry per request, including late registrations and updates.
+    observeRegisteredToolDispatch(registeredServer, toolName, markToolCallDispatched);
     const report = (outcome: { result?: unknown; error?: unknown }): void => {
       try {
         onSettled({ toolName, ...outcome, durationMs: performance.now() - start }, extra);

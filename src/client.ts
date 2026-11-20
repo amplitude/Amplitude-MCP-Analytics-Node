@@ -639,11 +639,11 @@ export class AmplitudeMCPAnalytics {
         // before any tool callback runs (unknown/disabled tool, input-schema
         // validation): the MCP SDK throws, the client receives a JSON-RPC
         // error envelope, and no `instrumentTool` wrapper ever sees the call.
-        // Dispatched calls never double-emit — the wrapper marks each dispatch
-        // and reports those on `[MCP] Tool Call Response` instead.
+        // All registered callbacks mark dispatch; only instrumentTool callbacks
+        // report `[MCP] Tool Call Response`.
         installToolCallHook(lowLevelServer, ({ toolName, result, error, durationMs }, extra) => {
           if (scope.ctx == null) return;
-          // Dispatched calls are owned by `[MCP] Tool Call Response`. Checked
+          // Dispatched calls cannot be pre-dispatch rejections. Checked
           // first: on SDKs >= 1.21 a real tool failure and a pre-dispatch
           // rejection reach us as the same shape, and this is what parts them.
           if (wasToolCallDispatched(extra)) return;
@@ -702,7 +702,7 @@ export class AmplitudeMCPAnalytics {
             this.config.sanitizeErrorMessage,
             this._privacy,
           );
-        });
+        }, boundServer);
       }
 
       if (this.config.autocapture.sessionLifecycle) {

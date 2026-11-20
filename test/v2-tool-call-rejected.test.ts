@@ -18,6 +18,7 @@ const ok = { content: [{ type: 'text' as const, text: 'ok' }] };
 const failed = { content: [{ type: 'text' as const, text: 'upstream 500' }], isError: true };
 
 interface Harness {
+  server: McpServer;
   client: Client;
   events: (type: string) => AmplitudeEvent[];
   reset: () => void;
@@ -32,6 +33,10 @@ async function harness(): Promise<Harness> {
   });
 
   const server = new McpServer({ name: 'test-mcp', version: '9.9.9' });
+  server.registerTool('validation_like', { inputSchema: { text: z.string() } }, async () => ({
+    isError: true,
+    content: [{ type: 'text' as const, text: 'Invalid arguments: unsupported search operator' }],
+  }));
   server.registerTool(
     'echo',
     { inputSchema: { text: z.string() } },
@@ -51,6 +56,7 @@ async function harness(): Promise<Harness> {
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
   return {
+    server,
     client,
     events: (type) => tracked.filter((e) => e.event_type === type),
     reset: () => {
@@ -67,6 +73,28 @@ describe('[MCP] Tool Call Rejected — v2 McpServer', () => {
   let h: Harness;
   beforeEach(async () => {
     h = await harness();
+  });
+
+  it.each(['validation_like', 'registered_late'])('observes unwrapped callback dispatch: %s', async (name) => {
+    let ran = false;
+    if (name === 'registered_late') {
+      h.server.registerTool(name, { inputSchema: { text: z.string() } }, async () => {
+        ran = true;
+        return { isError: true, content: [{ type: 'text' as const, text: 'Invalid arguments: unsupported search operator' }] };
+      });
+    }
+    await call(h, name, { text: 'valid' });
+    if (name === 'registered_late') expect(ran).toBe(true);
+    expect(h.events(REJECTED)).toHaveLength(0);
+    expect(h.events(RESPONSE)).toHaveLength(0);
+
+    await call(h, name, { text: 123 });
+    expect(h.events(REJECTED)).toHaveLength(1);
+    expect(h.events(REJECTED)[0]?.event_properties).toMatchObject({
+      '[MCP] Rejection Reason': 'schema_validation',
+      '[MCP] Error Code': '-32602',
+    });
+    expect(h.events(RESPONSE)).toHaveLength(0);
   });
 
   it('emits for an unknown tool, a disabled tool, and a schema failure', async () => {
