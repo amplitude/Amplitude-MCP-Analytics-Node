@@ -128,6 +128,35 @@ export function getRequestHandlers(
  */
 export type RegisteredToolState = 'missing' | 'disabled' | 'enabled';
 
+const DISPATCH_WRAPPED = Symbol('dispatchWrapped');
+
+/** Observe callbacks only after SDK input validation, on either server line. @internal */
+export function observeRegisteredToolDispatch(
+  server: object,
+  name: string | undefined,
+  onDispatch: (extra: unknown) => void,
+): void {
+  if (name == null) return;
+  type Callback = ((...args: unknown[]) => unknown) & { [DISPATCH_WRAPPED]?: boolean };
+  const registry = (server as {
+    _registeredTools?: Record<string, { handler?: Callback; executor?: Callback; callback?: Callback }>;
+  })._registeredTools;
+  if (registry == null || !Object.prototype.hasOwnProperty.call(registry, name)) return;
+  const tool = registry[name];
+  if (tool == null) return;
+  const key = typeof tool.executor === 'function'
+    ? 'executor'
+    : typeof tool.handler === 'function' ? 'handler' : 'callback';
+  const original = tool[key];
+  if (typeof original !== 'function' || original[DISPATCH_WRAPPED]) return;
+  const wrapped: Callback = function (this: unknown, ...args: unknown[]) {
+    onDispatch(args[args.length - 1]);
+    return original.apply(this, args);
+  };
+  wrapped[DISPATCH_WRAPPED] = true;
+  tool[key] = wrapped;
+}
+
 /**
  * Look up an attempted `tools/call` name in the high-level server's tool
  * registry, to tell a call the server rejected apart from one that ran.

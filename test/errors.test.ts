@@ -393,7 +393,7 @@ describe('classifyError fingerprints', () => {
 
 describe('AmplitudeMCPAnalytics.toolError', () => {
   it('returns a valid MCP error response and stores error on ctx', () => {
-    const { analytics } = makeAnalytics();
+    const { analytics, tracked } = makeAnalytics();
     bind(analytics);
 
     let ctx: McpToolContext | undefined;
@@ -407,6 +407,7 @@ describe('AmplitudeMCPAnalytics.toolError', () => {
           message: 'No chart ID was provided.',
           correctionMessage: 'Search for a chart first.',
           recoverable: true,
+          fingerprint: 'missing-chart',
         });
         return result;
       },
@@ -424,6 +425,12 @@ describe('AmplitudeMCPAnalytics.toolError', () => {
       expect(ctx!.error!.code).toBe('missing_chart_id');
       expect(ctx!.error!.type).toBe('returned_error');
       expect(ctx!.error!.recoverable).toBe(true);
+      expect(tracked).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          event_type: '[MCP] Tool Call Response',
+          event_properties: expect.objectContaining({ '[MCP] Error Fingerprint': 'missing-chart' }),
+        }),
+      ]));
     });
   });
 

@@ -9,6 +9,29 @@ import { AmplitudeMCPAnalytics } from '../src/client.js';
 import type { AmplitudeEvent } from '../src/types.js';
 
 describe('registerFeedbackTool — v2 McpServer', () => {
+  it('reuses one schema per comment setting across fresh servers', () => {
+    const analytics = new AmplitudeMCPAnalytics({
+      amplitude: { track: () => undefined, flush: () => undefined },
+      serverName: 'test-mcp',
+      serverVersion: '9.9.9',
+    });
+    const schemas = [false, true].map((captureComment) =>
+      Array.from({ length: 4 }, () => {
+        const server = new McpServer({ name: 'test-mcp', version: '9.9.9' });
+        analytics.registerFeedbackTool(server, { captureComment });
+        const registry = (server as unknown as {
+          _registeredTools: Record<string, { inputSchema: object }>;
+        })._registeredTools;
+        return registry.submit_feedback!.inputSchema;
+      }),
+    );
+    for (const group of schemas) {
+      expect(group[0]).toBeDefined();
+      for (const schema of group) expect(schema).toBe(group[0]);
+    }
+    expect(schemas[0]![0]).not.toBe(schemas[1]![0]);
+  });
+
   it('registers the tool and emits [MCP] Feedback Submitted', async () => {
     const tracked: AmplitudeEvent[] = [];
     const analytics = new AmplitudeMCPAnalytics({

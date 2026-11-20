@@ -210,12 +210,18 @@ function inputJsonSchema(captureComment: boolean): FeedbackInputJsonSchema {
  * package's `fromJsonSchema`. The helper is loaded at registration time
  * because that package is an optional peer.
  */
+const v2FeedbackSchemas = new Map<boolean, object>();
+
 function feedbackRegistrationSchema(server: object, captureComment: boolean): object | undefined {
   if (detectServerLine(server) !== 'v2') return feedbackInputShape(captureComment);
 
+  const cached = v2FeedbackSchemas.get(captureComment);
+  if (cached != null) return cached;
   const fromJsonSchema = tryRequire('@modelcontextprotocol/server')?.fromJsonSchema;
   if (typeof fromJsonSchema !== 'function') return undefined;
-  return fromJsonSchema(inputJsonSchema(captureComment)) as object;
+  const schema = fromJsonSchema(inputJsonSchema(captureComment)) as object;
+  v2FeedbackSchemas.set(captureComment, schema);
+  return schema;
 }
 
 /** Zod raw shape accepted by v1 `McpServer.registerTool`. The published definition stays JSON Schema. */
