@@ -526,9 +526,11 @@ export class AmplitudeMCPAnalytics {
    * the SDK emits the default connection events (`[MCP] Session Initialized` /
    * `[MCP] Session Ended` / `[MCP] Tools Listed`) plus `[MCP] Tool Call
    * Rejected` for `tools/call` requests that fail before any tool callback
-   * runs. Wraps `connect` to auto-detect
-   * the transport (fixed per connection), captures the handshake `clientInfo`,
-   * and emits the lifecycle events at the points it controls. Call **before**
+   * runs. Wraps the low-level server's `connect` to auto-detect the transport
+   * (fixed per connection), captures the handshake `clientInfo`, and emits the
+   * lifecycle events at the points it controls. The wrapper sits on the
+   * low-level server because a per-request HTTP host connects that server
+   * directly and never calls the high-level `connect`. Call **before**
    * `connect` — the transport only exists then. Returns the same server for
    * chaining. Idempotent; warns and no-ops if already connected.
    *
@@ -574,15 +576,21 @@ export class AmplitudeMCPAnalytics {
     }
     boundServer[INSTRUMENTED] = true;
 
-    // The low-level Server holding the handshake hooks: `.server` on McpServer,
-    // else the object itself.
+    // Hooks live on the low-level server (`.server` on McpServer, else the
+    // object itself). Wrap the `connect` hosts actually call: the low-level
+    // one when it exists, because high-level `connect` only delegates and a
+    // per-request HTTP handler connects that server directly. Otherwise wrap
+    // the object that was passed in.
     const lowLevelServer: McpServerLike =
       'server' in boundServer && boundServer.server != null ? boundServer.server : boundServer;
+    const connectTarget: McpServerLike & { [INSTRUMENTED]?: boolean } =
+      typeof lowLevelServer.connect === 'function' ? lowLevelServer : boundServer;
+    connectTarget[INSTRUMENTED] = true;
     // Capture the current `connect` and delegate, so we compose with a
     // consumer's own connect wrapper regardless of order.
-    const originalConnect = boundServer.connect.bind(boundServer);
+    const originalConnect = connectTarget.connect.bind(connectTarget);
 
-    boundServer.connect = (transport: object): Promise<void> => {
+    connectTarget.connect = (transport: object): Promise<void> => {
       scope.ctx = createServerContext({
         server: { name: this.serverName, version: this.serverVersion },
         transport: resolveTransport(transport),

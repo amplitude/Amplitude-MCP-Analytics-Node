@@ -135,6 +135,7 @@ pnpm build
 pnpm test:typescript
 pnpm test
 pnpm lint
+pnpm test:consumer
 ```
 
 Add tests next to the behavior you change. The smoke test in `test/` is the

@@ -1,0 +1,45 @@
+name: MCP server latest
+
+# Not a required pull-request check. Runs the suite against the latest
+# published @modelcontextprotocol/server and @modelcontextprotocol/client so a
+# breaking change upstream is visible before the next pin bump.
+# Monday 16:00 UTC is 08:00 America/Los_Angeles (09:00 during daylight saving).
+on:
+  schedule:
+    - cron: '0 16 * * 1'
+  workflow_dispatch:
+
+jobs:
+  v2-latest:
+    name: SDK compat (@modelcontextprotocol/server@latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install latest MCP server and client
+        run: pnpm add -D @modelcontextprotocol/server@latest @modelcontextprotocol/client@latest
+
+      - name: Print resolved versions
+        run: |
+          for pkg in server client; do
+            node -e "const v = JSON.parse(require('fs').readFileSync('node_modules/@modelcontextprotocol/' + process.argv[1] + '/package.json','utf8')).version; console.log('@modelcontextprotocol/' + process.argv[1] + '@' + v)" "$pkg"
+          done
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Type check
+        run: pnpm run test:typescript
+
+      - name: Run tests
+        run: pnpm run test -- --run
