@@ -19,10 +19,9 @@ import {
   lookupRegisteredTool,
   type McpExtra,
   type McpServerLike,
-  type Server,
+  readRequest,
   type ToolHandler,
   type ToolResult,
-  type Transport,
 } from './core/mcp.js';
 import { byteSize } from './core/serialize.js';
 import {
@@ -567,7 +566,7 @@ export class AmplitudeMCPAnalytics {
     scope.identityResolver = opts?.resolveIdentity;
 
     // `isConnected()` is only on the high-level McpServer.
-    if ('isConnected' in boundServer && boundServer.isConnected()) {
+    if (boundServer.isConnected?.() === true) {
       getLogger(this._amplitude).warn(
         'instrumentServer() was called after the server connected; the transport could not be detected, so instrumented tools will run without analytics context. Call instrumentServer() before server.connect().',
       );
@@ -577,12 +576,13 @@ export class AmplitudeMCPAnalytics {
 
     // The low-level Server holding the handshake hooks: `.server` on McpServer,
     // else the object itself.
-    const lowLevelServer: Server = 'server' in boundServer ? boundServer.server : boundServer;
+    const lowLevelServer: McpServerLike =
+      'server' in boundServer && boundServer.server != null ? boundServer.server : boundServer;
     // Capture the current `connect` and delegate, so we compose with a
     // consumer's own connect wrapper regardless of order.
     const originalConnect = boundServer.connect.bind(boundServer);
 
-    boundServer.connect = (transport: Transport): Promise<void> => {
+    boundServer.connect = (transport: object): Promise<void> => {
       scope.ctx = createServerContext({
         server: { name: this.serverName, version: this.serverVersion },
         transport: resolveTransport(transport),
@@ -670,7 +670,7 @@ export class AmplitudeMCPAnalytics {
               ? byteSize(result)
               : byteSize({
                   jsonrpc: '2.0',
-                  id: extra.requestId,
+                  id: readRequest(extra).requestId,
                   error: {
                     code: rejection.jsonRpcCode ?? -32603,
                     message: rejection.message,
@@ -755,7 +755,7 @@ export class AmplitudeMCPAnalytics {
         // per request. So persistence is decided from the transport's own id
         // (or stdio), never from the resolved anchor.
         const transportSessionId =
-          extra.sessionId ?? (transport as { sessionId?: string }).sessionId;
+          readRequest(extra).sessionId ?? (transport as { sessionId?: string }).sessionId;
         scope.transportPersists =
           scope.ctx.transport === 'stdio' ||
           (typeof transportSessionId === 'string' && transportSessionId.length > 0);
@@ -763,7 +763,7 @@ export class AmplitudeMCPAnalytics {
         if (!this.config.autocapture.sessionLifecycle) return;
         const resolved = buildServerContext(
           scope.ctx,
-          { ...extra, sessionId: transportSessionId } as McpExtra,
+          { ...extra, sessionId: transportSessionId },
           {
             serverIdentity: scope.identity,
             resolveIdentity: scope.identityResolver,
@@ -793,7 +793,7 @@ export class AmplitudeMCPAnalytics {
       const existingOnInitialized = lowLevelServer.oninitialized;
       lowLevelServer.oninitialized = (): void => {
         if (!initializeHooked) {
-          const clientInfo = lowLevelServer.getClientVersion();
+          const clientInfo = lowLevelServer.getClientVersion?.();
           if (clientInfo != null && scope.ctx != null) {
             scope.ctx.client = { ...scope.ctx.client, name: clientInfo.name, version: clientInfo.version };
           }
@@ -808,7 +808,7 @@ export class AmplitudeMCPAnalytics {
           if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
             const resolved = buildServerContext(
               scope.ctx,
-              { sessionId } as unknown as McpExtra,
+              { sessionId },
               {
                 serverIdentity: scope.identity,
                 resolveIdentity: scope.identityResolver,

@@ -37,7 +37,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/check-dts-imports.mjs",
     "clean": "rimraf dist",
     "lint": "biome lint ./src --log-level=error --diagnostic-level=error --no-errors-on-unmatched",
     "lint:fix": "biome lint ./src --log-level=error --diagnostic-level=error --no-errors-on-unmatched --write",

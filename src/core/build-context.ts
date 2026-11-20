@@ -3,7 +3,6 @@
  * `extra` and composes the pure {@link createToolContext}. In `core/` (not the
  * SDK-free public `context/`) because it's SDK-aware and not public.
  */
-import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
 import { createServerContext, createToolContext } from '../context/factory.js';
 import type {
@@ -18,7 +17,7 @@ import type {
   McpToolMeta,
 } from '../context/types.js';
 import { resolveIdentityFromChain, type ServerIdentity } from './identity.js';
-import { metaRecord, readHeader, type McpExtra, type Transport } from './mcp.js';
+import { readRequest, type NormalizedRequest } from './mcp.js';
 import type { Logger } from '../utils/logger.js';
 
 /**
@@ -54,7 +53,7 @@ const META_HOST_SUBJECT_IDS = ['openai/subject'] as const;
  * and it is not on the SDK `Transport` interface. Anything else is `stdio`.
  * @internal
  */
-export function resolveTransport(transport: Transport): McpTransport {
+export function resolveTransport(transport: object): McpTransport {
   if ('handleRequest' in transport && typeof transport.handleRequest === 'function') {
     return 'streamable-http';
   }
@@ -77,42 +76,31 @@ export function resolveTransport(transport: Transport): McpTransport {
  * `oauthClientId` is separate: it comes off `authInfo`, so unlike the name it is
  * present on every authenticated request whatever the transport.
  *
- * A note on the `_meta` source. Protocol revision `2026-07-28` removes the
- * `initialize` handshake outright and instead has clients identify themselves
- * on **every** request, under the namespaced `_meta` key
- * `io.modelcontextprotocol/clientInfo` — so on that revision this is the only
- * source the wire provides, and the handshake source below cannot exist.
+ * A note on where client identity lives. Protocol revision `2026-07-28`
+ * removes the `initialize` handshake and has clients identify themselves on
+ * every request, under `io.modelcontextprotocol/clientInfo`.
  *
- * Support splits by SDK package line. `@modelcontextprotocol/sdk` 1.x — this
- * SDK's peer dependency — tops out at `2025-11-25` and does not implement the
- * revision, so on v1 this source reads as absent. The v2 package set
- * (`@modelcontextprotocol/{core,server,client}` 2.0.0) does implement it, and
- * its server reads client identity as `meta[CLIENT_INFO_META_KEY]` — the same
- * key read below. (Do not be misled by `core` 2.0.0 still exporting
- * `LATEST_PROTOCOL_VERSION = '2025-11-25'`: that is the handshake-era constant
- * kept for backward compatibility, not v2's ceiling.) Per-request `clientInfo`
- * is a SHOULD rather than a MUST, so it can be absent even there.
- *
- * The unnamespaced `clientInfo` is accepted as a secondary spelling for hosts
- * that adopted it as a local convention before the key was standardized.
+ * v1 leaves that key in `_meta` when a host sends it. v2 lifts the reserved
+ * `io.modelcontextprotocol/*` keys out of `_meta` onto `ctx.mcpReq.envelope`,
+ * so the envelope is checked first, then `_meta`, then the unnamespaced
+ * `clientInfo` spelling some hosts used before the key was standardized.
+ * Per-request client info is a SHOULD, so it can be absent on either line.
  * @internal
  */
 function resolveRequestClientInfo(
-  extra: McpExtra,
+  request: NormalizedRequest,
   serverCtx: McpServerContext,
-  authInfo: Record<string, unknown> | undefined,
   resolveClientInfo: ClientInfoResolver | undefined,
   logger: Logger | undefined,
 ): McpClientInfo {
+  const authInfo = request.authInfo;
   let fromHost: McpClientInfo | undefined;
   if (resolveClientInfo != null) {
     try {
       fromHost =
         resolveClientInfo({
           authInfo,
-          headers: extra.requestInfo?.headers as
-            | Record<string, string | string[] | undefined>
-            | undefined,
+          headers: request.headers,
         }) ?? undefined;
     } catch (err) {
       logger?.warn(
@@ -121,10 +109,11 @@ function resolveRequestClientInfo(
     }
   }
 
-  const meta = metaRecord(extra);
-  const info = meta?.[META_CLIENT_INFO] ?? meta?.clientInfo;
+  const meta = request.meta;
+  const info =
+    request.envelope?.[META_CLIENT_INFO] ?? meta?.[META_CLIENT_INFO] ?? meta?.clientInfo;
   const metaClientInfo = info != null && typeof info === 'object'
-    ? (info as Implementation)
+    ? (info as { name?: string; version?: string })
     : undefined;
   const clientFromHandshake = serverCtx.client;
   const clientIdFromAuth =
@@ -136,7 +125,7 @@ function resolveRequestClientInfo(
     name: fromHost?.name ?? metaClientInfo?.name ?? clientFromHandshake?.name,
     version: fromHost?.version ?? metaClientInfo?.version ?? clientFromHandshake?.version,
     userAgent:
-      fromHost?.userAgent ?? readHeader(extra, 'user-agent') ?? clientFromHandshake?.userAgent,
+      fromHost?.userAgent ?? request.header('user-agent') ?? clientFromHandshake?.userAgent,
     // No handshake fallback: `oauthClientId` is per-request by nature, and the
     // handshake slot is connection-scoped, so falling back to it would carry a
     // previous request's client id onto an unauthenticated one.
@@ -146,14 +135,17 @@ function resolveRequestClientInfo(
 
 /**
  * Negotiated protocol version for one request: the `MCP-Protocol-Version` header
- * (legacy + stateless HTTP), else `_meta.protocolVersion` (stateless). Undefined
- * over stdio (carried at the handshake). @internal
+ * (legacy + stateless HTTP), else the namespaced version (v2 envelope, else
+ * `_meta`), else the unnamespaced `_meta.protocolVersion`. Undefined over
+ * stdio (carried at the handshake). @internal
  */
-function resolveProtocolVersion(extra: McpExtra): string | undefined {
-  const fromHeader = readHeader(extra, 'mcp-protocol-version');
+function resolveProtocolVersion(request: NormalizedRequest): string | undefined {
+  const fromHeader = request.header('mcp-protocol-version');
   if (fromHeader != null) return fromHeader;
-  const meta = metaRecord(extra);
-  const fromMeta = meta?.[META_PROTOCOL_VERSION] ?? meta?.protocolVersion;
+  const fromMeta =
+    request.envelope?.[META_PROTOCOL_VERSION] ??
+    request.meta?.[META_PROTOCOL_VERSION] ??
+    request.meta?.protocolVersion;
   return typeof fromMeta === 'string' ? fromMeta : undefined;
 }
 
@@ -194,8 +186,8 @@ function readCodexTurnId(meta: Record<string, unknown> | undefined): string | un
  * Resolve client-supplied episode identifiers without changing the transport
  * anchor used for legacy session semantics and identity fallback.
  */
-function resolveCorrelation(extra: McpExtra, anchor: McpAnchor): McpCorrelation {
-  const meta = metaRecord(extra);
+function resolveCorrelation(request: NormalizedRequest, anchor: McpAnchor): McpCorrelation {
+  const meta = request.meta;
   const conversationId =
     readMetaIdentifier(meta, META_CONVERSATION_IDS) ??
     readMetaIdentifier(meta, META_HOST_CONVERSATION_IDS);
@@ -297,7 +289,7 @@ function processAnchorValue(): string {
 
 function resolveAnchor(
   transport: McpTransport,
-  extra: McpExtra,
+  request: NormalizedRequest,
   boundAnchor?: McpAnchor,
 ): McpAnchor {
   if (transport === 'stdio') {
@@ -305,8 +297,8 @@ function resolveAnchor(
   }
 
   // Streamable HTTP — legacy if a session id was minted, else stateless.
-  const sessionId = extra.sessionId;
-  if (typeof sessionId === 'string' && sessionId.length > 0) {
+  const sessionId = request.sessionId;
+  if (sessionId != null) {
     return { type: 'session-id', value: sessionId };
   }
 
@@ -317,7 +309,7 @@ function resolveAnchor(
   }
 
   // Stateless: prefer propagated trace context, else an anonymous floor.
-  const tp = metaRecord(extra)?.traceparent;
+  const tp = request.meta?.traceparent ?? request.envelope?.traceparent;
   const traceId = parseTraceId(typeof tp === 'string' ? tp : undefined);
   if (traceId != null) {
     return { type: 'trace', value: traceId };
@@ -339,24 +331,27 @@ export interface BuildContextOpts {
 /**
  * Extend the server-scope `serverCtx` with one request's resolved fields
  * (anchor, identity, protocol version, client info), without adding any tool
- * scope. Used by the per-request server events (e.g. `tools/list`). `transport`
- * is inherited from the server scope.
+ * scope. Used by the per-request server events (e.g. `tools/list`). A request
+ * that carries HTTP evidence reports `streamable-http`; every other request
+ * keeps the transport captured at `connect()`.
  * @internal
  */
 export function buildServerContext(
   serverCtx: McpServerContext,
-  extra: McpExtra,
+  extra: unknown,
   opts?: BuildContextOpts,
 ): McpServerContext {
-  const resolvedAnchor = resolveAnchor(serverCtx.transport, extra, serverCtx.anchor);
-
-  const authInfo = (extra as Record<string, unknown>).authInfo as
-    | Record<string, unknown>
-    | undefined;
+  const request = readRequest(extra);
+  // A request that carries HTTP evidence is streamable HTTP even when the
+  // object passed to connect() had no `handleRequest` — v2's per-request
+  // transport is that shape, and classifying it as stdio would mint a process
+  // user. The connect-time classification is unchanged for everything else.
+  const transport: McpTransport = request.isHttp ? 'streamable-http' : serverCtx.transport;
+  const resolvedAnchor = resolveAnchor(transport, request, serverCtx.anchor);
 
   const resolved = resolveIdentityFromChain({
     resolveIdentity: opts?.resolveIdentity,
-    authInfo,
+    authInfo: request.authInfo,
     serverIdentity: opts?.serverIdentity,
     anchor: resolvedAnchor,
     logger: opts?.logger,
@@ -364,15 +359,15 @@ export function buildServerContext(
 
   return createServerContext({
     ...serverCtx,
+    transport,
     anchor: resolvedAnchor,
-    protocolVersion: resolveProtocolVersion(extra) ?? serverCtx.protocolVersion,
-    correlation: resolveCorrelation(extra, resolvedAnchor),
+    protocolVersion: resolveProtocolVersion(request) ?? serverCtx.protocolVersion,
+    correlation: resolveCorrelation(request, resolvedAnchor),
     identity: resolved.identity,
     tenant: resolved.tenant ?? serverCtx.tenant,
     client: resolveRequestClientInfo(
-      extra,
+      request,
       serverCtx,
-      authInfo,
       opts?.resolveClientInfo,
       opts?.logger,
     ),
@@ -380,15 +375,15 @@ export function buildServerContext(
 }
 
 /**
- * Extend the server-scope `serverCtx` with this request's fields. `transport` is
- * inherited from the server scope; per-request fields are resolved per request.
- * Identity is resolved via the fallback chain.
+ * Extend the server-scope `serverCtx` with this request's fields. Transport
+ * follows {@link buildServerContext}; the other per-request fields are resolved
+ * per request. Identity is resolved via the fallback chain.
  * @internal
  */
 export function buildToolContext(
   serverCtx: McpServerContext,
   meta: McpToolMeta,
-  extra: McpExtra,
+  extra: unknown,
   opts?: BuildContextOpts,
 ): McpToolContext {
   return createToolContext(
