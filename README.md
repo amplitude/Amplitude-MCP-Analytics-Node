@@ -101,9 +101,9 @@ Once a server is bound and its tools wrapped, the SDK emits these automatically:
 | -- | -- | -- |
 | `[MCP] Session Initialized` | The `initialize` handshake (every transport) | client/server identity, `[MCP] Transport`, `[MCP] Auth Type` |
 | `[MCP] Session Ended` | Close of a connection that outlived one request (stdio + legacy Streamable HTTP) | `[MCP] Session Duration` |
-| `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size` |
-| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, client-supplied conversation/run/turn correlation, content-free `[MCP] Param *` shape metadata, `[MCP] Rationale` (opt-in, see below) |
-| `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
+| `[MCP] Tools Listed` | A `tools/list` request | `[MCP] Tool Count`, `[MCP] Tool Names` (capped), `[MCP] Response Duration`, `[MCP] Response Size`; on failure, error properties including `[MCP] Error Message Normalized` |
+| `[MCP] Tool Call Response` | Every instrumented tool call | `[MCP] Is Error`, `[MCP] Error Message`/`[MCP] Error Message Normalized`/`[MCP] Error Code`/`[MCP] Error Type`/`[MCP] Error Fingerprint`/`[MCP] Error HTTP Status`, `[MCP] Response Duration`, `[MCP] Request Size`, `[MCP] Response Size`, client-supplied conversation/run/turn correlation, content-free `[MCP] Param *` shape metadata, `[MCP] Rationale` (opt-in, see below) |
+| `[MCP] Tool Call Rejected` | A `tools/call` request that fails before any tool callback runs (unknown/disabled tool, input-schema validation) | `[MCP] Attempted Tool Name` (unvalidated input — kept off `[MCP] Tool Name`), `[MCP] Rejection Reason` (`unknown_tool`/`disabled_tool`/`schema_validation`/`unrecognized`), `[MCP] Error Message`, `[MCP] Error Message Normalized`, `[MCP] Response Duration`, `[MCP] Response Size`, `[MCP] Response HTTP Status` |
 | `[MCP] Feedback Submitted` | A call to the opt-in `submit_feedback` tool (see below) | `[MCP] Feedback Helpful`, `[MCP] Feedback Reason`, `[MCP] Feedback Solicited`, `[MCP] Feedback Tool Names`, `[MCP] Feedback Has Comment`. Not gated by `autocapture` |
 
 All event names and properties are prefixed `[MCP] ` so they never collide with
@@ -468,7 +468,8 @@ are unaffected.
 `[MCP] Error Message` carries free text the SDK didn't compose — a failing tool's
 own message, or the MCP SDK's input-validation text, which quotes the rejected
 argument value. Either may contain end-user data. `sanitizeErrorMessage` rewrites
-or drops it before emission, on every event that carries it:
+or drops it before emission, on every event that carries it. These events also
+emit `[MCP] Error Message Normalized` when the sanitized and content-redacted message is non-empty:
 
 ```ts
 createMcpAnalytics({
@@ -482,11 +483,30 @@ createMcpAnalytics({
 });
 ```
 
-Return `null` to omit the property entirely. `[MCP] Error Code` and
-`[MCP] Error Type` are unaffected, so failures stay segmentable. The text sent to
+Return `null` to omit both message properties entirely. `[MCP] Error Code`,
+`[MCP] Error Type`, and any available `[MCP] Error Fingerprint` are unaffected,
+so failures stay segmentable. The text sent to
 the client never changes. Built-in PII redaction still runs on whatever string
 the sanitizer returns. See
 [Redacting `[MCP] Error Message`](docs/events.md#redacting-mcp-error-message).
+
+Tool responses and failed tool listings emit `[MCP] Error Fingerprint` when
+available: the first 12 hex characters of SHA-256 over the error type and
+normalized message (UUIDs, numbers, and quoted strings normalized). It is
+computed before sanitization, so grouping still works when messages are dropped.
+Override it with `analytics.toolError(ctx, { code, message, fingerprint, ... })` using
+a stable, non-sensitive grouping key; fingerprint values are not content-redacted.
+Rejected tool calls also forward an existing fingerprint when the rejection
+arrived as a thrown error; in-band rejections have no fingerprint to emit.
+
+Tool responses, failed tool listings, and rejected calls also emit
+`[MCP] Error Message Normalized`: UUIDs become `<uuid>`, numbers become `<n>`,
+and quoted strings become `"<str>"` or `'<str>'`. It is computed at emission
+time from the **sanitized and content-redacted** message, not stored on `ctx.error`.
+The sanitizer runs first, followed by built-in and custom content redaction,
+then normalization. A dropped or empty message omits the normalized property.
+Normalization alone does not guarantee privacy. Fingerprints still use the original message, so
+sanitized normalized text may differ from the text used for hashing.
 
 ## Privacy and redaction
 
@@ -497,6 +517,7 @@ By default the SDK redacts personally identifiable information from the
 - properties passed to `trackServerEvent` / `trackToolEvent`
 - `[MCP] Rationale`
 - `[MCP] Error Message` (after `sanitizeErrorMessage`, when that hook is set)
+- `[MCP] Error Message Normalized` (derived from the sanitized and content-redacted message)
 - opt-in derived `[MCP] Param:` values
 
 The built-in patterns cover emails, phone numbers (including international

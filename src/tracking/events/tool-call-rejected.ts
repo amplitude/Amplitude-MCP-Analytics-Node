@@ -22,6 +22,7 @@ interface ToolCallRejectedOutcome {
   errorMessage?: string;
   errorCode?: string;
   errorType?: string;
+  errorFingerprint?: string;
   /** Wall-clock `tools/call` handler duration, in milliseconds. */
   durationMs?: number;
   /** Serialized byte size of the JSON-RPC error envelope sent to the client. */
@@ -60,6 +61,7 @@ export function emitToolCallRejected(
   }
   if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;
+  if (outcome.errorFingerprint) properties[K.errorFingerprint] = outcome.errorFingerprint;
   if (outcome.durationMs != null) properties[K.responseDuration] = Math.round(outcome.durationMs);
   if (outcome.responseSizeBytes != null) properties[K.responseSize] = outcome.responseSizeBytes;
   if (outcome.responseHttpStatus != null) {
