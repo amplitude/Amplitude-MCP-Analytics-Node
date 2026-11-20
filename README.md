@@ -22,7 +22,7 @@ steps.
 **Option 2 — manual**
 
 ```bash
-pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk zod
+pnpm add @amplitude/mcp-analytics '@amplitude/analytics-node@>=1.3.0' '@modelcontextprotocol/sdk@^1.14.0' 'zod@^3.25.0 || ^4.0.0'
 ```
 
 `@amplitude/analytics-node` and `zod` are required peers. The MCP package is
@@ -40,6 +40,13 @@ pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotoco
 
 `zod` accepts `^3.25.0` or `^4.0.0`. On v1 the feedback tool builds its input
 schema with zod. On v2 it uses the server package's JSON Schema helper.
+
+### MCP SDK compatibility
+
+`instrumentServer` and `instrumentTool` also accept v2 servers from
+`@modelcontextprotocol/server`. Request context is read from v1 `extra` or v2
+`ctx` without changing your handler signatures, including v2's per-request
+client identity, protocol version, HTTP headers, and auth information.
 
 ## Quick start
 
