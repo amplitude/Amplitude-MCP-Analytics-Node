@@ -25,6 +25,8 @@ const failed = { content: [{ type: 'text' as const, text: 'upstream 500' }], isE
 /** Wording and measurements the two SDK lines do not promise to share. */
 const UNSTABLE = new Set([
   '[MCP] Error Message',
+  '[MCP] Error Message Normalized',
+  '[MCP] Error Fingerprint',
   '[MCP] Response Duration',
   '[MCP] Response Size',
   '[MCP] Request Size',
