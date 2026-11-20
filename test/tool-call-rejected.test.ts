@@ -110,6 +110,7 @@ describe('instrumentServer — [MCP] Tool Call Rejected', () => {
       '[MCP] Attempted Tool Name': 'made_up_tool',
       '[MCP] Error Message': 'Tool made_up_tool not found',
       '[MCP] Error Type': 'protocol_error',
+      '[MCP] Error Fingerprint': expect.stringMatching(/^[0-9a-f]{12}$/),
       '[MCP] Is Error': true,
     });
     expect(rejected?.event_properties?.['[MCP] Error Code']).toBeTypeOf('string');

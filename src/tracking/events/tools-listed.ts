@@ -23,6 +23,7 @@ interface ToolsListedOutcome {
   errorMessage?: string;
   errorCode?: string;
   errorType?: string;
+  errorFingerprint?: string;
 }
 
 /**
@@ -58,6 +59,7 @@ export function emitToolsListed(
   }
   if (outcome.errorCode != null) properties[K.errorCode] = outcome.errorCode;
   if (outcome.errorType != null) properties[K.errorType] = outcome.errorType;
+  if (outcome.errorFingerprint) properties[K.errorFingerprint] = outcome.errorFingerprint;
 
   trackServerEvent(amplitude, ctx, TOOLS_LISTED, properties, { privacy });
 }

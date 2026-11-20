@@ -251,6 +251,7 @@ describe('sanitizeErrorMessage — every emitting path', () => {
     expect(event).toBeDefined();
     expect(event?.event_properties).not.toHaveProperty('[MCP] Error Message');
     expect(event?.event_properties?.['[MCP] Error Type']).toBe('thrown_exception');
+    expect(event?.event_properties?.['[MCP] Error Fingerprint']).toMatch(/^[0-9a-f]{12}$/);
   });
 });
 
