@@ -83,6 +83,27 @@ export interface McpServerLike {
   registerTool?: unknown;
 }
 
+/**
+ * Which server package this object comes from. v2 has no `.tool()` and its
+ * low-level server exposes `buildContext`. Anything else, including a server
+ * we cannot classify, stays on the v1 path.
+ * @internal
+ */
+export type ServerLine = 'v1' | 'v2';
+
+/**
+ * Tell a v1 server from a v2 server without importing either package.
+ * Handler hooks do not branch on this — they still wrap the private
+ * request-handler map, which both lines keep.
+ * @internal
+ */
+export function detectServerLine(server: object): ServerLine {
+  if (typeof (server as { tool?: unknown }).tool === 'function') return 'v1';
+  const nested = (server as { server?: unknown }).server;
+  const lowLevel = nested != null && typeof nested === 'object' ? nested : server;
+  return typeof (lowLevel as { buildContext?: unknown }).buildContext === 'function' ? 'v2' : 'v1';
+}
+
 /** A request handler as stored on the low-level server. @internal */
 export type ServerRequestHandler = (request: unknown, extra: McpExtra) => unknown;
 
@@ -106,6 +127,35 @@ export function getRequestHandlers(
  * `undefined` from {@link lookupRegisteredTool} means "could not tell".
  */
 export type RegisteredToolState = 'missing' | 'disabled' | 'enabled';
+
+const DISPATCH_WRAPPED = Symbol('dispatchWrapped');
+
+/** Observe callbacks only after SDK input validation, on either server line. @internal */
+export function observeRegisteredToolDispatch(
+  server: object,
+  name: string | undefined,
+  onDispatch: (extra: unknown) => void,
+): void {
+  if (name == null) return;
+  type Callback = ((...args: unknown[]) => unknown) & { [DISPATCH_WRAPPED]?: boolean };
+  const registry = (server as {
+    _registeredTools?: Record<string, { handler?: Callback; executor?: Callback; callback?: Callback }>;
+  })._registeredTools;
+  if (registry == null || !Object.prototype.hasOwnProperty.call(registry, name)) return;
+  const tool = registry[name];
+  if (tool == null) return;
+  const key = typeof tool.executor === 'function'
+    ? 'executor'
+    : typeof tool.handler === 'function' ? 'handler' : 'callback';
+  const original = tool[key];
+  if (typeof original !== 'function' || original[DISPATCH_WRAPPED]) return;
+  const wrapped: Callback = function (this: unknown, ...args: unknown[]) {
+    onDispatch(args[args.length - 1]);
+    return original.apply(this, args);
+  };
+  wrapped[DISPATCH_WRAPPED] = true;
+  tool[key] = wrapped;
+}
 
 /**
  * Look up an attempted `tools/call` name in the high-level server's tool
