@@ -22,16 +22,44 @@ steps.
 **Option 2 — manual**
 
 ```bash
-pnpm add @amplitude/mcp-analytics @amplitude/analytics-node @modelcontextprotocol/sdk zod
+pnpm add @amplitude/mcp-analytics '@amplitude/analytics-node@>=1.3.0' '@modelcontextprotocol/sdk@^1.14.0' 'zod@^3.25.0 || ^4.0.0'
 ```
 
-`@amplitude/analytics-node`, `@modelcontextprotocol/sdk`, and `zod` are peer
-dependencies — your MCP server already depends on the latter two. `zod` is
-the same range the MCP SDK accepts (`^3.25.0` or `^4.0.0`); the feedback
-tool builds its input schema with it. Any
-`@modelcontextprotocol/sdk` from `1.14.0` up is supported, including versions
-`1.21.0`+, which changed how `McpServer` reports a failed `tools/call`; the
-default events mean the same thing across that whole range.
+The required peer dependencies are `@amplitude/analytics-node` (`>=1.3.0`),
+`@modelcontextprotocol/sdk` (`>=1.14.0`), and `zod` (`^3.25.0 || ^4.0.0`).
+Reuse compatible versions your server already has. The command above selects
+the v1 MCP SDK; versions `1.21.0`+ are supported too, despite their changed
+`tools/call` error reporting.
+
+### MCP SDK compatibility
+
+`instrumentServer` and `instrumentTool` also accept v2 servers from
+`@modelcontextprotocol/server`. Request context is read from v1 `extra` or v2
+`ctx` without changing your handler signatures, including v2's per-request
+client identity, protocol version, HTTP headers, and auth information.
+
+For a v2 server, install the v2 server package alongside the current required
+peers (keep any other v2 transport packages your server uses):
+
+```bash
+pnpm add @amplitude/mcp-analytics '@amplitude/analytics-node@>=1.3.0' @modelcontextprotocol/server@^2 '@modelcontextprotocol/sdk@^1.14.0' 'zod@^3.25.0 || ^4.0.0'
+```
+
+V2 support is partial:
+
+- **The v1 package is still a required peer.** Installing only
+  `@modelcontextprotocol/server` does not satisfy the declared peers, even though
+  the published types do not import either MCP SDK package.
+- **`registerFeedbackTool` is not yet adapted to v2.** It still registers a
+  Zod raw input shape using the v1 registration contract; do not rely on the
+  built-in feedback tool on v2.
+- **Schema-rejection detection still uses v1 error wording.** V2 input-schema
+  failures may be reported as `unrecognized`, or may not emit
+  `[MCP] Tool Call Rejected` when an in-band error lacks the recognized
+  `MCP error <code>:` prefix. Unknown/disabled tools use the tool registry instead.
+
+V2 context reading is fixture-tested; the real-transport integration tests
+currently run against v1 only, not a v1/v2 compatibility matrix.
 
 ## Quick start
 
