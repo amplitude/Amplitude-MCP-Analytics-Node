@@ -139,12 +139,14 @@ export function observeRegisteredToolDispatch(
   if (name == null) return;
   type Callback = ((...args: unknown[]) => unknown) & { [DISPATCH_WRAPPED]?: boolean };
   const registry = (server as {
-    _registeredTools?: Record<string, { handler?: Callback; executor?: Callback }>;
+    _registeredTools?: Record<string, { handler?: Callback; executor?: Callback; callback?: Callback }>;
   })._registeredTools;
   if (registry == null || !Object.prototype.hasOwnProperty.call(registry, name)) return;
   const tool = registry[name];
   if (tool == null) return;
-  const key = typeof tool.executor === 'function' ? 'executor' : 'handler';
+  const key = typeof tool.executor === 'function'
+    ? 'executor'
+    : typeof tool.handler === 'function' ? 'handler' : 'callback';
   const original = tool[key];
   if (typeof original !== 'function' || original[DISPATCH_WRAPPED]) return;
   const wrapped: Callback = function (this: unknown, ...args: unknown[]) {
