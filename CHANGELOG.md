@@ -2,6 +2,18 @@
 
 Entries through 0.5.2 were backfilled from the GitHub releases. Later entries are generated from Conventional Commits.
 
+## [0.9.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.8.0...v0.9.0) (2026-11-20)
+
+
+### Features
+
+* support MCP TypeScript SDK v2 servers ([#64](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/64)) ([8e25c3c](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/8e25c3cac04df735b79b4741a418f8a2b02d2e7e))
+
+
+### Bug Fixes
+
+* read MCP request context from v1 and v2 servers ([#63](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/63)) ([72330b7](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/72330b7d26c55377519b649d06ef94e74e72e393))
+
 ## [0.8.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.7.0...v0.8.0) (2026-11-12)
 
 
