@@ -4,9 +4,6 @@ Every event `@amplitude/mcp-analytics` sends to Amplitude, with the exact
 conditions under which it fires and every property it can carry. For setup and
 API usage, see the [README](../README.md).
 
-For installation, peer ranges, and the remaining v2 feedback-tool and
-schema-rejection limitations, see [MCP SDK compatibility](../README.md#mcp-sdk-compatibility).
-
 Events are delivered through the standard Amplitude Node client (`track()`), so
 they land in your project like any other event. All default event names and all
 SDK-derived properties carry the `[MCP] ` prefix (including the trailing space)
