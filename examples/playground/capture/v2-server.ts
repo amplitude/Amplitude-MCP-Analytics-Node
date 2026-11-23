@@ -14,7 +14,10 @@ import { PLAYGROUND_SERVER_NAME, type Playground } from '../server.js';
  * request on the stateless HTTP fallback), so the returned function is the
  * unit of sharing — analytics state lives in `playground`, not the server.
  */
-export function createV2ServerFactory(playground: Playground): () => McpServer {
+export function createV2ServerFactory(
+  playground: Playground,
+  hooks?: { onConnect?: (channel: unknown) => void },
+): () => McpServer {
   const analytics = playground.analytics;
   return () => {
     const server = new McpServer(
@@ -59,6 +62,15 @@ export function createV2ServerFactory(playground: Playground): () => McpServer {
       tenant: { groupType: 'org id', groupValue: process.env.PLAYGROUND_ORG_ID ?? '0' },
     });
     analytics.registerFeedbackTool(server);
+    if (hooks?.onConnect) {
+      const onConnect = hooks.onConnect;
+      const connect = server.connect.bind(server);
+      server.connect = async (...args: Parameters<typeof connect>) => {
+        const result = await connect(...args);
+        onConnect(args[0]);
+        return result;
+      };
+    }
     return server;
   };
 }

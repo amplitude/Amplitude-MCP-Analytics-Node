@@ -251,13 +251,14 @@ describe('v2 capture — v2-stdio', () => {
   ): Promise<{ dir: string; stderr: string[] }> {
     const dir = await mkdtemp(join(tmpdir(), `mcp-capture-v2stdio-${line}-`));
     const stderr: string[] = [];
+    // Compat register hook transpiles the .ts entry — Node 20 has no
+    // --experimental-strip-types (same mechanism as test/compat/stdio.ts).
     const parameters = {
       command: process.execPath,
       args: [
         '--disable-warning=ExperimentalWarning',
-        '--experimental-strip-types',
         '--import',
-        join(REPO_ROOT, 'examples/playground/register-ts.mjs'),
+        join(REPO_ROOT, 'test/compat/stdio-register.mjs'),
         join(REPO_ROOT, 'examples/playground/capture/v2-stdio.ts'),
         '--trial',
         trial,
@@ -329,9 +330,8 @@ describe('v2 capture — v2-stdio', () => {
       command: process.execPath,
       args: [
         '--disable-warning=ExperimentalWarning',
-        '--experimental-strip-types',
         '--import',
-        join(REPO_ROOT, 'examples/playground/register-ts.mjs'),
+        join(REPO_ROOT, 'test/compat/stdio-register.mjs'),
         join(REPO_ROOT, 'examples/playground/capture/v2-stdio.ts'),
         '--trial',
         't-v2stdio-canary',

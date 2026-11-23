@@ -10,6 +10,7 @@ import {
   parseArgs,
   requiredArg,
   wrapTransportAccessor,
+  wrapV2ChannelDeliver,
   type CaptureContext,
 } from './context.js';
 import { writeManifestOnce } from './manifest.js';
@@ -83,7 +84,12 @@ export async function startCaptureV2Stdio(options: {
   // tap into message dispatch goes through an accessor (see context.ts).
   const transport = new StdioServerTransport(logStdioMessages(process.stdin, tap), process.stdout);
   wrapTransportAccessor(transport, ctx, recorder);
-  const handle = serveStdio(createV2ServerFactory(playground), { transport });
+  const handle = serveStdio(
+    createV2ServerFactory(playground, {
+      onConnect: (channel) => wrapV2ChannelDeliver(channel as { deliver?: (m: unknown) => unknown }, ctx),
+    }),
+    { transport },
+  );
   await recorder.lifecycle({ event: 'transport-connected', session: ctx.connection });
 
   let closed = false;

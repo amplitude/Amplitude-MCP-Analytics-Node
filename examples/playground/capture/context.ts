@@ -184,6 +184,27 @@ export function wrapTransportAccessor(
   };
 }
 
+/**
+ * Per-message ALS binding for v2 channels (`serveStdio`, and any other entry
+ * that funnels deliveries through `channel.deliver`). serveStdio's `onmessage`
+ * only pushes onto a queue consumed by a fire-and-forget pump, so processing
+ * runs under whichever store was active when the pump started — the previous
+ * message's, not the queued message's. `deliver` is the last per-message
+ * boundary, so each delivery re-binds its own context.
+ */
+export function wrapV2ChannelDeliver(
+  channel: { deliver?: (message: unknown) => unknown },
+  base: CaptureContext,
+): void {
+  const deliver = channel.deliver;
+  if (typeof deliver !== 'function') return;
+  channel.deliver = (message: unknown) => {
+    const shape = requestShape(message);
+    const ctx: CaptureContext = { ...base, rpcId: shape.id, method: shape.method };
+    return captureAls.run(ctx, () => deliver.call(channel, message));
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
