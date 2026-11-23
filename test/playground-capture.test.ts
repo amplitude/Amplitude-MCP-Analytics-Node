@@ -167,13 +167,15 @@ describe('playground capture harness', () => {
 
   it('records identity end to end (stdio)', { timeout: TIMEOUT }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'mcp-capture-stdio-'));
+    // Spawn through the compat register hook (same mechanism as
+    // test/compat/stdio.ts): Node 20 has no --experimental-strip-types, so the
+    // hook transpiles the TypeScript entry instead of relying on the flag.
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [
         '--disable-warning=ExperimentalWarning',
-        '--experimental-strip-types',
         '--import',
-        join(REPO_ROOT, 'examples/playground/register-ts.mjs'),
+        join(REPO_ROOT, 'test/compat/stdio-register.mjs'),
         join(REPO_ROOT, 'examples/playground/capture/stdio.ts'),
         '--trial',
         't-stdio',
@@ -185,7 +187,17 @@ describe('playground capture harness', () => {
     });
     const client = new Client(CLIENT_INFO);
     await client.connect(transport);
-    cleanup.push(() => client.close());
+    // Older stdio clients leave the child running after close().
+    cleanup.push(async () => {
+      await client.close().catch(() => undefined);
+      const pid = transport.pid;
+      if (pid == null) return;
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        return;
+      }
+    });
 
     const result = await client.callTool({ name: 'echo', arguments: { message: BASELINE_MESSAGE } });
     expect(result).toMatchObject({ content: [{ type: 'text', text: BASELINE_MESSAGE }] });

@@ -137,6 +137,23 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
         await server.connect(transport);
         wrapTransport(transport, ctx, recorder);
         await transport.handleRequest(req, res, parsed);
+        // Older SDKs resolve handleRequest when the message is dispatched, not
+        // when the response stream finishes — closing the transport here would
+        // end the response before send() can write it. Wait for the response
+        // to end first (a no-op once it already has).
+        await new Promise<void>((resolve) => {
+          if (res.writableEnded || res.destroyed) {
+            resolve();
+            return;
+          }
+          const timer = setTimeout(done, 10_000);
+          res.once('close', done);
+          res.once('finish', done);
+          function done(): void {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
       } finally {
         await transport.close().catch(() => undefined);
         await server.close().catch(() => undefined);
