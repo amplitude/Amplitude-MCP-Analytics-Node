@@ -94,36 +94,93 @@ export function wrapTransport(transport: Transport, base: CaptureContext, record
 
   const originalSend = transport.send.bind(transport);
   transport.send = (message, options) => {
-    const record: Record<string, unknown> = {
-      connection: base.connection,
-      serverInstance: base.serverInstance,
-    };
-    const body: Record<string, unknown> = message as unknown as Record<string, unknown>;
-    if (isRecord(body)) {
-      if (Object.prototype.hasOwnProperty.call(body, 'id')) {
-        const id = body.id;
-        record.id = typeof id === 'string' || typeof id === 'number' || id === null ? id : '<id>';
-        if (typeof id === 'string' || typeof id === 'number') {
-          record.requestMethod = requestMethods.get(id);
-        }
-      }
-      if (isRecord(body.result)) {
-        const result = body.result;
-        if (typeof result.protocolVersion === 'string') {
-          record.initialize = { protocolVersion: result.protocolVersion };
-        }
-        if (typeof result.isError === 'boolean') record.toolIsError = result.isError;
-        if (Array.isArray(result.tools)) record.toolsCount = result.tools.length;
-      }
-      if (isRecord(body.error)) {
-        record.errorCode = typeof body.error.code === 'number' ? body.error.code : '<code>';
-      }
-      if (typeof body.method === 'string') record.method = body.method;
-    }
-    void recorder.write('responses', record).catch((error: unknown) => {
-      process.stderr.write(`[capture] failed to write responses log: ${String(error)}\n`);
-    });
+    recordSend(base, recorder, requestMethods, message);
     return originalSend(message, options);
+  };
+}
+
+function recordSend(
+  base: CaptureContext,
+  recorder: Recorder,
+  requestMethods: Map<string | number, string>,
+  message: unknown,
+): void {
+  const record: Record<string, unknown> = {
+    connection: base.connection,
+    serverInstance: base.serverInstance,
+  };
+  const body: Record<string, unknown> = message as unknown as Record<string, unknown>;
+  if (isRecord(body)) {
+    if (Object.prototype.hasOwnProperty.call(body, 'id')) {
+      const id = body.id;
+      record.id = typeof id === 'string' || typeof id === 'number' || id === null ? id : '<id>';
+      if (typeof id === 'string' || typeof id === 'number') {
+        record.requestMethod = requestMethods.get(id);
+      }
+    }
+    if (isRecord(body.result)) {
+      const result = body.result;
+      if (typeof result.protocolVersion === 'string') {
+        record.initialize = { protocolVersion: result.protocolVersion };
+      }
+      if (Array.isArray(result.supportedVersions)) {
+        record.discover = { supportedVersions: result.supportedVersions };
+      }
+      if (typeof result.isError === 'boolean') record.toolIsError = result.isError;
+      if (Array.isArray(result.tools)) record.toolsCount = result.tools.length;
+    }
+    if (isRecord(body.error)) {
+      record.errorCode = typeof body.error.code === 'number' ? body.error.code : '<code>';
+    }
+    if (typeof body.method === 'string') record.method = body.method;
+  }
+  void recorder.write('responses', record).catch((error: unknown) => {
+    process.stderr.write(`[capture] failed to write responses log: ${String(error)}\n`);
+  });
+}
+
+interface AccessorTransport {
+  onmessage?: (message: unknown, extra?: unknown) => void;
+  send: (message: unknown) => unknown;
+}
+
+/**
+ * Variant for `serveStdio`: it assigns `wire.onmessage` itself, AFTER the
+ * transport is handed over, so a value-wrap installed beforehand would be
+ * overwritten. An accessor on the instance intercepts the assignment and
+ * wraps the dispatcher serveStdio installs, so each inbound message still
+ * dispatches inside the ALS store. `send` is wrapped by value as usual.
+ */
+export function wrapTransportAccessor(
+  transport: AccessorTransport,
+  base: CaptureContext,
+  recorder: Recorder,
+): void {
+  const requestMethods = new Map<string | number, string>();
+  let dispatcher: ((message: unknown, extra?: unknown) => void) | undefined = transport.onmessage;
+  Object.defineProperty(transport, 'onmessage', {
+    configurable: true,
+    enumerable: true,
+    get: () => dispatcher,
+    set: (fn: ((message: unknown, extra?: unknown) => void) | undefined) => {
+      dispatcher =
+        fn === undefined
+          ? undefined
+          : (message: unknown, extra?: unknown) => {
+              const shape = requestShape(message);
+              const ctx: CaptureContext = { ...base, rpcId: shape.id, method: shape.method };
+              if (shape.id !== undefined && shape.id !== null && shape.method) {
+                requestMethods.set(shape.id, shape.method);
+              }
+              captureAls.run(ctx, () => fn(message, extra));
+            };
+    },
+  });
+
+  const originalSend = transport.send.bind(transport);
+  transport.send = (message: unknown) => {
+    recordSend(base, recorder, requestMethods, message);
+    return originalSend(message);
   };
 }
 

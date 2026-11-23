@@ -22,13 +22,14 @@ export interface GroundTruth {
  */
 export async function writeManifestOnce(
   outDir: string,
-  record: { trial: string; mode: string; groundTruth: GroundTruth },
+  record: { trial: string; mode: string; serverLine: 'v1' | 'v2'; groundTruth: GroundTruth },
 ): Promise<void> {
   const path = join(outDir, 'manifest.json');
   if (existsSync(path)) return;
   const manifest = {
     trial: record.trial,
     mode: record.mode,
+    serverLine: record.serverLine,
     package: { name: '@amplitude/mcp-analytics', version: packageVersion(join(REPO_ROOT, 'package.json')) },
     harness: {
       gitHead: git(['rev-parse', 'HEAD']),
@@ -41,6 +42,12 @@ export async function writeManifestOnce(
       ),
       '@amplitude/analytics-node': packageVersion(
         join(REPO_ROOT, 'node_modules/@amplitude/analytics-node/package.json'),
+      ),
+      '@modelcontextprotocol/server': packageVersion(
+        join(REPO_ROOT, 'node_modules/@modelcontextprotocol/server/package.json'),
+      ),
+      '@modelcontextprotocol/client': packageVersion(
+        join(REPO_ROOT, 'node_modules/@modelcontextprotocol/client/package.json'),
       ),
     },
     runtime: { node: process.version, platform: platform(), release: release(), arch: arch() },

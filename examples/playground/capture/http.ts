@@ -5,7 +5,10 @@ import { pathToFileURL } from 'node:url';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { createMcpHandler } from '@modelcontextprotocol/server';
 import { createPlayground, type Playground } from '../server.js';
+import { createV2ServerFactory } from './v2-server.js';
+import { captureAls } from './context.js';
 import {
   assertLoopbackSink,
   captureHooks,
@@ -34,7 +37,7 @@ import { sanitizeHeaders, sanitizeMessage } from './sanitize.js';
 
 export const CAPTURE_HTTP_PATH = '/mcp';
 
-export type CaptureMode = 'http-session' | 'http-fresh';
+export type CaptureMode = 'http-session' | 'http-fresh' | 'v2-http';
 
 export interface CaptureHttpOptions {
   mode: CaptureMode;
@@ -74,6 +77,7 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
   await writeManifestOnce(options.outDir, {
     trial: options.trial,
     mode: options.mode,
+    serverLine: options.mode === 'v2-http' ? 'v2' : 'v1',
     groundTruth: {
       clientProduct: options.groundTruth?.clientProduct ?? null,
       clientSurface: options.groundTruth?.clientSurface ?? null,
@@ -87,12 +91,113 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
   let requestCount = 0;
   const serverCount = { n: 0 };
 
+  // v2 line: `createMcpHandler` owns era routing — modern (2026-07-28)
+  // requests are answered per the envelope, 2025-era traffic falls back to a
+  // fresh stateless instance per request (`legacy: 'stateless'`).
+  const v2Handler =
+    options.mode === 'v2-http' ? createMcpHandler(createV2ServerFactory(playground), { legacy: 'stateless' }) : undefined;
+
+  const forwardResponse = async (response: Response, res: ServerResponse): Promise<void> => {
+    const headers: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      if (key !== 'transfer-encoding' && key !== 'content-length') headers[key] = value;
+    });
+    res.writeHead(response.status, headers);
+    if (response.body == null) {
+      res.end();
+      return;
+    }
+    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+      res.write(chunk);
+    }
+    res.end();
+  };
+
+  const handleV2Request = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const requestAlias = `${recorder.aliaser.prefix}-req-${++requestCount}`;
+    let raw = '';
+    try {
+      raw = await readBody(req);
+    } catch {
+      json(res, 413, { error: 'payload too large' });
+      return;
+    }
+    let parsed: unknown;
+    if (raw.length > 0) {
+      try {
+        parsed = JSON.parse(raw) as unknown;
+      } catch {
+        await recordRequest(req, [], 'n/a', requestAlias, { raw: 'unparsed' });
+        jsonRpcError(res, 400, -32700, 'Parse error: invalid JSON');
+        return;
+      }
+    }
+    const messages = parsed === undefined ? [] : Array.isArray(parsed) ? parsed : [parsed];
+    const batch = Array.isArray(parsed) && parsed.length > 1;
+    await recordRequest(req, messages, 'n/a', requestAlias, { batch });
+
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value == null) continue;
+      headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+    }
+    const request = new Request(`http://127.0.0.1${req.url ?? CAPTURE_HTTP_PATH}`, {
+      method: req.method ?? 'POST',
+      headers,
+      body: req.method === 'GET' || req.method === 'HEAD' || raw.length === 0 ? undefined : raw,
+    });
+    const first = messages[0] as Record<string, unknown> | undefined;
+    const shape = {
+      id: first && (typeof first.id === 'string' || typeof first.id === 'number' || first.id === null) ? first.id : undefined,
+      method: first && typeof first.method === 'string' ? first.method : undefined,
+    };
+    const response = await captureAls.run(
+      { connection: 'n/a', serverInstance: 'v2-handler', requestAlias, rpcId: shape.id, method: shape.method },
+      () => v2Handler?.fetch(request) ?? Promise.resolve(new Response(null, { status: 500 })),
+    );
+
+    const summary: Record<string, unknown> = {
+      requestAlias,
+      httpStatus: response.status,
+      requestMethod: shape.method,
+    };
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      try {
+        const body: unknown = JSON.parse(await response.clone().text());
+        if (body != null && typeof body === 'object' && !Array.isArray(body)) {
+          const b = body as Record<string, unknown>;
+          if (b.id !== undefined) summary.id = b.id;
+          if (b.error != null && typeof b.error === 'object') {
+            summary.errorCode = (b.error as Record<string, unknown>).code;
+          }
+          if (b.result != null && typeof b.result === 'object') {
+            const result = b.result as Record<string, unknown>;
+            if (typeof result.protocolVersion === 'string') {
+              summary.initialize = { protocolVersion: result.protocolVersion };
+            }
+            if (Array.isArray(result.supportedVersions)) {
+              summary.discover = { supportedVersions: result.supportedVersions };
+            }
+            if (typeof result.isError === 'boolean') summary.toolIsError = result.isError;
+          }
+        }
+      } catch {
+        summary.unparsed = true;
+      }
+    } else if (contentType.includes('text/event-stream')) {
+      summary.sse = true;
+    }
+    await recorder.write('responses', summary);
+    await forwardResponse(response, res);
+  };
+
   const recordRequest = async (
     req: IncomingMessage,
     messages: unknown[],
     connection: string,
     requestAlias: string,
-    raw?: string,
+    extra?: { raw?: string; batch?: boolean },
   ): Promise<void> => {
     const record: Record<string, unknown> = {
       trial: options.trial,
@@ -104,7 +209,8 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
       headers: sanitizeHeaders(req.headers as Record<string, string | string[] | undefined>, recorder.aliaser),
       messages: messages.map((message) => sanitizeMessage(message, recorder.aliaser)),
     };
-    if (raw !== undefined) record.raw = raw.length > 300 ? `<len=${raw.length}>` : raw;
+    if (extra?.batch) record.batch = true;
+    if (extra?.raw !== undefined) record.raw = extra.raw.length > 300 ? `<len=${extra.raw.length}>` : extra.raw;
     await recorder.write('requests', record);
   };
 
@@ -121,7 +227,7 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
       }
       const parsed = await readParsedBody(req, res);
       if (parsed === undefined) {
-        await recordRequest(req, [], 'n/a', requestAlias, 'unparsed');
+        await recordRequest(req, [], 'n/a', requestAlias, { raw: 'unparsed' });
         return;
       }
       const messages = Array.isArray(parsed) ? parsed : [parsed];
@@ -163,7 +269,7 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
 
     const parsed = await readParsedBody(req, res);
     if (parsed === undefined) {
-      await recordRequest(req, [], 'none', requestAlias, 'unparsed');
+      await recordRequest(req, [], 'none', requestAlias, { raw: 'unparsed' });
       return;
     }
     const messages = Array.isArray(parsed) ? parsed : [parsed];
@@ -195,7 +301,7 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
       res.end(JSON.stringify({ error: 'not found' }));
       return;
     }
-    void handleMcpRequest(req, res).catch(() => {
+    void (v2Handler ? handleV2Request(req, res) : handleMcpRequest(req, res)).catch(() => {
       if (!res.headersSent) res.writeHead(500).end();
     });
   });
@@ -219,6 +325,7 @@ export async function startCaptureHttp(options: CaptureHttpOptions): Promise<Run
       if (closed) return;
       closed = true;
       await Promise.allSettled([...sessions.values()].map((session) => session.transport.close()));
+      await v2Handler?.close().catch(() => undefined);
       await closeHttp(http);
       await playground.close();
       await recorder.lifecycle({ event: 'process-stop', mode: options.mode, trial: options.trial });
@@ -343,7 +450,7 @@ function isDirectRun(): boolean {
 if (isDirectRun()) {
   const args = parseArgs(process.argv.slice(2));
   const mode = args.get('mode') ?? 'http-session';
-  if (mode !== 'http-session' && mode !== 'http-fresh') {
+  if (mode !== 'http-session' && mode !== 'http-fresh' && mode !== 'v2-http') {
     process.stderr.write(`[capture] unknown --mode ${mode}\n`);
     process.exit(2);
   }

@@ -42,6 +42,7 @@ export async function startCaptureStdio(options: {
   await writeManifestOnce(options.outDir, {
     trial: options.trial,
     mode: 'stdio',
+    serverLine: 'v1',
     groundTruth: options.groundTruth ?? {
       clientProduct: null,
       clientSurface: null,

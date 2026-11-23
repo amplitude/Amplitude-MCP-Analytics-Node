@@ -17,8 +17,13 @@ const args = parseArgs(process.argv.slice(2));
 const outDir = requiredArg(args, 'out');
 const trial = requiredArg(args, 'trial');
 const mode = args.get('mode') ?? 'stdio';
-if (mode !== 'stdio') {
-  process.stderr.write(`[capture] make-launcher only supports --mode stdio (got ${mode})\n`);
+const ENTRY: Record<string, string> = {
+  stdio: 'examples/playground/capture/stdio.ts',
+  'v2-stdio': 'examples/playground/capture/v2-stdio.ts',
+};
+const entry = ENTRY[mode];
+if (entry === undefined) {
+  process.stderr.write(`[capture] make-launcher supports --mode stdio|v2-stdio (got ${mode})\n`);
   process.exit(2);
 }
 
@@ -36,12 +41,12 @@ cd ${shellQuote(REPO_ROOT)} || exit 1
 unset AMPLITUDE_API_KEY
 exec ${shellQuote(process.execPath)} --disable-warning=ExperimentalWarning --experimental-strip-types \\
   --import ${shellQuote(join(REPO_ROOT, 'examples/playground/register-ts.mjs'))} \\
-  ${shellQuote(join(REPO_ROOT, 'examples/playground/capture/stdio.ts'))} \\
+  ${shellQuote(join(REPO_ROOT, entry))} \\
   --trial ${shellQuote(trial)} --out ${shellQuote(outDir)}${extraFlags}
 `;
 
 await mkdir(outDir, { recursive: true });
-const path = join(outDir, 'launch-stdio.sh');
+const path = join(outDir, `launch-${mode}.sh`);
 await writeFile(path, script, 'utf8');
 await chmod(path, 0o755);
 process.stderr.write(`[capture] wrote ${path}\n`);

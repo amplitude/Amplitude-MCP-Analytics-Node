@@ -166,3 +166,33 @@ Each trial directory gets:
   dispatch).
 - `ingestion.ndjson` — sanitized HTTP V2 batches as delivered to the sink,
   joinable to `events.ndjson` by insert-id alias.
+
+### v2 capture modes
+
+Two additional modes run the same playground on the TypeScript SDK v2 server
+line (`@modelcontextprotocol/server`), which answers `server/discover` and
+negotiates protocol revision 2026-07-28:
+
+```bash
+# v2-http: createMcpHandler with the default stateless legacy fallback.
+# Modern (envelope) requests are served per-request; 2025-era traffic gets a
+# fresh instance per POST.
+pnpm playground:capture:http -- --mode v2-http --trial my-trial --out ~/mcp-captures/my-trial
+
+# v2-stdio: serveStdio, which pins one instance per connection by era
+# (legacy 'serve' stays the default).
+pnpm playground:capture:v2-stdio -- --trial my-trial --out ~/mcp-captures/my-trial
+
+# Emit an executable launch-v2-stdio.sh
+pnpm playground:capture:launcher -- --mode v2-stdio --trial my-trial --out ~/mcp-captures/my-trial
+```
+
+The v2 tools are the same `echo`/`whoami`/`submit_feedback` set on a v2
+`McpServer`; v2 servers are built per connection, so `serverInstance` in
+`events.ndjson` is `v2-handler` on HTTP (one shared factory) and the process
+alias on stdio. The manifest records `serverLine: "v2"` plus the
+`@modelcontextprotocol/server` and `/client` versions. Sanitization also
+captures `server/discover` (`supportedVersions` in `responses.ndjson`), the
+`mcp-method` header, and modern `_meta` fields (`io.modelcontextprotocol/
+clientInfo` and `protocolVersion` keep their values; `clientCapabilities` and
+`envelope` reduce to key names).

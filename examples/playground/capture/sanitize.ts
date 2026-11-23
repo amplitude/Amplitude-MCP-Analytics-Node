@@ -88,6 +88,7 @@ function sanitizeClientInfo(value: unknown): unknown {
 
 const META_CLIENT_INFO = 'io.modelcontextprotocol/clientInfo';
 const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
+const META_CLIENT_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities';
 const META_PROGRESS_TOKEN = 'progressToken';
 const BASELINE_MESSAGE = /^baseline-[A-Za-z0-9_.-]+-call-[0-9]+$/;
 
@@ -100,6 +101,10 @@ function sanitizeMeta(meta: Record<string, unknown>, aliaser: Aliaser): Record<s
       out[key] = sanitizeClientInfo(value);
     } else if (key === META_PROTOCOL_VERSION) {
       out[key] = scrubField(value);
+    } else if (key === META_CLIENT_CAPABILITIES) {
+      out[key] = isRecord(value) ? { keys: Object.keys(value).sort() } : scrubField(value);
+    } else if (key === 'envelope' && isRecord(value)) {
+      out[key] = sanitizeMeta(value, aliaser);
     } else if (key === META_PROGRESS_TOKEN) {
       out[key] = typeof value === 'string' || typeof value === 'number' ? aliaser.alias('tok', String(value)) : value;
     } else {
@@ -177,7 +182,7 @@ function sanitizeRequestParams(params: Record<string, unknown>, aliaser: Aliaser
   return out;
 }
 
-const KEEP_VALUE_HEADERS = new Set(['user-agent', 'mcp-protocol-version', 'accept', 'content-type']);
+const KEEP_VALUE_HEADERS = new Set(['user-agent', 'mcp-protocol-version', 'mcp-method', 'accept', 'content-type']);
 const PRESENCE_HEADERS = new Set(['authorization', 'cookie', 'last-event-id', 'traceparent']);
 
 export function sanitizeHeaders(
