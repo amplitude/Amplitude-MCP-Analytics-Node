@@ -47,7 +47,10 @@
     "test:consumer": "node scripts/test-consumer.mjs",
     "playground": "node --eval \"process.stderr.write('Usage: pnpm playground:stdio | pnpm playground:http\\\\n')\"",
     "playground:stdio": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/stdio.ts",
-    "playground:http": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/http.ts"
+    "playground:http": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/http.ts",
+    "playground:capture:http": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/http.ts",
+    "playground:capture:stdio": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/stdio.ts",
+    "playground:capture:launcher": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/make-launcher.ts"
   },
   "devDependencies": {
     "@amplitude/analytics-node": "1.3.5",

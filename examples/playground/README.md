@@ -115,3 +115,54 @@ AMPLITUDE_API_KEY=your-project-key pnpm playground:http
 ```
 
 `pnpm playground` prints the two script names.
+
+## Capture mode
+
+`capture/` is a variant harness for recording what identity a real AI client
+actually sends — `initialize` `clientInfo`, per-request `_meta` clientInfo, the
+HTTP `User-Agent`, the agreed protocol version — alongside the `[MCP] Client
+Name`, `[MCP] Client Version`, `[MCP] User Agent`, `[MCP] Protocol Version`,
+and `[MCP] Transport` properties the SDK emits.
+
+Everything is sanitized before it touches disk or stderr: session ids,
+insert ids, user/device ids, progress tokens, and trace ids are replaced with
+stable per-run aliases; user names in paths, emails, and long tokens are
+scrubbed; header and `_meta` values not on the allowlist are reduced to
+presence booleans or key names. `echo` arguments are dropped unless the
+message matches the `baseline-…-call-N` shape used by the validation script.
+Capture always delivers to the local sink — `AMPLITUDE_API_KEY` is deleted
+inside the process and a non-loopback sink URL aborts startup.
+
+```bash
+# Session-bearing HTTP on :8787
+pnpm playground:capture:http -- --mode http-session --trial my-trial --out ~/mcp-captures/my-trial
+
+# Stateless HTTP: fresh server+transport per POST, GET/DELETE 405
+pnpm playground:capture:http -- --mode http-fresh --trial my-trial --out ~/mcp-captures/my-trial
+
+# stdio (spawned by a desktop client)
+pnpm playground:capture:stdio -- --trial my-trial --out ~/mcp-captures/my-trial
+
+# Emit an executable launch-stdio.sh you can point a desktop app at
+# (absolute node path, no PATH/pnpm needed)
+pnpm playground:capture:launcher -- --trial my-trial --out ~/mcp-captures/my-trial
+```
+
+Optional ground-truth flags recorded in the manifest (never derived from MCP
+data): `--client-product`, `--client-surface`, `--client-version`,
+`--topology`.
+
+Each trial directory gets:
+
+- `manifest.json` — trial, mode, harness git HEAD, sha256 of `src/`, package
+  and dependency versions, runtime, ground truth (written once).
+- `lifecycle.ndjson` — process start/stop, session open/close (aliases only).
+- `requests.ndjson` — sanitized inbound messages, headers, connection and
+  request aliases.
+- `responses.ndjson` — server→client response summaries (ids, agreed protocol
+  version, error codes — never result bodies).
+- `events.ndjson` — sanitized Amplitude events, joined to the request that
+  produced them via ALS context (`join: "none"` when emitted outside
+  dispatch).
+- `ingestion.ndjson` — sanitized HTTP V2 batches as delivered to the sink,
+  joinable to `events.ndjson` by insert-id alias.

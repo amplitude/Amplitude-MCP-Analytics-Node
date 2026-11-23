@@ -4,7 +4,7 @@ import * as amplitude from '@amplitude/analytics-node';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createMcpAnalytics, FEEDBACK_TOOL_INSTRUCTIONS, type AmplitudeMCPAnalytics } from '../../src/index.js';
-import type { AmplitudeClientLike } from '../../src/types.js';
+import type { AmplitudeClientLike, AmplitudeEvent } from '../../src/types.js';
 import { defaultRequestLogPath, openRequestLog, type RequestLog } from './request-log.js';
 import { startIngestionSink, type IngestionSink } from './sink.js';
 
@@ -32,6 +32,19 @@ export interface PlaygroundOptions {
    * `examples/playground/mcp-requests.ndjson`.
    */
   requestLogPath?: string;
+  /**
+   * Capture hooks. When set, the raw request log is disabled, the sink writes
+   * sanitized ingestion bodies, and every tracked event is reported before it
+   * is queued. See `capture/` for the harness that supplies these.
+   */
+  capture?: PlaygroundCapture;
+}
+
+export interface PlaygroundCapture {
+  /** Sees each event before analytics-node queues it. May set insert_id. */
+  onTrack: (event: AmplitudeEvent) => void;
+  /** Replaces raw ingestion logging; returns the value to log as one JSON line. */
+  sanitizeIngestion: (body: unknown) => unknown;
 }
 
 export interface Playground {
@@ -64,8 +77,13 @@ export interface Playground {
 export async function createPlayground(options: PlaygroundOptions = {}): Promise<Playground> {
   const delivery = resolveDelivery(options.delivery);
   const logPath = options.logPath ?? defaultLogPath();
-  const sink = delivery === 'sink' ? await startIngestionSink({ logPath }) : undefined;
-  const requests = await openRequestLog(options.requestLogPath ?? defaultRequestLogPath());
+  const sink =
+    delivery === 'sink'
+      ? await startIngestionSink({ logPath, sanitize: options.capture?.sanitizeIngestion })
+      : undefined;
+  const requests = options.capture
+    ? noopRequestLog()
+    : await openRequestLog(options.requestLogPath ?? defaultRequestLogPath());
   const apiKey = delivery === 'amplitude' ? requiredApiKey() : LOCAL_API_KEY;
 
   const initOptions: amplitude.Types.NodeOptions = {
@@ -77,7 +95,7 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
   await amplitude.init(apiKey, initOptions).promise;
 
   const analytics = createMcpAnalytics({
-    amplitude: amplitudeClient(),
+    amplitude: amplitudeClient(options.capture),
     serverName: PLAYGROUND_SERVER_NAME,
     serverVersion: packageVersion(),
   });
@@ -160,6 +178,15 @@ export async function createPlayground(options: PlaygroundOptions = {}): Promise
   return playground;
 }
 
+/** Capture mode writes its own sanitized request log; this swallows the raw one. */
+function noopRequestLog(): RequestLog {
+  return {
+    logPath: '<capture>',
+    write: () => Promise.resolve(),
+    close: () => Promise.resolve(),
+  };
+}
+
 export function defaultLogPath(): string {
   return fileURLToPath(new URL('./events.ndjson', import.meta.url));
 }
@@ -184,9 +211,10 @@ function requiredApiKey(): string {
  * Its `track` parameter type is narrower than {@link AmplitudeClientLike}, so
  * the call is wrapped instead of passing the module through as `amplitude`.
  */
-function amplitudeClient(): AmplitudeClientLike {
+function amplitudeClient(capture?: PlaygroundCapture): AmplitudeClientLike {
   return {
     track: (event) => {
+      capture?.onTrack(event);
       amplitude.track(event as Parameters<typeof amplitude.track>[0]);
     },
     flush: () => amplitude.flush(),
