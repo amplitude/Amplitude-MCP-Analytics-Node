@@ -26,6 +26,7 @@ export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields<Def
     sessionId: ctx.anchor.type === 'session-id' ? ctx.anchor.value : NO_SESSION,
     clientName: clientString(client?.name) ?? UNKNOWN,
     clientNameSource: clientNameSource(client),
+    clientFamily: family,
     clientFamilySource: familySource,
     serverName: ctx.server.name,
     transport: ctx.transport,
@@ -38,7 +39,6 @@ export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields<Def
   if (userAgent != null) eventFields.userAgent = userAgent;
   const oauthClientId = clientString(client?.oauthClientId);
   if (oauthClientId != null) eventFields.oauthClientId = oauthClientId;
-  if (family != null) eventFields.clientFamily = family;
   if (surface != null) eventFields.clientSurface = surface;
   if (ctx.server.version != null) eventFields.serverVersion = ctx.server.version;
   if (ctx.server.type != null) eventFields.serverType = ctx.server.type;

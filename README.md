@@ -222,8 +222,9 @@ unchanged.
 
 Events report how the SDK obtained the raw client name and which signal
 identified the client family. Recognized names and branded User-Agents can
-identify a family on both stateful and stateless transports. The SDK adds a
-surface only when the signal identifies one.
+identify a family on both stateful and stateless transports. Events without a
+recognized family use `Other`. The SDK adds a surface when the signal
+identifies one.
 
 The protocol version comes from request metadata when available, then from
 the successful handshake on that connection. Events omit `[MCP] User Agent`

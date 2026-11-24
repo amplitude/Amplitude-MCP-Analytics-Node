@@ -16,6 +16,7 @@ describe('ctxToAmplitudeFields', () => {
       sessionId: 'no-session',
       clientName: 'unknown',
       clientNameSource: 'none',
+      clientFamily: 'Other',
       clientFamilySource: 'none',
       serverName: 'my-server',
       transport: 'stdio',

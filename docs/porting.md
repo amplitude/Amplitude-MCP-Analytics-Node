@@ -340,8 +340,19 @@ host-specific failure through the free-form `[MCP] Error Code` instead.
 Use `no-session` for a missing `[MCP] Session ID` and `unknown` for a missing
 `[MCP] Client Name`. Omit `[MCP] User Agent` when unavailable. Follow the
 [client attribution rules](./events.md#client-identity) for family and surface.
+Events with no recognized family use `Other` and family source `none`.
 Protocol version falls back from request metadata to the successful handshake
 response on the same connection, then to a configured host value.
+
+The name fixtures use the MCP identities declared in the client projects:
+[Cline](https://github.com/cline/cline/blob/v3.68.0/src/services/mcp/McpHub.ts#L363-L367),
+[Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/03862c4164844c6cf8063b4cc48546ec1609cf2e/packages/core/src/tools/mcp-client.ts#L1869-L1874),
+[OpenCode](https://github.com/anomalyco/opencode/blob/2255b8932263fb368d3f4e16e60bf3901bde6c4f/packages/core/src/mcp/client.ts#L405-L408),
+[Roo Code](https://github.com/RooCodeInc/Roo-Code/blob/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/services/mcp/McpHub.ts#L688-L693),
+[VS Code](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/mcp/common/mcpServerRequestHandler.ts#L135-L138)
+([product name](https://github.com/microsoft/vscode/blob/main/product.json#L2-L3)),
+and [Zed](https://github.com/zed-industries/zed/blob/aa06397a1d88189b779b3c781c3e6835aa0cb888/crates/context_server/src/context_server.rs#L152-L161).
+Keep the fixtures in both SDKs in sync when adding identities.
 
 Map the error classification onto the error model of your language, not onto
 Node's model. Use `timeout` for your cancellation error. Use `transport_error`

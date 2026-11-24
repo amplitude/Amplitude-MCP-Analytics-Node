@@ -1,7 +1,7 @@
 import type { McpClientInfo } from './types.js';
 
 type ClientIdentity = Pick<McpClientInfo, 'name' | 'version' | 'nameSource'>;
-type ClientFamily = { family?: string; surface?: string };
+type ClientFamily = { family: string; surface?: string };
 export type FamilySource = 'client-name' | 'user-agent' | 'none';
 
 const NAME_FAMILIES = new Map<string, ClientFamily>([
@@ -12,6 +12,13 @@ const NAME_FAMILIES = new Map<string, ClientFamily>([
   ['cursor', { family: 'cursor' }],
   ['cursor-vscode', { family: 'cursor', surface: 'vscode' }],
   ['openai-mcp', { family: 'chatgpt' }],
+  ['cline', { family: 'cline' }],
+  ['gemini-cli-mcp-client', { family: 'gemini-cli' }],
+  ['opencode', { family: 'opencode' }],
+  ['roo code', { family: 'roo-code' }],
+  ['visual studio code', { family: 'vscode' }],
+  ['code - oss', { family: 'vscode' }],
+  ['zed', { family: 'zed' }],
 ]);
 const UA_FAMILIES = new Map<string, string>([
   ['claude-code', 'claude-code'],
@@ -86,5 +93,5 @@ export function resolveClientFamily(
     };
   }
   if (fromUserAgent != null) return { ...fromUserAgent, familySource: 'user-agent' };
-  return { familySource: 'none' };
+  return { family: 'Other', familySource: 'none' };
 }

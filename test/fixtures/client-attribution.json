@@ -201,6 +201,90 @@
     }
   },
   {
+    "case": "Cline initialize name",
+    "client": {
+      "name": "Cline"
+    },
+    "expected": {
+      "[MCP] Client Name": "Cline",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "cline",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Gemini CLI initialize name",
+    "client": {
+      "name": "gemini-cli-mcp-client"
+    },
+    "expected": {
+      "[MCP] Client Name": "gemini-cli-mcp-client",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "gemini-cli",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "OpenCode initialize name",
+    "client": {
+      "name": "opencode"
+    },
+    "expected": {
+      "[MCP] Client Name": "opencode",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "opencode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Roo Code initialize name",
+    "client": {
+      "name": "Roo Code"
+    },
+    "expected": {
+      "[MCP] Client Name": "Roo Code",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "roo-code",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Visual Studio Code initialize name",
+    "client": {
+      "name": "Visual Studio Code"
+    },
+    "expected": {
+      "[MCP] Client Name": "Visual Studio Code",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "vscode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Code OSS initialize name",
+    "client": {
+      "name": "Code - OSS"
+    },
+    "expected": {
+      "[MCP] Client Name": "Code - OSS",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "vscode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Zed initialize name",
+    "client": {
+      "name": "Zed"
+    },
+    "expected": {
+      "[MCP] Client Name": "Zed",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "zed",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
     "case": "Anthropic validation probe",
     "client": {
       "name": "Anthropic",
@@ -210,6 +294,7 @@
       "[MCP] Client Name": "Anthropic",
       "[MCP] Client Name Source": "host",
       "[MCP] User Agent": "python-httpx/0.28.1",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   },
@@ -222,6 +307,7 @@
       "[MCP] Client Name": "unknown",
       "[MCP] Client Name Source": "none",
       "[MCP] User Agent": "node",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   },
@@ -234,6 +320,7 @@
       "[MCP] Client Name": "unknown",
       "[MCP] Client Name Source": "none",
       "[MCP] User Agent": "undici",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   },
@@ -247,6 +334,7 @@
       "[MCP] Client Name": "my-cursor-wrapper",
       "[MCP] Client Name Source": "host",
       "[MCP] User Agent": "Mozilla/5.0 Cursor/1.0.0",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   },
@@ -263,6 +351,7 @@
     "expected": {
       "[MCP] Client Name": "unknown",
       "[MCP] Client Name Source": "none",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   },
@@ -272,6 +361,7 @@
     "expected": {
       "[MCP] Client Name": "unknown",
       "[MCP] Client Name Source": "none",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   },
@@ -284,6 +374,7 @@
     "expected": {
       "[MCP] Client Name": "opaque-host-name",
       "[MCP] Client Name Source": "oauth",
+      "[MCP] Client Family": "Other",
       "[MCP] Client Family Source": "none"
     }
   }
