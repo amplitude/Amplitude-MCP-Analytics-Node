@@ -1,7 +1,7 @@
 /**
  * One scenario table against a v1 server and a v2 server. The `[MCP]` events
  * must match, aside from fields whose text or timing legitimately differ
- * (error message wording, durations, sizes).
+ * (error message wording, durations, sizes, negotiated protocol revision).
  */
 import { Client as V1Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport as V1Memory } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -22,7 +22,7 @@ type Line = 'v1' | 'v2';
 const ok = { content: [{ type: 'text' as const, text: 'ok' }] };
 const failed = { content: [{ type: 'text' as const, text: 'upstream 500' }], isError: true as const };
 
-/** Wording and measurements the two SDK lines do not promise to share. */
+/** Values that can differ across the two SDK lines. */
 const UNSTABLE = new Set([
   '[MCP] Error Message',
   '[MCP] Error Message Normalized',
@@ -31,6 +31,8 @@ const UNSTABLE = new Set([
   '[MCP] Response Size',
   '[MCP] Request Size',
   '[MCP] Session Duration',
+  // The two clients can negotiate different default protocol revisions.
+  '[MCP] Protocol Version',
 ]);
 
 interface ToolSchema {
