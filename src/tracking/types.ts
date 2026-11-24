@@ -3,8 +3,10 @@
  * are produced at emit time by `reservedFieldsToProperties`.
  */
 import type { PrivacyConfig } from '../core/privacy.js';
+import type { FamilySource } from '../context/client-attribution.js';
 import type {
   AnchorType,
+  McpClientInfo,
   McpEpisodeAnchorConfidence,
   McpEpisodeAnchorType,
   McpTransport,
@@ -16,8 +18,11 @@ export interface DefaultServerFields {
   sessionId: string;
   /** `'unknown'` when absent. */
   clientName: string;
-  /** `'unknown'` when absent. */
-  userAgent: string;
+  clientNameSource?: McpClientInfo['nameSource'];
+  clientFamilySource?: FamilySource;
+  clientFamily?: string;
+  clientSurface?: string;
+  userAgent?: string;
   serverName: string;
   transport: McpTransport;
   anchorType: AnchorType;

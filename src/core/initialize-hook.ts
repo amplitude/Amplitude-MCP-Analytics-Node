@@ -22,6 +22,7 @@
  * cross-request state, which is what makes it work on per-request and
  * serverless hosts too.
  */
+import { clientString } from '../context/client-attribution.js';
 import { isPromise } from '../utils/common.js';
 import {
   getRequestHandlers,
@@ -29,12 +30,6 @@ import {
   type McpServerLike,
   type ServerRequestHandler,
 } from './mcp.js';
-
-/** Client identity carried on an `initialize` request. */
-interface HandshakeClient {
-  name?: string;
-  version?: string;
-}
 
 /** Marks a wrapped handler so a second install is a no-op. */
 const WRAPPED = Symbol.for('amplitude.mcp.initializeWrapped');
@@ -53,7 +48,7 @@ const WRAPPED = Symbol.for('amplitude.mcp.initializeWrapped');
  */
 export function installInitializeHook(
   server: McpServerLike,
-  onInitialize: (clientInfo: HandshakeClient | undefined, extra: McpExtra) => void,
+  onInitialize: (clientInfo: unknown, protocolVersion: string | undefined, extra: McpExtra) => void,
 ): boolean {
   const handlers = getRequestHandlers(server);
   if (handlers == null) return false;
@@ -66,14 +61,13 @@ export function installInitializeHook(
     // Read `clientInfo` off the request before delegating: the params are the
     // only place it exists, and the handler does not echo it back.
     const params = (request as { params?: { clientInfo?: unknown } }).params;
-    const info = params?.clientInfo;
-    const clientInfo = info != null && typeof info === 'object'
-      ? (info as HandshakeClient)
-      : undefined;
-
-    const report = (): void => {
+    const clientInfo = params?.clientInfo;
+    const report = (result: unknown): void => {
       try {
-        onInitialize(clientInfo, extra);
+        const protocolVersion = result != null && typeof result === 'object' && 'protocolVersion' in result
+          ? clientString(result.protocolVersion)
+          : undefined;
+        onInitialize(clientInfo, protocolVersion, extra);
       } catch {
         // Telemetry is best-effort — never let it break the handshake.
       }
@@ -85,11 +79,11 @@ export function installInitializeHook(
     const out = original(request, extra);
     if (isPromise(out)) {
       return out.then((res) => {
-        report();
+        report(res);
         return res;
       });
     }
-    report();
+    report(out);
     return out;
   };
   (wrapped as ServerRequestHandler & { [WRAPPED]?: boolean })[WRAPPED] = true;

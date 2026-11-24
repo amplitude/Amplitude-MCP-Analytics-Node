@@ -331,6 +331,7 @@ describe('per-request _meta client info', () => {
         arguments: {},
         _meta: {
           'io.modelcontextprotocol/clientInfo': { name: 'vscode', version: '2.0.0' },
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
         },
       },
     });
@@ -340,6 +341,24 @@ describe('per-request _meta client info', () => {
     // Per-request identity wins over the handshake's `cursor`.
     expect(calls[0]?.event_properties?.['[MCP] Client Name']).toBe('vscode');
     expect(calls[0]?.event_properties?.['[MCP] Client Version']).toBe('2.0.0');
+    expect(calls[0]?.event_properties?.['[MCP] Client Name Source']).toBe('request-metadata');
+    expect(calls[0]?.event_properties?.['[MCP] Protocol Version']).toBe('2026-07-28');
+    await send(clientT, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'search', arguments: {} },
+    });
+    const laterCall = only(events, '[MCP] Tool Call Response')[1];
+    const negotiated = only(events, '[MCP] Session Initialized')[0]
+      ?.event_properties?.['[MCP] Protocol Version'];
+    expect(negotiated).toEqual(expect.any(String));
+    expect(negotiated).not.toBe('2026-07-28');
+    expect(laterCall?.event_properties).toMatchObject({
+      '[MCP] Client Name': 'cursor',
+      '[MCP] Client Name Source': 'handshake',
+      '[MCP] Protocol Version': negotiated,
+    });
   });
 });
 

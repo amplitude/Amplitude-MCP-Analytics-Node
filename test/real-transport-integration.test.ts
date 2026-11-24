@@ -233,3 +233,72 @@ describe('real Streamable HTTP transport — session-bearing', () => {
     expect(propsOf(ended[0])).toHaveProperty('[MCP] Session Duration');
   });
 });
+
+it.each([
+  { name: 'stateful', open: sessionHarness, persists: true },
+  { name: 'fresh server per request', open: statelessHarness, persists: false },
+])('tracks the negotiated version with a $name HTTP server', async ({ open, persists }) => {
+  const h = await open();
+  cleanup.push(h.close);
+  const headers = new Headers({
+    accept: 'application/json, text/event-stream',
+    'content-type': 'application/json',
+    'user-agent': 'claude-code/2.1.311 (sdk-cli)',
+  });
+  const post = (message: Record<string, unknown>) => fetch(h.url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ jsonrpc: '2.0', ...message }),
+  });
+
+  const initialize = await post({
+    id: 1, method: 'initialize',
+    params: {
+      protocolVersion: '1900-01-01',
+      capabilities: {},
+      clientInfo: { name: 'cursor-vscode', version: '1.0.0' },
+    },
+  });
+  expect(initialize.ok).toBe(true);
+  const sessionId = initialize.headers.get('mcp-session-id');
+  if (sessionId != null) headers.set('mcp-session-id', sessionId);
+  const body = await initialize.text();
+  const reply = JSON.parse(body.split('\n').find((line) => line.startsWith('data: '))?.slice(6) ?? body);
+  const negotiated = reply.result.protocolVersion;
+  expect(negotiated).not.toBe('1900-01-01');
+  expect(propsOf(only(h.events, '[MCP] Session Initialized')[0])).toMatchObject({
+    '[MCP] Client Name Source': 'handshake',
+    '[MCP] Client Family': 'cursor',
+    '[MCP] Client Surface': 'vscode',
+    '[MCP] Client Family Source': 'client-name',
+    '[MCP] Protocol Version': negotiated,
+  });
+  expect((await post({ method: 'notifications/initialized' })).status).toBe(202);
+
+  const call = await post({ id: 2, method: 'tools/call', params: { name: 'ping', arguments: {} } });
+  expect(call.ok).toBe(true);
+  await call.text();
+  const props = propsOf(only(h.events, '[MCP] Tool Call Response')[0]);
+  if (persists) {
+    expect(props['[MCP] Protocol Version']).toBe(negotiated);
+    expect(props['[MCP] Client Name Source']).toBe('handshake');
+    expect(props['[MCP] Client Family']).toBe('cursor');
+  } else {
+    expect(props).not.toHaveProperty('[MCP] Protocol Version');
+    expect(props).toMatchObject({
+      '[MCP] Client Name': 'unknown',
+      '[MCP] Client Name Source': 'none',
+      '[MCP] Client Family': 'claude-code',
+      '[MCP] Client Surface': 'cli',
+      '[MCP] Client Family Source': 'user-agent',
+    });
+  }
+
+  await h.close();
+  cleanup = [];
+  if (persists) {
+    const ended = propsOf(only(h.events, '[MCP] Session Ended')[0]);
+    expect(ended['[MCP] Protocol Version']).toBe(negotiated);
+    expect(ended).not.toHaveProperty('[MCP] User Agent');
+  }
+});

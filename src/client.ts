@@ -5,6 +5,7 @@ import {
   setRationale as setRationaleOnCtx,
 } from './context/index.js';
 import type { ClientInfoResolver, IdentityResolver, McpServerContext, McpTenant, McpToolContext, McpToolMeta, SetIdentityInput } from './context/types.js';
+import { clientNameSource, readClientIdentity, selectClientIdentity } from './context/client-attribution.js';
 import { buildServerContext, resolveTransport } from './core/build-context.js';
 import type { PrivacyConfig } from './core/privacy.js';
 import {
@@ -58,6 +59,16 @@ import { isBundlerEnvironment, tryRequire } from './utils/resolve-module.js';
 
 /** Marks a server whose `connect` we've already wrapped, to stay idempotent. */
 const INSTRUMENTED = Symbol.for('amplitude.mcp.instrumented');
+
+function recordHandshakeClient(ctx: McpServerContext, clientInfo: unknown): void {
+  ctx.client = {
+    ...ctx.client,
+    ...selectClientIdentity(
+      readClientIdentity(clientInfo, 'handshake'),
+      readClientIdentity(ctx.client, clientNameSource(ctx.client)),
+    ),
+  };
+}
 
 /**
  * Per-connection options for `instrumentServer()`. The identity fields sit at
@@ -741,15 +752,10 @@ export class AmplitudeMCPAnalytics {
       // REQUEST, which is the only message carrying the client's `clientInfo`.
       // See `core/initialize-hook.ts` for why `oninitialized` cannot do this on
       // a per-request server.
-      const initializeHooked = installInitializeHook(lowLevelServer, (clientInfo, extra) => {
+      const initializeHooked = installInitializeHook(lowLevelServer, (clientInfo, protocolVersion, extra) => {
         if (scope.ctx == null) return;
-        if (clientInfo != null) {
-          scope.ctx.client = {
-            ...scope.ctx.client,
-            name: clientInfo.name,
-            version: clientInfo.version,
-          };
-        }
+        recordHandshakeClient(scope.ctx, clientInfo);
+        scope.ctx.protocolVersion = protocolVersion ?? scope.ctx.protocolVersion;
         // `[MCP] Session Initialized` marks "a client completed the handshake
         // with this server", which is meaningful on every transport — including
         // stateless HTTP, where it is now the one event that can carry a real
@@ -779,15 +785,8 @@ export class AmplitudeMCPAnalytics {
             logger: getLogger(this._amplitude),
           },
         );
-        // Persist the CONNECTION-level resolution (anchor, identity, protocol
-        // version) but keep `client` as the handshake value. `resolved.client`
-        // is this one request's answer, including whatever `resolveClientInfo`
-        // returned and the `authInfo` client id; storing it on the server scope
-        // would make it the fallback for later requests, so a request whose
-        // resolver returns nothing (or that carries no `authInfo`) would inherit
-        // the previous request's client name and OAuth client id instead of
-        // falling back to the handshake.
-        scope.ctx = { ...resolved, client: scope.ctx.client };
+        // Retain only connection-level client and protocol signals for later requests.
+        scope.ctx = { ...resolved, client: scope.ctx.client, protocolVersion: scope.ctx.protocolVersion };
         this._serverCtx = scope.ctx;
         scope.sessionStartMs = performance.now();
         emitSessionInitialized(this._amplitude, resolved, this._privacy);
@@ -803,7 +802,7 @@ export class AmplitudeMCPAnalytics {
         if (!initializeHooked) {
           const clientInfo = lowLevelServer.getClientVersion?.();
           if (clientInfo != null && scope.ctx != null) {
-            scope.ctx.client = { ...scope.ctx.client, name: clientInfo.name, version: clientInfo.version };
+            recordHandshakeClient(scope.ctx, clientInfo);
           }
 
           const sessionId = (transport as { sessionId?: string }).sessionId;
@@ -824,8 +823,8 @@ export class AmplitudeMCPAnalytics {
                 logger: getLogger(this._amplitude),
               },
             );
-            // Keep `client` as the handshake value — see the initialize hook.
-            scope.ctx = { ...resolved, client: scope.ctx.client };
+            // Retain only connection-level client and protocol signals for later requests.
+            scope.ctx = { ...resolved, client: scope.ctx.client, protocolVersion: scope.ctx.protocolVersion };
             this._serverCtx = scope.ctx;
             scope.sessionStartMs = performance.now();
             emitSessionInitialized(this._amplitude, resolved, this._privacy);

@@ -218,7 +218,19 @@ conversation, run/job, transport session, W3C trace, then inferred. These
 properties do not replace `[MCP] Session ID`; legacy session semantics remain
 unchanged.
 
-### Client name on stateless servers
+### Client attribution
+
+Events report how the SDK obtained the raw client name and which signal
+identified the client family. Recognized names and branded User-Agents can
+identify a family on both stateful and stateless transports. The SDK adds a
+surface only when the signal identifies one.
+
+The protocol version comes from request metadata when available, then from
+the successful handshake on that connection. Events omit `[MCP] User Agent`
+when no value is available, including typical stdio events. If a chart filters
+for `[MCP] User Agent = unknown`, include missing values to cover new events.
+
+#### Client name on stateless servers
 
 Through protocol `2025-11-25` the client's `clientInfo` rides only on the
 `initialize` request, so on a sessionless or serverless host — where each
@@ -239,7 +251,10 @@ things help today:
 
 ```ts
 analytics.instrumentServer(server, {
-  resolveClientInfo: ({ authInfo }) => ({ name: authInfo?.client_name as string }),
+  resolveClientInfo: ({ authInfo }) =>
+    typeof authInfo?.client_name === 'string'
+      ? { name: authInfo.client_name, nameSource: 'oauth' }
+      : undefined,
 });
 ```
 

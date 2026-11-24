@@ -15,11 +15,13 @@ describe('ctxToAmplitudeFields', () => {
     expect(fields).toMatchObject({
       sessionId: 'no-session',
       clientName: 'unknown',
-      userAgent: 'unknown',
+      clientNameSource: 'none',
+      clientFamilySource: 'none',
       serverName: 'my-server',
       transport: 'stdio',
       anchorType: 'anonymous',
     });
+    expect(fields).not.toHaveProperty('userAgent');
     expect(user_id).toBeUndefined();
     expect(device_id).toBeUndefined();
     expect(groups).toBeUndefined();

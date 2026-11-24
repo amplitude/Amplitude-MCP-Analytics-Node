@@ -332,11 +332,16 @@ host-specific failure through the free-form `[MCP] Error Code` instead.
 | -- | -- |
 | `[MCP] Transport` | `stdio`, `streamable-http` |
 | `[MCP] Anchor Type` | `process`, `session-id`, `trace`, `anonymous` |
+| `[MCP] Client Name Source` | `host`, `oauth`, `request-metadata`, `handshake`, `none` |
+| `[MCP] Client Family Source` | `client-name`, `user-agent`, `none` |
 | `[MCP] Error Type` | `returned_error`, `thrown_exception`, `timeout`, `transport_error`, `protocol_error`, `rate_limited`, `unknown` |
 | `[MCP] Rejection Reason` | `unknown_tool`, `disabled_tool`, `schema_validation`, `unrecognized` |
 
-Two sentinel values are literals. Use `no-session` for `[MCP] Session ID`. Use
-`unknown` for `[MCP] Client Name` and for `[MCP] User Agent`.
+Use `no-session` for a missing `[MCP] Session ID` and `unknown` for a missing
+`[MCP] Client Name`. Omit `[MCP] User Agent` when unavailable. Follow the
+[client attribution rules](./events.md#client-identity) for family and surface.
+Protocol version falls back from request metadata to the successful handshake
+response on the same connection, then to a configured host value.
 
 Map the error classification onto the error model of your language, not onto
 Node's model. Use `timeout` for your cancellation error. Use `transport_error`
@@ -411,6 +416,9 @@ implementation should produce this shape.
   "event_properties": {
     "[MCP] Session ID": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "[MCP] Client Name": "cursor",
+    "[MCP] Client Name Source": "request-metadata",
+    "[MCP] Client Family": "cursor",
+    "[MCP] Client Family Source": "client-name",
     "[MCP] Client Version": "0.40",
     "[MCP] OAuth Client ID": "c7f1a0d2-9b3e-4a11-8f6c-2d5e7b9a0c13",
     "[MCP] User Agent": "node",

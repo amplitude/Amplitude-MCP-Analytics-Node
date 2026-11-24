@@ -7,6 +7,7 @@
  * after the typed fields, so a host can surface domain values without a custom 
  * emit path. Caller-supplied properties on the `track*` methods always win over both.
  */
+import { clientNameSource, clientString, resolveClientFamily } from '../context/client-attribution.js';
 import type { McpServerContext, McpToolContext } from '../context/types.js';
 import { EVENT_PROPERTY_KEYS, NO_SESSION, UNKNOWN } from './constants.js';
 import type { AmplitudeFields, DefaultServerFields, DefaultToolFields } from './types.js';
@@ -19,20 +20,30 @@ import type { AmplitudeFields, DefaultServerFields, DefaultToolFields } from './
  * which extends the result.
  */
 export function ctxToAmplitudeFields(ctx: McpServerContext): AmplitudeFields<DefaultServerFields> {
+  const client = ctx.client;
+  const { family, surface, familySource } = resolveClientFamily(client);
   const eventFields: DefaultServerFields = {
     sessionId: ctx.anchor.type === 'session-id' ? ctx.anchor.value : NO_SESSION,
-    clientName: ctx.client?.name ?? UNKNOWN,
-    userAgent: ctx.client?.userAgent ?? UNKNOWN,
+    clientName: clientString(client?.name) ?? UNKNOWN,
+    clientNameSource: clientNameSource(client),
+    clientFamilySource: familySource,
     serverName: ctx.server.name,
     transport: ctx.transport,
     anchorType: ctx.anchor.type,
   };
 
-  if (ctx.client?.version != null) eventFields.clientVersion = ctx.client.version;
-  if (ctx.client?.oauthClientId != null) eventFields.oauthClientId = ctx.client.oauthClientId;
+  const version = clientString(client?.version);
+  if (version != null) eventFields.clientVersion = version;
+  const userAgent = clientString(client?.userAgent);
+  if (userAgent != null) eventFields.userAgent = userAgent;
+  const oauthClientId = clientString(client?.oauthClientId);
+  if (oauthClientId != null) eventFields.oauthClientId = oauthClientId;
+  if (family != null) eventFields.clientFamily = family;
+  if (surface != null) eventFields.clientSurface = surface;
   if (ctx.server.version != null) eventFields.serverVersion = ctx.server.version;
   if (ctx.server.type != null) eventFields.serverType = ctx.server.type;
-  if (ctx.protocolVersion != null) eventFields.protocolVersion = ctx.protocolVersion;
+  const protocolVersion = clientString(ctx.protocolVersion);
+  if (protocolVersion != null) eventFields.protocolVersion = protocolVersion;
   if (ctx.authType != null) eventFields.authType = ctx.authType;
 
   const fields: AmplitudeFields<DefaultServerFields> = {
