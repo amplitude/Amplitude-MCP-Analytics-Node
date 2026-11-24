@@ -244,6 +244,27 @@ describe('oauth client id', () => {
 });
 
 describe('server-scope fallback does not go stale', () => {
+  it('starts and ends each session when a server reconnects', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events);
+    const names = ['cursor', 'claude-code', 'openai-mcp'];
+    for (const name of names) {
+      const [clientT, serverT] = httpPair(name);
+      await server.connect(serverT);
+      await send(clientT, {
+        ...initializeReq,
+        params: { ...initializeReq.params, clientInfo: { ...CLIENT_INFO, name } },
+      });
+      await serverT.close();
+    }
+
+    for (const event of ['[MCP] Session Initialized', '[MCP] Session Ended']) {
+      expect(only(events, event).map(({ event_properties }) =>
+        [event_properties?.['[MCP] Client Name'], event_properties?.['[MCP] Session ID']],
+      )).toEqual(names.map((name) => [name, name]));
+    }
+  });
+
   it('does not carry a request-resolved client name or oauth id onto later requests', async () => {
     const events: AmplitudeEvent[] = [];
     // One long-lived server. The handshake request carries a resolver answer

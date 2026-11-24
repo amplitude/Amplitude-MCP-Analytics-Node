@@ -600,8 +600,31 @@ export class AmplitudeMCPAnalytics {
     // Capture the current `connect` and delegate, so we compose with a
     // consumer's own connect wrapper regardless of order.
     const originalConnect = connectTarget.connect.bind(connectTarget);
+    // The server retains its handlers when reconnected. They all use the current transport.
+    let connectedTransport: { sessionId?: string } | undefined;
+    let initializeHooked = false;
+    let lifecycleHooksInstalled = false;
+    let activeSession: { endCtx: McpServerContext; startMs: number } | undefined;
+
+    const startSession = (connection: McpServerContext, resolved: McpServerContext): void => {
+      // Resolve start and end under the same raw identity. The remaining request
+      // signals stay local to initialize.
+      scope.ctx = { ...resolved, client: connection.client, protocolVersion: connection.protocolVersion };
+      if (scope.transportPersists) {
+        activeSession = {
+          endCtx: {
+            ...scope.ctx,
+            client: { ...connection.client, ...readClientIdentity(resolved.client, resolved.client?.nameSource) },
+          },
+          startMs: performance.now(),
+        };
+      }
+      this._serverCtx = scope.ctx;
+      emitSessionInitialized(this._amplitude, resolved, this._privacy);
+    };
 
     connectTarget.connect = (transport: object): Promise<void> => {
+      connectedTransport = transport;
       scope.ctx = createServerContext({
         server: { name: this.serverName, version: this.serverVersion },
         transport: resolveTransport(transport),
@@ -726,41 +749,21 @@ export class AmplitudeMCPAnalytics {
         }, boundServer);
       }
 
-      let sessionEndCtx: McpServerContext | undefined;
-      const startSession = (connection: McpServerContext, resolved: McpServerContext): void => {
-        // Resolve the start and end under the same raw identity. Request headers
-        // and resolver results are otherwise local to the initialize request.
-        scope.ctx = { ...resolved, client: connection.client, protocolVersion: connection.protocolVersion };
-        if (scope.transportPersists) {
-          sessionEndCtx = {
-            ...scope.ctx,
-            client: { ...connection.client, ...readClientIdentity(resolved.client, resolved.client?.nameSource) },
-          };
-        }
-        this._serverCtx = scope.ctx;
-        scope.sessionStartMs = performance.now();
-        emitSessionInitialized(this._amplitude, resolved, this._privacy);
-      };
-
-      if (this.config.autocapture.sessionLifecycle) {
+      if (!lifecycleHooksInstalled && this.config.autocapture.sessionLifecycle) {
         // `[MCP] Session Ended` on transport close — only for a connection that
         // genuinely persisted (see `ServerScope.transportPersists`).
-        // `sessionStartMs` alone is not enough: on a per-request server the
-        // handshake and the close both happen inside the one `initialize`
-        // request, which would emit an "ended session" with a sub-millisecond
-        // `[MCP] Session Duration` for every handshake.
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
-          if (scope.sessionStartMs != null && sessionEndCtx != null) {
+          const session = activeSession;
+          activeSession = undefined;
+          if (session != null) {
             emitSessionEnded(
               this._amplitude,
-              sessionEndCtx,
-              { durationMs: performance.now() - scope.sessionStartMs },
+              session.endCtx,
+              { durationMs: performance.now() - session.startMs },
               this._privacy,
             );
           }
-          scope.sessionStartMs = undefined;
-          sessionEndCtx = undefined;
           existingOnClose?.();
         };
       }
@@ -769,7 +772,7 @@ export class AmplitudeMCPAnalytics {
       // REQUEST, which is the only message carrying the client's `clientInfo`.
       // See `core/initialize-hook.ts` for why `oninitialized` cannot do this on
       // a per-request server.
-      const initializeHooked = installInitializeHook(lowLevelServer, (clientInfo, protocolVersion, extra) => {
+      initializeHooked ||= installInitializeHook(lowLevelServer, (clientInfo, protocolVersion, extra) => {
         if (scope.ctx == null) return;
         recordHandshakeClient(scope.ctx, clientInfo);
         scope.ctx.protocolVersion = protocolVersion ?? scope.ctx.protocolVersion;
@@ -786,7 +789,7 @@ export class AmplitudeMCPAnalytics {
         // per request. So persistence is decided from the transport's own id
         // (or stdio), never from the resolved anchor.
         const transportSessionId =
-          readRequest(extra).sessionId ?? (transport as { sessionId?: string }).sessionId;
+          readRequest(extra).sessionId ?? connectedTransport?.sessionId;
         scope.transportPersists =
           scope.ctx.transport === 'stdio' ||
           (typeof transportSessionId === 'string' && transportSessionId.length > 0);
@@ -810,38 +813,37 @@ export class AmplitudeMCPAnalytics {
       // handler map we could not read — running both would double-emit
       // `[MCP] Session Initialized` on per-request servers, where each instance
       // has its own scope and so its own "already emitted" state.
-      const existingOnInitialized = lowLevelServer.oninitialized;
-      lowLevelServer.oninitialized = (): void => {
-        if (!initializeHooked) {
-          const clientInfo = lowLevelServer.getClientVersion?.();
-          if (clientInfo != null && scope.ctx != null) {
-            recordHandshakeClient(scope.ctx, clientInfo);
-          }
+      if (!lifecycleHooksInstalled) {
+        lifecycleHooksInstalled = true;
+        const existingOnInitialized = lowLevelServer.oninitialized;
+        lowLevelServer.oninitialized = (): void => {
+          if (!initializeHooked && scope.ctx != null) {
+            const clientInfo = lowLevelServer.getClientVersion?.();
+            if (clientInfo != null) recordHandshakeClient(scope.ctx, clientInfo);
 
-          const sessionId = (transport as { sessionId?: string }).sessionId;
-          if (scope.ctx != null) {
+            const sessionId = connectedTransport?.sessionId;
             scope.transportPersists =
               scope.ctx.transport === 'stdio' ||
               (typeof sessionId === 'string' && sessionId.length > 0);
+
+            if (this.config.autocapture.sessionLifecycle) {
+              const resolved = buildServerContext(
+                scope.ctx,
+                { sessionId },
+                {
+                  serverIdentity: scope.identity,
+                  resolveIdentity: scope.identityResolver,
+                  resolveClientInfo: scope.clientInfoResolver,
+                  logger: getLogger(this._amplitude),
+                },
+              );
+              startSession(scope.ctx, resolved);
+            }
           }
 
-          if (this.config.autocapture.sessionLifecycle && scope.ctx != null) {
-            const resolved = buildServerContext(
-              scope.ctx,
-              { sessionId },
-              {
-                serverIdentity: scope.identity,
-                resolveIdentity: scope.identityResolver,
-                resolveClientInfo: scope.clientInfoResolver,
-                logger: getLogger(this._amplitude),
-              },
-            );
-            startSession(scope.ctx, resolved);
-          }
-        }
-
-        existingOnInitialized?.();
-      };
+          existingOnInitialized?.();
+        };
+      }
 
       // Run every request this server dispatches inside its scope's ALS
       // frame, so instrumented tools resolve THIS binding even when many
