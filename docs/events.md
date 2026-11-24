@@ -343,7 +343,8 @@ Marks the end of a protocol session.
 - **Transports:** stdio, and Streamable HTTP where the transport mints and
   reuses a session id.
 - **Toggle / identity:** as `[MCP] Session Initialized`; the event reuses the
-  session context resolved at the handshake.
+  raw client name, version, and name source resolved at the handshake.
+  The initialize request's HTTP User-Agent is scoped to the start event.
 
 **Event-specific properties:**
 

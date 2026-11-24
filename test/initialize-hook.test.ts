@@ -250,9 +250,11 @@ describe('server-scope fallback does not go stale', () => {
     // and an authenticated client id; the later tool call carries neither. It
     // must fall back to the HANDSHAKE, not to the handshake request's own
     // resolved values, or one request's client identity bleeds onto the next.
-    let resolverAnswer: { name: string } | undefined = { name: 'from-resolver' };
+    let resolveInitialize = true;
     const { analytics, server } = instrumented(events, {
-      resolveClientInfo: () => resolverAnswer,
+      resolveClientInfo: () => resolveInitialize
+        ? { name: 'openai-mcp', version: '2', nameSource: 'oauth' }
+        : undefined,
     });
     server.registerTool(
       'search',
@@ -265,11 +267,18 @@ describe('server-scope fallback does not go stale', () => {
     await send(clientT, initializeReq, {
       authInfo: { token: 't', clientId: 'handshake-client-id', scopes: [] },
     });
-    expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
-      .toBe('from-resolver');
+    const initialized = only(events, '[MCP] Session Initialized')[0];
+    const lifecycleIdentity = {
+      '[MCP] Client Name': 'openai-mcp',
+      '[MCP] Client Version': '2',
+      '[MCP] Client Name Source': 'oauth',
+      '[MCP] Client Family': 'chatgpt',
+    };
+    expect(initialized?.event_properties).toMatchObject(lifecycleIdentity);
+    expect(initialized?.event_properties?.['[MCP] OAuth Client ID']).toBe('handshake-client-id');
 
     // Later request: resolver declines, and no authInfo.
-    resolverAnswer = undefined;
+    resolveInitialize = false;
     await send(clientT, {
       jsonrpc: '2.0',
       id: 2,
@@ -278,10 +287,16 @@ describe('server-scope fallback does not go stale', () => {
     });
 
     const call = only(events, '[MCP] Tool Call Response')[0];
-    expect(call?.event_properties?.['[MCP] Client Name']).toBe('cursor'); // the handshake
-    expect(call?.event_properties?.['[MCP] Client Name']).not.toBe('from-resolver');
-    // An unauthenticated request must not inherit the earlier client id.
+    expect(call?.event_properties).toMatchObject({
+      '[MCP] Client Name': 'cursor',
+      '[MCP] Client Name Source': 'handshake',
+    });
     expect(call?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
+
+    await serverT.close();
+    const ended = only(events, '[MCP] Session Ended')[0];
+    expect(ended?.event_properties).toMatchObject(lifecycleIdentity);
+    expect(ended?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
   });
 });
 

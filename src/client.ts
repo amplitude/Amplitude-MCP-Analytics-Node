@@ -726,6 +726,22 @@ export class AmplitudeMCPAnalytics {
         }, boundServer);
       }
 
+      let sessionEndCtx: McpServerContext | undefined;
+      const startSession = (connection: McpServerContext, resolved: McpServerContext): void => {
+        // Resolve the start and end under the same raw identity. Request headers
+        // and resolver results are otherwise local to the initialize request.
+        scope.ctx = { ...resolved, client: connection.client, protocolVersion: connection.protocolVersion };
+        if (scope.transportPersists) {
+          sessionEndCtx = {
+            ...scope.ctx,
+            client: { ...connection.client, ...readClientIdentity(resolved.client, resolved.client?.nameSource) },
+          };
+        }
+        this._serverCtx = scope.ctx;
+        scope.sessionStartMs = performance.now();
+        emitSessionInitialized(this._amplitude, resolved, this._privacy);
+      };
+
       if (this.config.autocapture.sessionLifecycle) {
         // `[MCP] Session Ended` on transport close — only for a connection that
         // genuinely persisted (see `ServerScope.transportPersists`).
@@ -735,15 +751,16 @@ export class AmplitudeMCPAnalytics {
         // `[MCP] Session Duration` for every handshake.
         const existingOnClose = lowLevelServer.onclose;
         lowLevelServer.onclose = (): void => {
-          if (scope.sessionStartMs != null && scope.ctx != null && scope.transportPersists) {
+          if (scope.sessionStartMs != null && sessionEndCtx != null) {
             emitSessionEnded(
               this._amplitude,
-              scope.ctx,
+              sessionEndCtx,
               { durationMs: performance.now() - scope.sessionStartMs },
               this._privacy,
             );
           }
           scope.sessionStartMs = undefined;
+          sessionEndCtx = undefined;
           existingOnClose?.();
         };
       }
@@ -785,11 +802,7 @@ export class AmplitudeMCPAnalytics {
             logger: getLogger(this._amplitude),
           },
         );
-        // Retain only connection-level client and protocol signals for later requests.
-        scope.ctx = { ...resolved, client: scope.ctx.client, protocolVersion: scope.ctx.protocolVersion };
-        this._serverCtx = scope.ctx;
-        scope.sessionStartMs = performance.now();
-        emitSessionInitialized(this._amplitude, resolved, this._privacy);
+        startSession(scope.ctx, resolved);
       });
 
       // `oninitialized` fires on the `notifications/initialized` notification,
@@ -823,11 +836,7 @@ export class AmplitudeMCPAnalytics {
                 logger: getLogger(this._amplitude),
               },
             );
-            // Retain only connection-level client and protocol signals for later requests.
-            scope.ctx = { ...resolved, client: scope.ctx.client, protocolVersion: scope.ctx.protocolVersion };
-            this._serverCtx = scope.ctx;
-            scope.sessionStartMs = performance.now();
-            emitSessionInitialized(this._amplitude, resolved, this._privacy);
+            startSession(scope.ctx, resolved);
           }
         }
 
