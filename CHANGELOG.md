@@ -2,6 +2,13 @@
 
 Entries through 0.5.2 were backfilled from the GitHub releases. Later entries are generated from Conventional Commits.
 
+## [0.10.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.9.0...v0.10.0) (2026-11-24)
+
+
+### Features
+
+* normalize MCP client attribution and report negotiated protocol ([#72](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/issues/72)) ([4f3b3e3](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/commit/4f3b3e3f059070b52ca148790b88bd889e81d18b))
+
 ## [0.9.0](https://github.com/amplitude/Amplitude-MCP-Analytics-Node/compare/v0.8.0...v0.9.0) (2026-11-20)
 
 
