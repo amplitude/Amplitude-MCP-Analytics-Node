@@ -244,15 +244,38 @@ describe('oauth client id', () => {
 });
 
 describe('server-scope fallback does not go stale', () => {
+  it('starts and ends each session when a server reconnects', async () => {
+    const events: AmplitudeEvent[] = [];
+    const { server } = instrumented(events);
+    const names = ['cursor', 'claude-code', 'openai-mcp'];
+    for (const name of names) {
+      const [clientT, serverT] = httpPair(name);
+      await server.connect(serverT);
+      await send(clientT, {
+        ...initializeReq,
+        params: { ...initializeReq.params, clientInfo: { ...CLIENT_INFO, name } },
+      });
+      await serverT.close();
+    }
+
+    for (const event of ['[MCP] Session Initialized', '[MCP] Session Ended']) {
+      expect(only(events, event).map(({ event_properties }) =>
+        [event_properties?.['[MCP] Client Name'], event_properties?.['[MCP] Session ID']],
+      )).toEqual(names.map((name) => [name, name]));
+    }
+  });
+
   it('does not carry a request-resolved client name or oauth id onto later requests', async () => {
     const events: AmplitudeEvent[] = [];
     // One long-lived server. The handshake request carries a resolver answer
     // and an authenticated client id; the later tool call carries neither. It
     // must fall back to the HANDSHAKE, not to the handshake request's own
     // resolved values, or one request's client identity bleeds onto the next.
-    let resolverAnswer: { name: string } | undefined = { name: 'from-resolver' };
+    let resolveInitialize = true;
     const { analytics, server } = instrumented(events, {
-      resolveClientInfo: () => resolverAnswer,
+      resolveClientInfo: () => resolveInitialize
+        ? { name: 'openai-mcp', version: '2', nameSource: 'oauth' }
+        : undefined,
     });
     server.registerTool(
       'search',
@@ -265,11 +288,18 @@ describe('server-scope fallback does not go stale', () => {
     await send(clientT, initializeReq, {
       authInfo: { token: 't', clientId: 'handshake-client-id', scopes: [] },
     });
-    expect(only(events, '[MCP] Session Initialized')[0]?.event_properties?.['[MCP] Client Name'])
-      .toBe('from-resolver');
+    const initialized = only(events, '[MCP] Session Initialized')[0];
+    const lifecycleIdentity = {
+      '[MCP] Client Name': 'openai-mcp',
+      '[MCP] Client Version': '2',
+      '[MCP] Client Name Source': 'oauth',
+      '[MCP] Client Family': 'chatgpt',
+    };
+    expect(initialized?.event_properties).toMatchObject(lifecycleIdentity);
+    expect(initialized?.event_properties?.['[MCP] OAuth Client ID']).toBe('handshake-client-id');
 
     // Later request: resolver declines, and no authInfo.
-    resolverAnswer = undefined;
+    resolveInitialize = false;
     await send(clientT, {
       jsonrpc: '2.0',
       id: 2,
@@ -278,10 +308,16 @@ describe('server-scope fallback does not go stale', () => {
     });
 
     const call = only(events, '[MCP] Tool Call Response')[0];
-    expect(call?.event_properties?.['[MCP] Client Name']).toBe('cursor'); // the handshake
-    expect(call?.event_properties?.['[MCP] Client Name']).not.toBe('from-resolver');
-    // An unauthenticated request must not inherit the earlier client id.
+    expect(call?.event_properties).toMatchObject({
+      '[MCP] Client Name': 'cursor',
+      '[MCP] Client Name Source': 'handshake',
+    });
     expect(call?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
+
+    await serverT.close();
+    const ended = only(events, '[MCP] Session Ended')[0];
+    expect(ended?.event_properties).toMatchObject(lifecycleIdentity);
+    expect(ended?.event_properties).not.toHaveProperty('[MCP] OAuth Client ID');
   });
 });
 
@@ -331,6 +367,7 @@ describe('per-request _meta client info', () => {
         arguments: {},
         _meta: {
           'io.modelcontextprotocol/clientInfo': { name: 'vscode', version: '2.0.0' },
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
         },
       },
     });
@@ -340,6 +377,24 @@ describe('per-request _meta client info', () => {
     // Per-request identity wins over the handshake's `cursor`.
     expect(calls[0]?.event_properties?.['[MCP] Client Name']).toBe('vscode');
     expect(calls[0]?.event_properties?.['[MCP] Client Version']).toBe('2.0.0');
+    expect(calls[0]?.event_properties?.['[MCP] Client Name Source']).toBe('request-metadata');
+    expect(calls[0]?.event_properties?.['[MCP] Protocol Version']).toBe('2026-07-28');
+    await send(clientT, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'search', arguments: {} },
+    });
+    const laterCall = only(events, '[MCP] Tool Call Response')[1];
+    const negotiated = only(events, '[MCP] Session Initialized')[0]
+      ?.event_properties?.['[MCP] Protocol Version'];
+    expect(negotiated).toEqual(expect.any(String));
+    expect(negotiated).not.toBe('2026-07-28');
+    expect(laterCall?.event_properties).toMatchObject({
+      '[MCP] Client Name': 'cursor',
+      '[MCP] Client Name Source': 'handshake',
+      '[MCP] Protocol Version': negotiated,
+    });
   });
 });
 

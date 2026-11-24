@@ -58,6 +58,10 @@ export const EVENT_PROPERTY_KEYS = {
   // server-scope reserved fields
   sessionId: '[MCP] Session ID',
   clientName: '[MCP] Client Name',
+  clientNameSource: '[MCP] Client Name Source',
+  clientFamilySource: '[MCP] Client Family Source',
+  clientFamily: '[MCP] Client Family',
+  clientSurface: '[MCP] Client Surface',
   clientVersion: '[MCP] Client Version',
   /** OAuth `client_id` — a client *registration*, deliberately not folded into
    *  `[MCP] Client Name` (see {@link McpClientInfo.oauthClientId}). */

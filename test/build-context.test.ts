@@ -103,7 +103,7 @@ describe('buildToolContext — protocolVersion', () => {
     expect(ctx.protocolVersion).toBe('2025-11-25');
   });
 
-  it('keeps an empty protocol-version header instead of falling through to _meta', () => {
+  it('falls through to _meta when the protocol-version header is empty', () => {
     const ctx = toolCtx(
       'streamable-http',
       mkExtra({
@@ -111,7 +111,7 @@ describe('buildToolContext — protocolVersion', () => {
         _meta: { protocolVersion: '2026-07-28' },
       }),
     );
-    expect(ctx.protocolVersion).toBe('');
+    expect(ctx.protocolVersion).toBe('2026-07-28');
   });
 
   it('falls back to _meta.protocolVersion (stateless path)', () => {
@@ -325,12 +325,27 @@ describe('buildToolContext — client info', () => {
       mkExtra({ _meta: { clientInfo: { name: 'cursor', version: '1.2.3' } } }),
       { client: { name: 'stale', version: '0.0.0' } },
     );
-    expect(ctx.client).toMatchObject({ name: 'cursor', version: '1.2.3' });
+    expect(ctx.client).toMatchObject({ name: 'cursor', version: '1.2.3', nameSource: 'request-metadata' });
   });
 
   it('falls back to the server-scope handshake client when _meta has none', () => {
-    const ctx = toolCtx('stdio', mkExtra(), { client: { name: 'claude', version: '3.0' } });
-    expect(ctx.client).toMatchObject({ name: 'claude', version: '3.0' });
+    const ctx = toolCtx('stdio', mkExtra(), { client: { name: 'claude', version: '3.0', nameSource: 'handshake' } });
+    expect(ctx.client).toMatchObject({ name: 'claude', version: '3.0', nameSource: 'handshake' });
+  });
+
+  it('skips malformed metadata and keeps the winning name/version together', () => {
+    const ctx = toolCtx(
+      'streamable-http',
+      mkExtra({
+        _meta: {
+          'io.modelcontextprotocol/clientInfo': { name: ['spoof'], version: 'wrong-version' },
+          clientInfo: { name: 'cursor-vscode', version: '  ' },
+        },
+      }),
+      { client: { name: 'claude-code', version: '2.1.311', nameSource: 'handshake' } },
+    );
+    expect(ctx.client).toMatchObject({ name: 'cursor-vscode', nameSource: 'request-metadata' });
+    expect(ctx.client?.version).toBeUndefined();
   });
 
   it('reads the User-Agent header (Streamable HTTP)', () => {

@@ -84,10 +84,13 @@ describe('v2 Streamable HTTP, legacy era', () => {
 
     const init = events.find((event) => event.event_type === '[MCP] Session Initialized');
     expect(init?.event_properties?.['[MCP] Client Name']).toBe('legacy-client');
+    expect(init?.event_properties?.['[MCP] Client Name Source']).toBe('handshake');
+    expect(init?.event_properties?.['[MCP] Protocol Version']).toEqual(expect.any(String));
     expect(init?.event_properties?.['[MCP] Transport']).toBe('streamable-http');
     expect(init?.event_properties?.['[MCP] Session ID']).not.toBe('no-session');
     const call = events.find((event) => event.event_type === '[MCP] Tool Call Response');
     expect(call?.event_properties?.['[MCP] Transport']).toBe('streamable-http');
+    expect(call?.event_properties?.['[MCP] Client Name Source']).toBe('handshake');
     expect(call?.user_id).toBe('legacy-user');
   }, 20_000);
 
@@ -200,6 +203,7 @@ describe('v2 createMcpHandler on 2026-07-28', () => {
       const clientId = userId.slice('user-'.length);
       expect(event.event_properties).toMatchObject({
         '[MCP] Client Name': `host-${clientId}`,
+        '[MCP] Client Name Source': 'request-metadata',
         '[MCP] Protocol Version': '2026-07-28',
         '[MCP] Transport': 'streamable-http',
         '[MCP] OAuth Client ID': clientId,

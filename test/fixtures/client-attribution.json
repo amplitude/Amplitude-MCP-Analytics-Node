@@ -1,0 +1,381 @@
+[
+  {
+    "case": "Claude Code stdio",
+    "client": {
+      "name": "claude-code",
+      "version": "2.1.311",
+      "nameSource": "handshake"
+    },
+    "expected": {
+      "[MCP] Client Name": "claude-code",
+      "[MCP] Client Version": "2.1.311",
+      "[MCP] Client Name Source": "handshake",
+      "[MCP] Client Family": "claude-code",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Claude Code HTTP",
+    "client": {
+      "name": "claude-code",
+      "version": "2.1.311",
+      "userAgent": "claude-code/2.1.311 (sdk-cli)"
+    },
+    "expected": {
+      "[MCP] Client Name": "claude-code",
+      "[MCP] Client Version": "2.1.311",
+      "[MCP] Client Name Source": "host",
+      "[MCP] User Agent": "claude-code/2.1.311 (sdk-cli)",
+      "[MCP] Client Family": "claude-code",
+      "[MCP] Client Surface": "cli",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Claude Code behind mcp-remote",
+    "client": {
+      "name": "Claude-Code (via mcp-remote 0.16.6)",
+      "userAgent": "undici"
+    },
+    "expected": {
+      "[MCP] Client Name": "Claude-Code (via mcp-remote 0.16.6)",
+      "[MCP] Client Name Source": "host",
+      "[MCP] User Agent": "undici",
+      "[MCP] Client Family": "claude-code",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Claude Desktop with an installation-specific name",
+    "client": {
+      "name": "local-agent-mode-example",
+      "version": "1.0.0"
+    },
+    "expected": {
+      "[MCP] Client Name": "local-agent-mode-example",
+      "[MCP] Client Version": "1.0.0",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "claude",
+      "[MCP] Client Surface": "desktop",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Claude connector",
+    "client": {
+      "name": "Anthropic/ClaudeAI",
+      "userAgent": "Claude-User"
+    },
+    "expected": {
+      "[MCP] Client Name": "Anthropic/ClaudeAI",
+      "[MCP] Client Name Source": "host",
+      "[MCP] User Agent": "Claude-User",
+      "[MCP] Client Family": "claude",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Claude Toolbox",
+    "client": {
+      "name": "Anthropic/Toolbox"
+    },
+    "expected": {
+      "[MCP] Client Name": "Anthropic/Toolbox",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "claude",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Claude UA only",
+    "client": {
+      "userAgent": "Claude-User"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "Claude-User",
+      "[MCP] Client Family": "claude",
+      "[MCP] Client Family Source": "user-agent"
+    }
+  },
+  {
+    "case": "Claude Code UA only",
+    "client": {
+      "userAgent": "claude-code/2.1.311 (sdk-cli)"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "claude-code/2.1.311 (sdk-cli)",
+      "[MCP] Client Family": "claude-code",
+      "[MCP] Client Surface": "cli",
+      "[MCP] Client Family Source": "user-agent"
+    }
+  },
+  {
+    "case": "Codex reported by a bundled desktop client",
+    "client": {
+      "name": "codex-mcp-client",
+      "version": "0.167.0-alpha.4.1"
+    },
+    "expected": {
+      "[MCP] Client Name": "codex-mcp-client",
+      "[MCP] Client Version": "0.167.0-alpha.4.1",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "codex",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Codex UA only",
+    "client": {
+      "userAgent": "codex-mcp-client/0.167.0"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "codex-mcp-client/0.167.0",
+      "[MCP] Client Family": "codex",
+      "[MCP] Client Family Source": "user-agent"
+    }
+  },
+  {
+    "case": "Cursor editor beats an unrelated branded UA",
+    "client": {
+      "name": "CuRsOr-VsCoDe",
+      "version": "1.0.0",
+      "userAgent": "claude-code/2.1.311 (sdk-cli)",
+      "nameSource": "request-metadata"
+    },
+    "expected": {
+      "[MCP] Client Name": "CuRsOr-VsCoDe",
+      "[MCP] Client Version": "1.0.0",
+      "[MCP] Client Name Source": "request-metadata",
+      "[MCP] User Agent": "claude-code/2.1.311 (sdk-cli)",
+      "[MCP] Client Family": "cursor",
+      "[MCP] Client Surface": "vscode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Cursor UA only",
+    "client": {
+      "userAgent": "Cursor/1.0.0"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "Cursor/1.0.0",
+      "[MCP] Client Family": "cursor",
+      "[MCP] Client Family Source": "user-agent"
+    }
+  },
+  {
+    "case": "ChatGPT connector",
+    "client": {
+      "name": "openai-mcp",
+      "version": "1.0.0",
+      "userAgent": "openai-mcp/1.0.0"
+    },
+    "expected": {
+      "[MCP] Client Name": "openai-mcp",
+      "[MCP] Client Version": "1.0.0",
+      "[MCP] Client Name Source": "host",
+      "[MCP] User Agent": "openai-mcp/1.0.0",
+      "[MCP] Client Family": "chatgpt",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "ChatGPT UA only",
+    "client": {
+      "userAgent": "openai-mcp/1.0.0"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "openai-mcp/1.0.0",
+      "[MCP] Client Family": "chatgpt",
+      "[MCP] Client Family Source": "user-agent"
+    }
+  },
+  {
+    "case": "Cline initialize name",
+    "client": {
+      "name": "Cline"
+    },
+    "expected": {
+      "[MCP] Client Name": "Cline",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "cline",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Gemini CLI initialize name",
+    "client": {
+      "name": "gemini-cli-mcp-client"
+    },
+    "expected": {
+      "[MCP] Client Name": "gemini-cli-mcp-client",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "gemini-cli",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "OpenCode initialize name",
+    "client": {
+      "name": "opencode"
+    },
+    "expected": {
+      "[MCP] Client Name": "opencode",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "opencode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Roo Code initialize name",
+    "client": {
+      "name": "Roo Code"
+    },
+    "expected": {
+      "[MCP] Client Name": "Roo Code",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "roo-code",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Visual Studio Code initialize name",
+    "client": {
+      "name": "Visual Studio Code"
+    },
+    "expected": {
+      "[MCP] Client Name": "Visual Studio Code",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "vscode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Code OSS initialize name",
+    "client": {
+      "name": "Code - OSS"
+    },
+    "expected": {
+      "[MCP] Client Name": "Code - OSS",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "vscode",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Zed initialize name",
+    "client": {
+      "name": "Zed"
+    },
+    "expected": {
+      "[MCP] Client Name": "Zed",
+      "[MCP] Client Name Source": "host",
+      "[MCP] Client Family": "zed",
+      "[MCP] Client Family Source": "client-name"
+    }
+  },
+  {
+    "case": "Anthropic validation probe",
+    "client": {
+      "name": "Anthropic",
+      "userAgent": "python-httpx/0.28.1"
+    },
+    "expected": {
+      "[MCP] Client Name": "Anthropic",
+      "[MCP] Client Name Source": "host",
+      "[MCP] User Agent": "python-httpx/0.28.1",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  },
+  {
+    "case": "Generic Node UA",
+    "client": {
+      "userAgent": "node"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "node",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  },
+  {
+    "case": "Generic Undici UA",
+    "client": {
+      "userAgent": "undici"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] User Agent": "undici",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  },
+  {
+    "case": "Unrelated application with branded substring",
+    "client": {
+      "name": "my-cursor-wrapper",
+      "userAgent": "Mozilla/5.0 Cursor/1.0.0"
+    },
+    "expected": {
+      "[MCP] Client Name": "my-cursor-wrapper",
+      "[MCP] Client Name Source": "host",
+      "[MCP] User Agent": "Mozilla/5.0 Cursor/1.0.0",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  },
+  {
+    "case": "Malformed or blank",
+    "client": {
+      "name": 123,
+      "version": " ",
+      "userAgent": [
+        "Cursor/1.0.0"
+      ],
+      "nameSource": "oauth"
+    },
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  },
+  {
+    "case": "No signals",
+    "client": {},
+    "expected": {
+      "[MCP] Client Name": "unknown",
+      "[MCP] Client Name Source": "none",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  },
+  {
+    "case": "Explicit OAuth attribution",
+    "client": {
+      "name": "opaque-host-name",
+      "nameSource": "oauth"
+    },
+    "expected": {
+      "[MCP] Client Name": "opaque-host-name",
+      "[MCP] Client Name Source": "oauth",
+      "[MCP] Client Family": "Other",
+      "[MCP] Client Family Source": "none"
+    }
+  }
+]

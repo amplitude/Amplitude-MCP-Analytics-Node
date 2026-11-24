@@ -204,22 +204,19 @@ from the transport correlation anchor: client identifiers never overwrite
 
 ### Client identity
 
-The MCP protocol carries the client's `clientInfo` (its self-declared name and
-version) **only on the `initialize` request**. There is no per-request copy, so
-on a transport where each request is served by a fresh `McpServer` — stateless
-Streamable HTTP, or any serverless host — nothing on a `tools/call` says which
-client sent it.
+Legacy MCP sends the client's self-declared name and version on the
+`initialize` request. Protocol `2026-07-28` can carry it on each request.
 
 The SDK resolves `[MCP] Client Name` from these sources, highest precedence
 first:
 
 | Source | Available on | Notes |
 | -- | -- | -- |
-| `instrumentServer({ resolveClientInfo })` | every request | Host callback, given the request's `authInfo` and headers. The only source that can name the client on a per-request server |
+| `instrumentServer({ resolveClientInfo })` | every request | Host callback, given the request's `authInfo` and headers |
 | Per-request identity (`io.modelcontextprotocol/clientInfo`) | every request, on protocol `2026-07-28` | The standard source on that revision, which has no handshake. v2 carries the reserved key on the request envelope; a host that still puts it in `_meta` is read from there. Absent on `@modelcontextprotocol/sdk` 1.x, which does not implement the revision. Only a SHOULD, so a client may omit it. The unnamespaced `clientInfo` is accepted as a secondary spelling |
 | The `initialize` handshake | the whole connection, when one server instance serves it | Captured off the `initialize` request and cached on the server scope. Unreachable when each request gets a fresh server |
 | `instrumentServer({ client })` | this binding | Fixed for the binding's lifetime |
-| `User-Agent` header | Streamable HTTP | Fills `[MCP] User Agent` only, never the name |
+| `User-Agent` header | Streamable HTTP | Supplies the raw User Agent and can identify the client family |
 
 `[MCP] OAuth Client ID` is resolved separately, from `extra.authInfo.clientId`.
 It is the one client identifier present on **every** authenticated request with
@@ -238,7 +235,10 @@ something that travels with the request. An authorization server already learns
 
 ```ts
 analytics.instrumentServer(server, {
-  resolveClientInfo: ({ authInfo }) => ({ name: authInfo?.client_name as string }),
+  resolveClientInfo: ({ authInfo }) =>
+    typeof authInfo?.client_name === 'string'
+      ? { name: authInfo.client_name, nameSource: 'oauth' }
+      : undefined,
 });
 ```
 
@@ -246,6 +246,38 @@ Mapping `client_id` to a name in a server-side cache also works, but only where
 the process outlives a request — a cold-per-invocation host cannot hold one, and
 a cache shared across users must be keyed on the client id rather than the
 server scope or the user, or concurrent clients overwrite each other.
+
+
+A reported name and version come from the same source. If the winning name
+has no version, the event omits the version. If no source has a name, an
+available version can still be reported on its own. Missing names are emitted
+as `unknown`. Matching trims whitespace and ignores case while preserving the
+raw emitted values.
+
+The SDK checks the raw Client Name first, then the User-Agent for recognized
+products. A User-Agent can supply a surface for a family identified by name
+when both signals identify the same family. Automatic events and custom
+events built from manual contexts use the same rules.
+
+| Family | Recognized Client Name | Recognized User-Agent | Surface evidence |
+| --- | --- | --- | --- |
+| `claude` | `Anthropic/ClaudeAI`, `Anthropic/Toolbox`, `local-agent-mode-<key>` | `Claude-User` | `desktop` from `local-agent-mode-<key>` |
+| `claude-code` | `claude-code` | `claude-code/<version>` | `cli` from the `(sdk-cli)` User-Agent suffix |
+| `chatgpt` | `openai-mcp` | `openai-mcp/<version>` | |
+| `codex` | `codex-mcp-client` | `codex-mcp-client/<version>` | |
+| `cursor` | `Cursor`, `cursor-vscode` | `Cursor/<version>` | `vscode` from `cursor-vscode` |
+| `cline` | `Cline` | | |
+| `gemini-cli` | `gemini-cli-mcp-client` | | |
+| `opencode` | `opencode` | | |
+| `roo-code` | `Roo Code` | | |
+| `vscode` | `Visual Studio Code`, `Code - OSS` | | |
+| `zed` | `Zed` | | |
+
+The detector recognizes the `(via mcp-remote <version>)` suffix on client
+names. When neither signal identifies a recognized family, the SDK emits
+`Other` with family source `none`. Generic runtime User-Agents such as
+`python-httpx`, `node`, and `undici` do not identify a product. The SDK
+omits surface when it cannot determine where the client runs.
 
 ## Shared properties
 
@@ -257,14 +289,18 @@ Every event — the four default events *and* custom events emitted through
 | `[MCP] Session ID` | string | always | The protocol session id when the anchor is a session id; the literal `no-session` otherwise |
 | `[MCP] Client Name` | string | always | MCP client name — see [Client identity](#client-identity) for the sources and their precedence; `unknown` when unavailable |
 | `[MCP] Client Version` | string | when known | MCP client version, same sources as the name |
+| `[MCP] Client Name Source` | string | always | Origin of the raw name: `host`, `oauth` (explicitly tagged), `request-metadata`, `handshake`, or `none` |
+| `[MCP] Client Family` | string | always | A recognized family from the table above, or `Other` |
+| `[MCP] Client Surface` | string | when identified | `cli`, `desktop`, or `vscode` |
+| `[MCP] Client Family Source` | string | always | `client-name`, `user-agent`, or `none` |
 | `[MCP] OAuth Client ID` | string | when authenticated | OAuth `client_id` from `extra.authInfo.clientId`, or supplied by a `resolveClientInfo` callback for hosts whose auth does not populate `authInfo`. Never inherited from the connection, so it always describes the request it rides on. Identifies a client *registration*, not a product — see [Client identity](#client-identity) |
-| `[MCP] User Agent` | string | always | Raw HTTP `User-Agent` header (Streamable HTTP); `unknown` otherwise (always `unknown` on stdio) |
+| `[MCP] User Agent` | string | when available | Raw HTTP `User-Agent` or a value supplied by the host. Omitted when unavailable |
 | `[MCP] Server Name` | string | always | `serverName` from the client options |
 | `[MCP] Server Version` | string | when set | `serverVersion` from the client options (always set when instrumented through `instrumentServer`) |
 | `[MCP] Server Type` | string | when set | Server classification; only present when set on a manually built context |
 | `[MCP] Transport` | string | always | `stdio` or `streamable-http`, auto-detected from the transport passed to `connect()` |
 | `[MCP] Anchor Type` | string | always | `session-id`, `trace`, `process`, or `anonymous` — see [Correlation anchor](#correlation-anchor) |
-| `[MCP] Protocol Version` | string | when carried | Negotiated MCP protocol revision, read per request from the `MCP-Protocol-Version` HTTP header or `_meta.protocolVersion`. Not captured on stdio or at the handshake, so the session events don't carry it |
+| `[MCP] Protocol Version` | string | when known | `MCP-Protocol-Version` HTTP header, then namespaced request metadata, then compatibility `_meta.protocolVersion`, then the negotiated version from a successful initialize on this connection. An explicit host version is used when no other source is available |
 | `[MCP] Auth Type` | string | when configured | The `authType` passed to `instrumentServer` (e.g. `oauth`); values are server-specific |
 
 On top of these, any **`extra`** enrichment bags in scope ride along as
@@ -277,8 +313,8 @@ tool-scope events. See [Property precedence](#property-precedence).
 Marks the start of a protocol session.
 
 - **Fires when:** the MCP `initialize` request succeeds (the SDK wraps that
-  request handler). This is also the moment it captures the client's
-  `clientInfo`, which the request carries and nothing else does.
+  request handler). It captures `clientInfo` from the request and the
+  negotiated protocol version from the response.
 - **Transports:** any transport that performs the handshake. Sessionless
   transport mode still does, so the event fires there — with
   `[MCP] Session ID: no-session`, since no protocol session exists to report,
@@ -314,7 +350,8 @@ Marks the end of a protocol session.
 - **Transports:** stdio, and Streamable HTTP where the transport mints and
   reuses a session id.
 - **Toggle / identity:** as `[MCP] Session Initialized`; the event reuses the
-  session context resolved at the handshake.
+  raw client name, version, and name source resolved at the handshake.
+  The initialize request's HTTP User-Agent is scoped to the start event.
 
 **Event-specific properties:**
 
@@ -414,6 +451,9 @@ handler may enrich `ctx.tool.extra` mid-call and the values land on this event.
   "event_properties": {
     "[MCP] Session ID": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "[MCP] Client Name": "cursor",
+    "[MCP] Client Name Source": "request-metadata",
+    "[MCP] Client Family": "cursor",
+    "[MCP] Client Family Source": "client-name",
     "[MCP] Client Version": "0.40",
     "[MCP] OAuth Client ID": "c7f1a0d2-9b3e-4a11-8f6c-2d5e7b9a0c13",
     "[MCP] User Agent": "node",
@@ -815,7 +855,11 @@ events.
 | `[MCP] Anchor Type` | string | All |
 | `[MCP] Attempted Tool Name` | string | `Tool Call Rejected` |
 | `[MCP] Auth Type` | string | All (when configured) |
+| `[MCP] Client Family` | string | All |
+| `[MCP] Client Family Source` | string | All |
 | `[MCP] Client Name` | string | All |
+| `[MCP] Client Name Source` | string | All |
+| `[MCP] Client Surface` | string | All (when identified) |
 | `[MCP] Client Version` | string | All (when known) |
 | `[MCP] Conversation ID` | string | Tool-scope (when supplied) |
 | `[MCP] Error Code` | string | `Tools Listed`, `Tool Call Response` (failures), `Tool Call Rejected` — only when a specific code is known |
@@ -838,7 +882,7 @@ events.
 | `[MCP] Param Keys` | string[] | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
 | `[MCP] Param Shape` | string | `Tool Call Response` (schema-taking handlers, shape capture enabled) |
 | `[MCP] Param: <key>` | string, number, or boolean | `Tool Call Response` (when declared by `paramCapture.derive`) |
-| `[MCP] Protocol Version` | string | All (when carried on the request) |
+| `[MCP] Protocol Version` | string | All (when known) |
 | `[MCP] Rationale` | string | Tool-scope (opt-in, via `setRationale`) |
 | `[MCP] Rejection Reason` | string | `Tool Call Rejected` |
 | `[MCP] Request Size` | number | `Tool Call Response` |
@@ -861,4 +905,4 @@ events.
 | `[MCP] Tool Tags` | string[] | Tool-scope (when set) |
 | `[MCP] Transport` | string | All |
 | `[MCP] Turn ID` | string | Tool-scope (when supplied as a turn id or number) |
-| `[MCP] User Agent` | string | All |
+| `[MCP] User Agent` | string | All (when available) |

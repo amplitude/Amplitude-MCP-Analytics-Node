@@ -4,6 +4,7 @@
  * SDK-free public `context/`) because it's SDK-aware and not public.
  */
 import { randomUUID } from 'node:crypto';
+import { clientNameSource, clientString, readClientIdentity, selectClientIdentity } from '../context/client-attribution.js';
 import { createServerContext, createToolContext } from '../context/factory.js';
 import type {
   ClientInfoResolver,
@@ -109,44 +110,36 @@ function resolveRequestClientInfo(
     }
   }
 
-  const meta = request.meta;
-  const info =
-    request.envelope?.[META_CLIENT_INFO] ?? meta?.[META_CLIENT_INFO] ?? meta?.clientInfo;
-  const metaClientInfo = info != null && typeof info === 'object'
-    ? (info as { name?: string; version?: string })
-    : undefined;
-  const clientFromHandshake = serverCtx.client;
-  const clientIdFromAuth =
-    typeof authInfo?.clientId === 'string' && authInfo.clientId.length > 0
-      ? authInfo.clientId
-      : undefined;
-
+  const connectionClient = serverCtx.client;
+  const identity = selectClientIdentity(
+    readClientIdentity(fromHost, fromHost?.nameSource === 'oauth' ? 'oauth' : 'host'),
+    readClientIdentity(request.envelope?.[META_CLIENT_INFO], 'request-metadata'),
+    readClientIdentity(request.meta?.[META_CLIENT_INFO], 'request-metadata'),
+    readClientIdentity(request.meta?.clientInfo, 'request-metadata'),
+    readClientIdentity(connectionClient, clientNameSource(connectionClient)),
+  );
   return {
-    name: fromHost?.name ?? metaClientInfo?.name ?? clientFromHandshake?.name,
-    version: fromHost?.version ?? metaClientInfo?.version ?? clientFromHandshake?.version,
+    ...identity,
     userAgent:
-      fromHost?.userAgent ?? request.header('user-agent') ?? clientFromHandshake?.userAgent,
+      clientString(fromHost?.userAgent) ?? clientString(request.header('user-agent')) ??
+      clientString(connectionClient?.userAgent),
     // No handshake fallback: `oauthClientId` is per-request by nature, and the
     // handshake slot is connection-scoped, so falling back to it would carry a
     // previous request's client id onto an unauthenticated one.
-    oauthClientId: fromHost?.oauthClientId ?? clientIdFromAuth,
+    oauthClientId: clientString(fromHost?.oauthClientId) ?? clientString(authInfo?.clientId),
   };
 }
 
 /**
  * Negotiated protocol version for one request: the `MCP-Protocol-Version` header
  * (legacy + stateless HTTP), else the namespaced version (v2 envelope, else
- * `_meta`), else the unnamespaced `_meta.protocolVersion`. Undefined over
- * stdio (carried at the handshake). @internal
+ * `_meta`), else the unnamespaced `_meta.protocolVersion`. @internal
  */
 function resolveProtocolVersion(request: NormalizedRequest): string | undefined {
-  const fromHeader = request.header('mcp-protocol-version');
-  if (fromHeader != null) return fromHeader;
-  const fromMeta =
-    request.envelope?.[META_PROTOCOL_VERSION] ??
-    request.meta?.[META_PROTOCOL_VERSION] ??
-    request.meta?.protocolVersion;
-  return typeof fromMeta === 'string' ? fromMeta : undefined;
+  return clientString(request.header('mcp-protocol-version'))
+    ?? clientString(request.envelope?.[META_PROTOCOL_VERSION])
+    ?? clientString(request.meta?.[META_PROTOCOL_VERSION])
+    ?? clientString(request.meta?.protocolVersion);
 }
 
 /** Read a non-empty string or finite numeric identifier from `_meta`. */
@@ -361,7 +354,7 @@ export function buildServerContext(
     ...serverCtx,
     transport,
     anchor: resolvedAnchor,
-    protocolVersion: resolveProtocolVersion(request) ?? serverCtx.protocolVersion,
+    protocolVersion: resolveProtocolVersion(request) ?? clientString(serverCtx.protocolVersion),
     correlation: resolveCorrelation(request, resolvedAnchor),
     identity: resolved.identity,
     tenant: resolved.tenant ?? serverCtx.tenant,

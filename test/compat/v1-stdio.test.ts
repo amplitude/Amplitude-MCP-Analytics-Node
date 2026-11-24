@@ -20,9 +20,15 @@ describe('v1 stdio', () => {
       expect(types).toContain('[MCP] Session Ended');
       expect(types).toContain('[MCP] Tool Call Response');
 
+      const negotiated = events.find((event) => event.event_type === '[MCP] Session Initialized')
+        ?.event_properties?.['[MCP] Protocol Version'];
+      expect(negotiated).toEqual(expect.stringMatching(/^20\d\d-\d\d-\d\d$/));
       for (const event of events) {
         expect(event.event_properties?.['[MCP] Transport']).toBe('stdio');
         expect(event.event_properties?.['[MCP] Anchor Type']).toBe('process');
+        expect(event.event_properties?.['[MCP] Protocol Version']).toBe(negotiated);
+        expect(event.event_properties?.['[MCP] Client Name Source']).toBe('handshake');
+        expect(event.event_properties).not.toHaveProperty('[MCP] User Agent');
       }
       expect(events[0]?.user_id?.startsWith('process:')).toBe(true);
     } finally {

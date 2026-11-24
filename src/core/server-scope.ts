@@ -37,9 +37,6 @@ export interface ServerScope {
   clientInfoResolver?: ClientInfoResolver;
   /** Per-request identity callback from `instrumentServer` opts. */
   identityResolver?: IdentityResolver;
-  /** Handshake timestamp (ms) — doubles as the "a session is active" flag
-   *  for THIS server's transport. */
-  sessionStartMs?: number;
   /**
    * Whether THIS binding's transport outlives the request that opened it,
    * resolved at the handshake. Gates `[MCP] Session Ended`, which reports a

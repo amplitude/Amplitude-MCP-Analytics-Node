@@ -124,6 +124,8 @@ export interface McpClientInfo {
    * connection, so it always describes the request it is emitted on.
    */
   oauthClientId?: string;
+  /** Origin of the raw name. Host-supplied names default to `'host'`. */
+  nameSource?: 'host' | 'oauth' | 'request-metadata' | 'handshake' | 'none';
 }
 
 /** Inputs to {@link ClientInfoResolver}. SDK-free, like {@link IdentityResolver}. */
@@ -146,8 +148,9 @@ export interface ResolveClientInfoInput {
  * header. On revision `2026-07-28`, where every request carries client identity
  * in `_meta`, this instead acts as an override for that value.
  *
- * Return `undefined`, or an object with the fields you know, to fall through to
- * the SDK's own resolution for the rest.
+ * Return `undefined`, or an object with the fields you know. A name and its
+ * version are selected together. Set `nameSource: 'oauth'` only if the name
+ * was explicitly derived from OAuth.
  */
 export type ClientInfoResolver = (input: ResolveClientInfoInput) => McpClientInfo | undefined;
 
