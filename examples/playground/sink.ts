@@ -19,7 +19,11 @@ export interface IngestionSink {
  * success from the JSON `code` field, not the HTTP status. It also never
  * resolves the request if the body is empty, so every response is JSON.
  */
-export async function startIngestionSink(options: { logPath: string }): Promise<IngestionSink> {
+export async function startIngestionSink(options: {
+  logPath: string;
+  /** When set, the sanitized value is logged instead of the raw POST body. */
+  sanitize?: (body: unknown) => unknown;
+}): Promise<IngestionSink> {
   await mkdir(dirname(options.logPath), { recursive: true });
   // Create the file up front so `tail -f` works before the first event.
   await appendFile(options.logPath, '');
@@ -31,7 +35,7 @@ export async function startIngestionSink(options: { logPath: string }): Promise<
   };
 
   const server = createServer((req, res) => {
-    void handleIngestion(req, res, enqueue, options.logPath);
+    void handleIngestion(req, res, enqueue, options.logPath, options.sanitize);
   });
 
   await listen(server);
@@ -67,6 +71,7 @@ async function handleIngestion(
   res: ServerResponse,
   enqueue: (line: string) => Promise<void>,
   logPath: string,
+  sanitize?: (body: unknown) => unknown,
 ): Promise<void> {
   if (req.method !== 'POST') {
     json(res, 405, { code: 405, error: 'method not allowed' });
@@ -89,7 +94,7 @@ async function handleIngestion(
     return;
   }
 
-  const line = raw.endsWith('\n') ? raw : `${raw}\n`;
+  const line = sanitize ? `${JSON.stringify(sanitize(parsed))}\n` : raw.endsWith('\n') ? raw : `${raw}\n`;
   try {
     await enqueue(line);
   } catch (error) {

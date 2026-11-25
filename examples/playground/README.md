@@ -115,3 +115,84 @@ AMPLITUDE_API_KEY=your-project-key pnpm playground:http
 ```
 
 `pnpm playground` prints the two script names.
+
+## Capture mode
+
+`capture/` is a variant harness for recording what identity a real AI client
+actually sends — `initialize` `clientInfo`, per-request `_meta` clientInfo, the
+HTTP `User-Agent`, the agreed protocol version — alongside the `[MCP] Client
+Name`, `[MCP] Client Version`, `[MCP] User Agent`, `[MCP] Protocol Version`,
+and `[MCP] Transport` properties the SDK emits.
+
+Everything is sanitized before it touches disk or stderr: session ids,
+insert ids, user/device ids, progress tokens, and trace ids are replaced with
+stable per-run aliases; user names in paths, emails, and long tokens are
+scrubbed; header and `_meta` values not on the allowlist are reduced to
+presence booleans or key names. `echo` arguments are dropped unless the
+message matches the `baseline-…-call-N` shape used by the validation script.
+Capture always delivers to the local sink — `AMPLITUDE_API_KEY` is deleted
+inside the process and a non-loopback sink URL aborts startup.
+
+```bash
+# Session-bearing HTTP on :8787
+pnpm playground:capture:http -- --mode http-session --trial my-trial --out ~/mcp-captures/my-trial
+
+# Stateless HTTP: fresh server+transport per POST, GET/DELETE 405
+pnpm playground:capture:http -- --mode http-fresh --trial my-trial --out ~/mcp-captures/my-trial
+
+# stdio (spawned by a desktop client)
+pnpm playground:capture:stdio -- --trial my-trial --out ~/mcp-captures/my-trial
+
+# Emit an executable launch-stdio.sh you can point a desktop app at
+# (absolute node path, no PATH/pnpm needed)
+pnpm playground:capture:launcher -- --trial my-trial --out ~/mcp-captures/my-trial
+```
+
+Optional ground-truth flags recorded in the manifest (never derived from MCP
+data): `--client-product`, `--client-surface`, `--client-version`,
+`--topology`.
+
+Each trial directory gets:
+
+- `manifest.json` — trial, mode, harness git HEAD, sha256 of `src/`, package
+  and dependency versions, runtime, ground truth (written once).
+- `lifecycle.ndjson` — process start/stop, session open/close (aliases only).
+- `requests.ndjson` — sanitized inbound messages, headers, connection and
+  request aliases.
+- `responses.ndjson` — server→client response summaries (ids, agreed protocol
+  version, error codes — never result bodies).
+- `events.ndjson` — sanitized Amplitude events, joined to the request that
+  produced them via ALS context (`join: "none"` when emitted outside
+  dispatch).
+- `ingestion.ndjson` — sanitized HTTP V2 batches as delivered to the sink,
+  joinable to `events.ndjson` by insert-id alias.
+
+### v2 capture modes
+
+Two additional modes run the same playground on the TypeScript SDK v2 server
+line (`@modelcontextprotocol/server`), which answers `server/discover` and
+negotiates protocol revision 2026-07-28:
+
+```bash
+# v2-http: createMcpHandler with the default stateless legacy fallback.
+# Modern (envelope) requests are served per-request; 2025-era traffic gets a
+# fresh instance per POST.
+pnpm playground:capture:http -- --mode v2-http --trial my-trial --out ~/mcp-captures/my-trial
+
+# v2-stdio: serveStdio, which pins one instance per connection by era
+# (legacy 'serve' stays the default).
+pnpm playground:capture:v2-stdio -- --trial my-trial --out ~/mcp-captures/my-trial
+
+# Emit an executable launch-v2-stdio.sh
+pnpm playground:capture:launcher -- --mode v2-stdio --trial my-trial --out ~/mcp-captures/my-trial
+```
+
+The v2 tools are the same `echo`/`whoami`/`submit_feedback` set on a v2
+`McpServer`; v2 servers are built per connection, so `serverInstance` in
+`events.ndjson` is `v2-handler` on HTTP (one shared factory) and the process
+alias on stdio. The manifest records `serverLine: "v2"` plus the
+`@modelcontextprotocol/server` and `/client` versions. Sanitization also
+captures `server/discover` (`supportedVersions` in `responses.ndjson`), the
+`mcp-method` header, and modern `_meta` fields (`io.modelcontextprotocol/
+clientInfo` and `protocolVersion` keep their values; `clientCapabilities` and
+`envelope` reduce to key names).
