@@ -50,6 +50,7 @@
     "playground:http": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/http.ts",
     "playground:capture:http": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/http.ts",
     "playground:capture:stdio": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/stdio.ts",
+    "playground:capture:v2-stdio": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/v2-stdio.ts",
     "playground:capture:launcher": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./examples/playground/register-ts.mjs examples/playground/capture/make-launcher.ts"
   },
   "devDependencies": {
